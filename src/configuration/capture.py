@@ -16,14 +16,18 @@ from serialization import DomainCodec
 
 
 class CaptureConfig(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
-    """Select one native spot feed and hard resource limits for one invocation."""
+    """Select one native spot feed and hard resource limits for one invocation.
+
+    A feed is a venue book channel or, for OKX and Bitfinex, the public ``trades``
+    channel. A trade feed has no depth (``depth`` 0); ``max_orders`` is unused.
+    """
 
     venue: Literal["bitfinex", "coinbase", "okx"]
     symbol: str
     instrument_id: InstrumentId
     base_currency: str
     quote_currency: str
-    channel: Literal["R0", "level3", "books"]
+    channel: Literal["R0", "level3", "books", "trades"]
     depth: int
     duration_seconds: int
     max_messages: int
@@ -39,7 +43,11 @@ class CaptureConfig(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
         """Reject unsupported modes, malformed identity and unbounded resource requests."""
         if self.schema_version != "1" or self.venue not in ("bitfinex", "coinbase", "okx"):
             raise ValueError("unsupported capture schema or venue")
-        if self.channel != {"bitfinex": "R0", "coinbase": "level3", "okx": "books"}[self.venue]:
+        is_trades = self.channel == "trades" and self.venue in ("bitfinex", "okx")
+        if (
+            self.channel != {"bitfinex": "R0", "coinbase": "level3", "okx": "books"}[self.venue]
+            and not is_trades
+        ):
             raise ValueError("unsupported venue/channel")
         if not re.fullmatch(r"[A-Za-z0-9:-]{3,40}", self.symbol):
             raise ValueError("invalid native symbol")
@@ -77,13 +85,10 @@ class CaptureConfig(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
             raise ValueError("journal budget must leave room for frames and control records")
         if type(self.retries) is not int or not 0 <= self.retries <= 5:
             raise ValueError("retries must be between zero and five")
-        if (
-            type(self.depth) is not int
-            or self.depth
-            not in ({"bitfinex": (1, 25, 100, 250), "coinbase": (0,), "okx": (400,)}[self.venue])
-        ):
+        depths = {"bitfinex": (1, 25, 100, 250), "coinbase": (0,), "okx": (400,)}[self.venue]
+        if type(self.depth) is not int or self.depth not in ((0,) if is_trades else depths):
             raise ValueError("unsupported venue depth")
-        if self.venue == "okx" and self.max_orders != 800:
+        if self.venue == "okx" and not is_trades and self.max_orders != 800:
             raise ValueError("OKX books requires the 800-entry aggregate level budget")
 
     @classmethod

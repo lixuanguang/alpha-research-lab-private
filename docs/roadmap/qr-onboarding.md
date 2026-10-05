@@ -1,0 +1,3480 @@
+# MR17 QR onboarding acceptance
+
+Owner: quant development. Status: **open; gap inventory and acceptance design approved
+2026-10-04 ([decisions](#owner-decisions-approved-2026-10-04)). Nothing is signed or run
+under MR17.**
+The [roadmap](README.md#qr-onboarding-acceptance) owns the six acceptance items and the
+G5 gate. This page is the MR17 acceptance record: it holds the gap inventory, the
+integrated fresh-entry journey, its declarations and, later, its results.
+
+Baseline: `main` at `addfad1` (MR16 merged 2026-10-04), branch
+`eng/mr17-onboarding-acceptance`. MR01–MR14, MR07A/MR07B and MR16 are complete for their
+stated scopes. MR15 is open (see [prerequisites](#mr15-prerequisites)). Live trading stays
+KIV; nothing on this page grants live authority.
+
+## Gap inventory
+
+**Method.** Each acceptance item was mapped to the maintained consumers, discovered
+workflow tests and acceptance records that prove it today. A boundary counts as
+proven for MR17 only if an installed, fresh, integrated run on the current code proves
+it. Evidence that exists only as a milestone fixture, an engineering consumer under
+`tests/`, or a retained record of older code is listed as reusable but not sufficient.
+
+**Cross-cutting findings.**
+
+1. **No integrated fresh-entry journey exists.** Every item is proven piecewise, by a
+   separate consumer with its own authored inputs. No run chains clean provisioning →
+   discovered data → fresh extension → study → feature store → candidate → paper →
+   monitoring → backup/restore → rollback on one release.
+2. **The extensions are QD-authored and live under `tests/`.** `decision_study.py`,
+   `decision_extensions.py`, `candidate_workflow.py` and `research_workflows/` author
+   their components in the test tree. They are fresh relative to the runners, but they
+   are not written from the published guides, and they are not installed artifacts. The
+   QR guide points readers at them as examples.
+3. **The supervised paper service cannot run a fresh strategy.**
+   `PaperServiceInstance.policy` (`src/configuration/paper_services.py`) is the literal
+   `fixed_clip | liquidity_clip | target_clip`. The MR14 supervised deployment, which is
+   the only path with isolated and shared accounts together, selective stop/restart and
+   the MR15 runtime measurements, therefore runs only built-in reference formulas. A
+   fresh candidate reaches paper only through the finite `run_paper` /
+   `run_live_shared_paper` paths (one account per invocation, 20 frames or ten seconds
+   in live mode). The roadmap's fresh-extension scenario requires selected
+   implementations to reach runtime without fallback to built-ins.
+4. **There is no supported-import check for code outside the repository.** The
+   ownership checker enforces supported imports over the repository's roots. A QR's
+   extension package, written outside the checkout, has no tool to show it imports only
+   supported names; installed-wheel execution alone cannot show it, because deep
+   modules stay importable.
+5. **Retained milestone evidence is absent from this workspace.** The records cite
+   ignored `logs/mr10/`, `logs/mr11/`, `logs/mr12/`, `logs/paper-integration/`,
+   `logs/paper-activation/`, `logs/multi-instance-paper/` and `logs/capacity-closure/`,
+   and the R1 corpus under `data/okx/research-corpus-20260930/`. None of these exists in
+   this checkout or under `~/AlphaResearchEvidence.noindex/`; only
+   `logs/paper-monitoring/` and `logs/runtime-capacity/` remain.
+6. **The code under the milestone records has changed.** MR15 (S1–S5: paper capture
+   rollover, chain consumers, declared lifetimes, telemetry cadence, reconciler) and
+   MR16 (every owner restructured) changed the components that the MR07–MR14 records
+   qualified. The full suite passed unchanged in behaviour, but the roadmap's
+   "reuse milestone proofs for unchanged components" no longer applies directly.
+
+### Item 1 — clean workspace, discovery, admission and reopening
+
+| Existing proof | Kind |
+| --- | --- |
+| `datasets/public_data.py` consumer; `unit/data/test_public_data.py` (both parsers, four scopes, PIT venue rules, configuration-only onboarding) | Installed consumer, authored and short actual captures |
+| `datasets/versioned_storage.py` (lakeFS publish/reopen), `feature_workspace` reopen | Manual service checks |
+| MR01 record; `test_ingestion_workflow.py` | Milestone record; discovered test |
+| Universe separation (collection/research/strategy/trading) in `configuration` tests | Unit fixtures |
+
+**Unproven.** No clean-workspace run starts from the published environment guide,
+provisions local services, captures fresh public inputs for both venues, publishes,
+discovers and reopens them with quality, specification versions and limits visible in
+one sequence. That a collection or research selection cannot authorize trading is
+proven by unit fixtures, not at the installed grant boundary.
+
+### Item 2 — fresh extensions, rule-only and learned paths, target and order/quote
+
+| Existing proof | Kind |
+| --- | --- |
+| `research/decision_study.py` (fresh feature, estimator, strategy, metric, chart; walk-forward; losing/no-trade; search recovery; holdout refusal; fresh-process reopen) | Installed consumer, synthetic inputs |
+| `research/decision_extensions.py`, `test_decision_workflow.py` (fresh feature/label/estimator/quote; non-book input) | Installed consumer, synthetic |
+| `research/captured_study.py` (retained OKX/Bitfinex books and trades) | Installed consumer, short retained captures |
+| `research/candidate_workflow.py` (rule-order and learned-target candidates through `run_paper`) | Installed consumer, synthetic study |
+| Unsupported `XNYS` calendar and unsupported product refused (`unit/research/test_decision_contracts.py`) | Unit fixture |
+
+**Unproven.** Extensions written from the guides, outside `tests/`, on discovered
+inputs from item 1. The architectural extension scenario on that path: a supported-family
+instrument added by configuration, a non-book input carried through study and candidate,
+and the non-24/7 calendar or different-economics fixture. Today the calendar case is
+refusal only, in a unit test. A fresh candidate in the supervised paper service (finding 3).
+
+### Item 3 — custom metric and chart
+
+| Existing proof | Kind |
+| --- | --- |
+| `decision_study.py` registers a custom metric and chart across retained studies and paper telemetry, with delayed-label diagnostics | Installed consumer |
+| MR12 record and `logs/paper-monitoring/reverification` (renewed 2026-10-02): both venues, both account modes, receiver loss/restoration | Retained installed evidence (present) |
+
+**Unproven.** The same QR-authored metric and chart, defined once, shown over the
+journey's own historical studies and its paper and shadow runs, with an alert firing
+and its missing/late semantics, on one release.
+
+### Item 4 — feature store offline, online, parity and recovery
+
+| Existing proof | Kind |
+| --- | --- |
+| `research/feature_workspace.py` (real Feast worker: restart, retries, PIT corrections, expiry, service loss, rollback, restored serving bytes) | Manual service consumer, authored inputs |
+| `research/offline_features.py` (real SDK retrieval, delayed corrections, missing entities, TTL) | Manual service consumer |
+| `candidate_workflow.py --feast` (online store through the paper OMS, service-loss and version-change pauses) | Installed consumer |
+| MR15 [counted feature cohort](runtime-capacity.md#counted-feature-cohort-result-2026-10-03) and stage 2a feature serving | Capacity evidence, reference features |
+
+**Unproven.** A QR-defined feature (from item 2) taken offline → materialized → served
+online to the journey's candidate, with matched-cutoff parity, and missing, stale and
+revised inputs, retry and version rollback, on the journey's inputs.
+
+### Item 5 — candidates, two strategies, shared and isolated accounts, both venues
+
+| Existing proof | Kind |
+| --- | --- |
+| `runtime/public_paper.py` + `test_public_paper_workflow.py` (both venues, two policies, losing/no-trade/adverse, exact replay, cost/P&L, gas inapplicability) | Installed consumer and discovered tests; short live runs in the MR11 record |
+| `runtime/shared_account.py`, `portfolio_account.py`, `account_operations.py` (8,000 + 8,000 / 10,000 race, netting, uncertainty, selective stop, restart) | Installed consumers, authored facts |
+| MR13 activation and MR14 multi-instance records | Retained records of older code (evidence absent, finding 5) |
+| MR15 stage 1 and stage 2a counted runs (four signed owners, eight instances, owner death and recovery) | Present, reference policies only |
+
+**Unproven.** Two QR-authored strategies, packaged as candidates, active together on a
+shared account and on isolated accounts in both venues under signed activation, with
+the decisive scenarios (shared-budget race, netting, order uncertainty, selective stop,
+recovery, adverse cost) on the journey's release. Blocked by finding 3.
+
+### Item 6 — capacity, restore, installation, deployment, guide
+
+| Existing proof | Kind |
+| --- | --- |
+| MR15 runtime stage 1 and stage 2a | Present, counted |
+| MR15 research profile R1 | **Not accepted**: the [research capacity record](research-capacity.md#armed-acquisition-and-continuation) last shows the corpus acquisition armed for 2026-09-29 23:00 to 2026-10-03 00:00 UTC, with no recorded outcome |
+| `deployment/trusted_installation.py`, `test_release_installation.py` | Installed consumer and engineering tests |
+| MR04 workspace/job restore, MR10 account backup/restore, MR13 signed rollback | Records of older code; MR10/MR13 evidence absent |
+| [Operations runbook](../governance/operations.md) | Guide, reference policies only |
+
+**Unproven.** MR15 R1 and stage 2b. A single restore of data, features, artifacts and
+account state from one backup set, followed by reconciliation and resumption. Signed
+upgrade/rollback of the journey's paper deployment. The runbook followed verbatim for
+a QR candidate.
+
+### G5
+
+G5 needs all six items through the installed integrated stack plus both MR15 profiles.
+Every item above has at least one unproven boundary, so G5 is open.
+
+## Documentation gaps
+
+| Guide | Gap |
+| --- | --- |
+| [QR guide](../../examples/README.md) | No runnable path from a clean machine. "Implementing a study" names the APIs and points at QD consumers under `tests/`; it does not show how to lay out an extension package outside the checkout, retain it as `StudyArtifact` bytes with `DecisionStudy.extensions` fingerprints, package a candidate, register a custom metric/chart for paper dashboards, define a versioned feature for the store, or take a candidate to paper |
+| [Development environment](../README.md#development-environment) | `uv sync --frozen` gives an editable install, while the tests guide and recorded runs use `--no-editable`; installing the research wheel outside the checkout and provisioning the Feast worker are not in the onboarding path |
+| [Notebook operations](../../examples/notebook-operations.md) | Dated 2026-09-24; does not say how a worksheet consumes a retained study result from the installed readers |
+| [Operations runbook](../governance/operations.md) and [paper guide](../../src/applications/paper/README.md#supervised-local-deployments) | Supervised deployment covers the three reference formulas only; there is no ordered "take a packaged candidate to signed paper" path, and the steps are spread over the runbook, execute guide and paper guide |
+| [Research program](research-program.md) | Not yet checked against the final journey; reviewed with the guides in milestone M1 |
+
+## Platform defects and prerequisites
+
+| ID | Defect | Proposed fix |
+| --- | --- | --- |
+| P1 | Supervised paper services admit only built-in reference policies (finding 3) | Add an optional candidate binding to `PaperServiceInstance`: candidate bundle identity and extension artifact digests, loaded through `CandidateLoader` in the policy worker. Omitted when unset, as `telemetry_seconds` was, so stage-1/2a selections stay byte-identical. **This changes a signed configuration schema, so it needs owner approval.** |
+| P2 | No supported-import check for external extension code (finding 4) | A governance command that applies the ownership checker's import rule to a given directory against the installed owners' `__all__` |
+| P3 | Non-24/7 calendar and different economics are refusal-only, in unit fixtures | Carry the refusal through the journey's study and candidate admission; positive support stays later scope (see decision 8) |
+| P4 | No timed 4× replay of a 24-hour corpus; the sustained workload is sized for 2a (10 periods, 4-segment chain) | Stage 2b harness work, under the 2b declaration |
+| P5 | Host has 497 GiB free; the runtime profile requires at least 512 GiB at trial start | Free space, or a dated redeclaration (decision 10) |
+| P6 | Account service startup owner check still reads full history (open note from stage 2a) | Measure in 2b rehearsal; fix only if it misses a budget |
+| P7 | No library API packages a completed study into a signed candidate bundle; M1b tests author the bundle by hand (found in M1b) | A research owner method that publishes a study's selected components as a `CandidateManifest`, in M2 with the QR guide |
+
+## Integrated fresh-entry journey
+
+**Principle.** One frozen commit, one set of installed artifacts, the published guides
+only. I act as a fresh QR. Any step that needs knowledge outside the published guides,
+an edit to shared code, a deep import or a built-in fallback is a failure, recorded
+with the guide gap, never worked around inside the attempt.
+
+**Environment.**
+- A clean git worktree at the frozen commit, outside iCloud, e.g.
+  `~/AlphaResearchEvidence.noindex/mr17/<attempt>/checkout`, used only to build.
+- Fresh environments: `UV_PROJECT_ENVIRONMENT=/private/tmp/mr17-build uv sync --frozen
+  --no-editable` for building; the research wheel installed into
+  `/private/tmp/mr17-research`; the Feast worker from its own lock; signed execution
+  targets installed by `alpha-governance-artifacts`.
+- Local lakeFS and ClearML from `make local-services-up` with existing private keys.
+- Evidence under `~/AlphaResearchEvidence.noindex/mr17/<attempt>/`, linked from
+  `logs/mr17/`.
+
+**Fresh extension package `mr17_extensions`.** Authored in the evidence workspace from
+the guides, never under `tests/` or `src/`, retained as `StudyArtifact` bytes and
+passed through P2. It contains:
+- a book feature (depth imbalance) and a non-book feature (signed public-trade flow),
+  in one named multi-feature schema;
+- a fitted transform (train-only standardization) and a forward mid-return label;
+- a non-built-in estimator (exact least squares) and a rule policy emitting order/quote
+  intents, plus a learned policy emitting targets;
+- a custom metric (net return per unit turnover) and a custom chart.
+
+**Steps, commands and pass criteria.** Exact commands are fixed in the
+[journey declaration](#journey-declaration-approved-2026-10-04) (milestone M3); the
+shape is:
+
+| Step | What runs (installed commands and APIs) | Pass criteria |
+| --- | --- | --- |
+| J1 Provision | Build and verify the research wheel and signed `contracts`/`collector`/`execution` releases; install outside the checkout; local services up; Feast worker | Installs from the guides alone; installed identities recorded; execution target lacks research, notebook, training and reporting modules |
+| J2 Data | `alpha-collect` fixed window of public OKX BTC-USDT/ETH-USDT and Bitfinex BTC/USD/ETH/USD books and trades; `alpha-dataset` publish; catalog discovery; quality/coverage inspection; lakeFS publish and reopen | Every source retained with original clocks, gaps explicit; reopened bytes equal; specification versions and limits visible; a research selection presented as a grant is refused |
+| J3 Research | `evaluate_study` rule-only and learned studies (walk-forward, costed, both decision kinds); `compare_studies` small grid; deferred ClearML publication then `publish_experiments`; fresh-process reopen; architectural extension (instrument by configuration, non-book input, refused calendar/economics) | No built-in substitution; holdout consumption recorded; exact reports with the custom metric/chart; refusals before work |
+| J4 Features | Offline PIT retrieval, materialization and online serving of the QR feature through the Feast worker; injected late revision, TTL expiry, missing entity, materialization retry, version rollback | Matched-cutoff parity exact; no future leakage; each fault explicit and recovered |
+| J5 Candidates | Package rule and learned candidates; replay through the candidate loader | Replay decisions equal the study's at matched inputs |
+| J6 Paper | Signed installation and activation per account; supervised deployment (after P1) of both QR candidates on shared and isolated accounts in both venues, paper and shadow, within the qualified 2a envelope (at most 50-minute life, one-hour grants); shared-budget race, injected order uncertainty, selective stop/restart, adverse-cost scenario | Exact independent reconciliation; cost/P&L with gas inapplicability; no duplicate effect; custom metric on paper dashboards; alert observed by the local receiver; shadow zero fills |
+| J7 Operations | Quiesced backup of data/features/artifacts/account state; restore into a fresh root; reconcile; resume; signed release upgrade and rollback | Restored identities equal; resumption without manual repair; rollback keeps current facts |
+| J8 Capacity | No new measurement; links the accepted MR15 R1 and 2b records | Both accepted |
+
+**Retained evidence.** Frozen commit, wheel and release digests, environment
+inventories, guide revisions used, every command with exit status, the extension
+package bytes and its import audit, inputs and their source identities, study and
+candidate identities, signed configurations and grants, account journals,
+reconciliations, dashboards, alerts, backup set, restore and rollback outputs, and
+a summary JSON with per-step pass/fail.
+
+**Pass/fail.** The journey passes only if every step passes in one counted attempt on
+one frozen commit. It stops at the first failure. A failed step is fixed in code or
+guides, then the journey is redeclared and rerun from J1; a counted attempt is never
+patched mid-run.
+
+## MR15 prerequisites
+
+- **R1 research capacity** is still pending (item 6 above). Its outcome must be
+  recorded, or the profile rerun under its own declaration, before MR17.
+- **Stage 2b** follows the [stage-2 design](runtime-capacity.md#stage-2-design-2026-10-02)
+  and the [owner decision of 2026-10-04](runtime-capacity.md#owner-decision-stage-2b-sequencing-2026-10-04):
+  declaration with every target, schedule and authority change (26-hour grants as new
+  signed artifacts); short expiry and revocation denial trials; uncounted rehearsals;
+  the counted 24-hour attempt under the quiet-host gate; 72-hour retention; the 4×
+  replay; checkpoint percentiles. Each gate stops for owner approval and at the first
+  failure.
+- **Ordering.** Every code change MR17 needs, including P1, lands before 2b, so that 2b
+  qualifies the code the journey runs. After the 2b counted pass, code is frozen; the
+  journey runs on that commit with only guide and record changes allowed. A later code
+  fix needs an impact analysis and owner decision on whether 2b must rerun.
+
+## M1 design note: candidates in supervised paper (2026-10-04)
+
+Reading the code shows P1 is a capability gap, not only a configuration field. Nothing is
+implemented yet.
+
+**What exists.**
+- `PaperServices.policy` builds one of three reference formulas by name
+  (`src/applications/execute/services.py`). Each source/account observer has one
+  `ServiceBookInputs` adapter that gives every instance the same touch vector (ask, bid,
+  ask size) with no prediction. Preflight requires `model_identity == "rule-only"`.
+- Candidate machinery exists only for dedicated accounts: `CandidateLoader` verifies a
+  bundle and rebuilds its components from caller-supplied `CandidateComponents`
+  factories; `CandidateSession` owns feature state, warm-up count and policy state
+  together in a `CandidateCheckpoint` on a fixed cadence grid.
+- Shared accounts (`SharedDecisionRuntime`, used by both the supervisor and
+  `run_live_shared_paper`) keep only policy state, in the account journal. Their
+  `SharedBookInputs` adapters must be pure. **No shared-account path runs a learned or
+  stateful candidate today**, signed or not.
+- No code is ever imported from configuration. The supervisor's CLI therefore cannot
+  obtain a QR's factories, and its spawned policy workers re-import the policy class by
+  module name.
+
+**Superseded proposal.** A first proposal added a stateless candidate input adapter
+beside the reference formulas, a launch script calling `run_paper_services`, and proof of
+item 4 on the dedicated path only. On 2026-10-04 the owner asked for the option that is
+most sustainable for long-term development and scaling, disregarding migration risk, and
+approved the direction below. The earlier option is kept here only as the alternative
+considered.
+
+**Approved direction (2026-10-04).**
+1. **One candidate execution model.** Shared accounts run every instance through the
+   candidate session that dedicated accounts use. The account journal stores a typed
+   candidate checkpoint per instance (feature state, warm-up count, policy state) in
+   place of opaque policy bytes. Features, prediction and decision keep the same
+   lineage on every path. Stateful features and warm-up work on shared accounts.
+2. **Built-in formulas become candidates.** `fixed_clip`, `liquidity_clip` and
+   `target_clip` are packaged as built-in candidates. The `policy` name literal is removed
+   from `PaperServiceInstance`; every instance binds a candidate.
+3. **Signed extension packages.** A QR extension package is a signed, admitted artifact
+   that registers its component factories by name and version. A signed deployment binds
+   the package's wheel digest and component identities. The supervisor loads components
+   only from admitted installed distributions by registered identity, and operators use
+   the one `alpha-execute deployment` command. The rule "no code is imported from
+   configuration" becomes "code is loaded only from signed, admitted installed
+   distributions by registered identity".
+4. **Declared input resolution.** Inputs are source kinds resolved through the
+   capability registry: native book, public trades, non-book and feature-store-served
+   values. A candidate declares its inputs and the supervisor provisions and checks them
+   at preflight, including online Feast serving with its service-loss and version pauses.
+
+**Approved consequences.**
+- The account journal schema changes. Under the replace-in-place rule, current code will
+  refuse stage-1/2a journals. That evidence stays valid at its frozen commits and is
+  never rewritten; it is no longer replayable on current code.
+- Signed configuration schemas and the reference workloads' configuration identities
+  change going forward.
+- The platform design, study guide and engineering guide change their code-loading rule.
+- 2b qualifies the new runtime. Stage-2a results remain evidence for the earlier runtime
+  only. A 2a-shaped one-hour rehearsal precedes the 2b declaration.
+- Each part gets its own design note on this page before its code.
+
+## M1a design note: one candidate engine on shared accounts (approved 2026-10-04)
+
+The owner approved this note and the recommended choice for C1–C4 on 2026-10-04.
+
+**What the code shows.**
+- The account journal (`execution.account_state`) stores each instance's continuation as
+  opaque bytes. It never decodes them, which keeps the independently installed execution
+  distribution free of research code. The runtime writes a `SharedDecisionCheckpoint`
+  (`shared-decision`: policy state, last decision, retry identities) into those bytes.
+- `SharedDecisionRuntime` runs a bare `DecisionPolicy` over a context that an input
+  adapter has already built. `CandidateSession` (dedicated path) runs feature, transform,
+  estimator and policy together, with warm-up, gap and restart rules, on a fixed UTC grid.
+- The supervisor selects the first eligible book and then books at least
+  `market_interval_us` apart; every instance on a source and account decides on that book.
+- `LiveBookDecisionSource` projects only the book `imbalance` field. The reference
+  formulas read ask, bid and ask size from the paper market instead.
+- Every account decision carries an intent. A step that only advances state (warm-up)
+  has no way to commit today.
+
+**Design.**
+1. **One engine.** `SharedStrategyBinding` binds a `LoadedCandidate`. Each due instance
+   runs one `CandidateSession` step in its isolated worker process (feature, transform,
+   estimator and policy together, within the existing 1–2 s reply budget). The parent
+   keeps economic admission, as today.
+2. **Typed continuation.** The runtime's continuation record is replaced in place by a
+   `shared-candidate-decision` record: the full `CandidateCheckpoint` (feature state,
+   warm-up count, policy state), the retry identities, and the step lineage (feature
+   vector, prediction, decision). The journal still stores it as opaque bytes, so its
+   tables do not change. Current code refuses the old record.
+3. **Raw inputs, not contexts.** `SharedStrategyInput` carries the instance's causal
+   `DecisionInputs` (M1c adds served feature vectors). The delivery log
+   (`shared-book-delivery`) retains those inputs and is replaced in place; current code
+   refuses stage-1/2a delivery logs.
+4. **Built-in candidates.** The live book source also projects touch fields (ask, bid,
+   ask size, bid size). A built-in touch-feature kernel and the three reference formulas
+   become packaged candidates with full manifests. Service preparation writes their
+   bundles. `PaperServiceInstance` binds a candidate (bundle identity and deployment);
+   the `policy` literal and `ServiceBookInputs` are removed. Preflight checks policy,
+   feature and model identities from the loaded candidate against the signed deployment.
+5. **Scope.** Both shared paths change: the supervisor and `run_live_shared_paper`. The
+   dedicated `run_paper` path already uses `CandidateSession` and keeps its own journal.
+
+**Choices for the owner.**
+- **C1 — decision schedule.** *Recommended: grid.* Each candidate decides at its own UTC
+  grid instants (`starts_at + k·cadence`), as research studies and dedicated paper do,
+  using the latest causal inputs at that cutoff. Matching still runs on arriving books
+  before decisions. This gives exact research-to-runtime parity at matched cutoffs. It
+  replaces the book-interval selection and `market_interval_us` in the signed input
+  identity. *Alternative: event-driven.* Decide on selected books and relax the
+  candidate's grid rule to a minimum spacing. That is closer to today's service, but
+  research and runtime cutoffs differ, and the dedicated path would need the same change.
+- **C2 — warm-up commits.** *Recommended: a continuation request.* The execution owner
+  gains an explicit checkpoint-only account request: it commits a continuation with no
+  intent and no risk reservation, under the same fencing and ordering. This changes the
+  execution wire format and the signed execution release. *Alternative:* refuse warm-up
+  on shared accounts (fail closed), which keeps execution unchanged.
+- **C3 — dedicated path.** *Recommended: leave it for after MR17.* Retiring
+  `PaperOrderJournal`/`PaperCandidateRuntime` in favour of a one-instance shared account
+  would finish the convergence, but neither the journey nor 2b needs it, and the
+  portable `alpha-execute paper` OMS depends on it.
+- **C4 — commit shape.** *Recommended: one commit.* Items 1–5 cannot land separately
+  without a temporary second path, which the format rules forbid. M1 therefore becomes
+  three parts: M1a (this note), M1b (signed extension packages), M1c (declared input
+  resolution).
+
+**Findings while preparing implementation (approved 2026-10-04, F2 as recommended).**
+- **F1 — grid decisions and the account clock.** Admission refuses a decision timed
+  before the account's latest knowledge (`decision_precedes_account_state`). Matching a
+  market and creating net orders both advance that knowledge, and net orders take the
+  batch's coordination time. As implemented:
+  - the market used for instant `t` is the latest eligible book at or before `t`; its
+    quote is observed, and the due candidates decide at `t` from it;
+  - the batch coordinates at the logical instant `t + 1 µs`, not the wall clock, so
+    account knowledge stays before the book that crossed `t`;
+  - that crossing book then matches orders, so new orders first meet the next book.
+  Matching still runs once per instant; books between instants update monitoring only.
+  Instants crossed without a fresh market or complete inputs are skipped, and the
+  candidate's `on_gap` rule governs them. Replay recomputes the grid and refuses a
+  retained delivery whose matching or decisions differ.
+- **F2 — built-in candidates need research provenance.** `CandidateBundle` admits a
+  candidate only with a completed experiment attempt, its specification and its report,
+  even for `engineering` qualification. The reference formulas have no study behind them,
+  and every shared-runtime test would have to run a study to build one.
+  *Recommended:* split the runtime contract from provenance. A `CandidateDefinition`
+  holds what execution needs (components, inputs, capability requirements, state
+  contract, cadence, output). `CandidateManifest` becomes that definition plus research
+  provenance, and its format is replaced in place. The loader admits a definition. A QR
+  candidate is admitted from a verified bundle, so its provenance is checked as today. A
+  built-in candidate is admitted from a definition whose components are registered as
+  built-in in the installed distribution. *Alternative:* run a small engineering study
+  to package each built-in formula during service preparation. That keeps the bundle
+  contract but couples paper preparation to the research stack and makes every runtime
+  test run a study.
+- **Size.** M1a touches about 20 source files across `runtime`, `research`,
+  `configuration`, `execution` (C2) and both paper applications, about 10 test files,
+  and the capacity harness. It remains one commit (C4).
+
+**Tests.** Shared candidate steps with warm-up, gap pause and reset, restart restore and
+exact retry; grid scheduling with late, missing and burst books; built-in candidates
+reproducing the reference formulas' decisions on authored inputs; refusal of the old
+continuation and delivery records; preflight identity mismatches; worker timeout and
+death. The full suite, the integration lane and the Linux strict mypy run pass; the
+capacity harness and its stage-1/2a fixtures are updated to the new formats, and their
+recorded evidence is not rerun or rewritten.
+
+## M1a result (2026-10-04)
+
+Implemented as approved, with F1 and F2. One commit; nothing signed or run.
+
+**What changed.**
+- **Candidate records.** `CandidateDefinition` holds what execution needs;
+  `CandidateManifest` wraps it with research provenance. `CandidateObjects` holds a
+  definition without provenance. The loader admits any `CandidateSource`, and
+  placements bind the definition identity. The state contract adds the gap rule
+  `continue`.
+- **One engine on shared accounts.** `SharedStrategyBinding` binds a `LoadedCandidate`;
+  each step runs in `LocalCandidateExecutor` or the isolated
+  `ProcessCandidateExecutor`, which replaces the policy worker. The journal stores the
+  `shared-candidate-decision` continuation as opaque bytes, so its tables are
+  unchanged.
+- **Warm-up (C2).** `OrderDecision.intent` may be absent: the account commits the
+  continuation, reserves nothing and reports `no_intent`.
+- **Grid decisions (C1, F1).** The observer decides each candidate at its UTC grid
+  instants from the latest eligible market at or before the instant, coordinates at
+  the instant plus 1 µs, then matches the crossing book. Deliveries are
+  `shared-candidate-delivery` records; replay recomputes the grid.
+- **Source fields.** `LiveBookDecisionSource` projects `imbalance`, `ask`, `bid`,
+  `ask_size` and `bid_size` from one book.
+- **Built-in candidates.** `ReferenceCandidates` and `AuthoredCandidates` load
+  formulas or supplied components as provenance-free candidates.
+  `PaperServiceInstance` binds a `ReferenceCandidate` (formula, cadence, grid
+  origin); `PaperServiceSource.market_interval_us`, `ServiceBookInputs` and the
+  `policy` literal are removed. The supervisor checks candidate, policy, model and
+  feature identities against the signed deployment.
+- **No compatibility kept.** Per the owner's instruction, superseded formats and
+  fields were replaced, not deprecated: `chain` and `telemetry_seconds` are plain
+  fields, and current code refuses stage-1/2a journals' continuations and delivery
+  logs.
+
+**Harness changes 2b inherits.**
+- The capacity fixtures start one second after a three-second grid instant (under
+  3 s after opening), so the first-touch oracle holds for any wall-clock start: the
+  opening decision sees ask 100 at 2 s and the next matching book (5.04 s) follows the
+  4.6 s reprice. A test proves the alignment for five wall-clock phases.
+- A retained fixture anchor may now lie up to one grid period after its clock
+  reading.
+- Parity replay uses the observer's own replay validation instead of a duplicate
+  selection model.
+- "Selected book to checkpoint" now measures from the book that crosses an instant.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| Baseline before changes (`main` at `addfad1`, default lane) | 2,398 passed, 1 failed, 61 deselected. The failure is environmental: a setgid directory test under a `/private/tmp` base owned by group `wheel` |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (666 files), native stubs (1,559 modules), engineering, dependency, link and secret checks; 2,434 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 36 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 666 files |
+
+## M1b design note: signed extension packages (approved 2026-10-04)
+
+The owner chose S-A on 2026-10-04.
+
+**What exists.**
+- The governance builder signs and installs the `collector` and `execution` operating
+  releases. Their targets contain no research code.
+- The paper supervisor (`alpha-execute deployment`) runs from the full research
+  distribution, which is installed without a signed release. Only the account owners
+  it calls are signed targets.
+- `alpha-governance-artifacts release-check` no longer fails on wheel-only
+  dependencies (removed 2026-10-01); it now fails only because no operating build
+  profile exists for the research distribution.
+- After M1a, the signed account deployment pins each instance's candidate definition
+  identity, which pins its components' `implementation_sha256`. Nothing yet ties those
+  digests to installed extension code, and the supervisor can load only the built-in
+  reference candidates.
+
+**Design.**
+1. **Registration.** An extension package declares its component factories under the
+   entry-point group `alpha_research.candidate_components`. Each entry names a provider
+   class that returns the package's `CandidateComponents`. A runtime
+   `InstalledExtensions` owner loads providers only from named installed distributions
+   and computes each distribution's identity from its installed `RECORD` file hashes.
+   A component's `implementation_sha256` must equal that identity, so the signed
+   deployment pins the exact extension code.
+2. **Packaged candidates.** `PaperServiceInstance` gains a `PackagedCandidate` variant
+   beside `ReferenceCandidate`: candidate bundle path, definition identity, extension
+   distribution name and the UTC grid origin. The supervisor admits it only from a
+   `CandidateBundle` whose research provenance verifies, with components resolved from
+   the named installed extension. Code is never imported by path or module name from
+   configuration.
+3. **Signing.** See the choice below.
+
+**Choice for the owner — what is signed.**
+- **S-A (recommended): a signed supervisor release that includes extensions.** Add an
+  operating build profile, `paper-services`, for the research distribution plus the
+  selected extension wheels. The builder builds extension wheels from their source,
+  admits their dependency closures and signs one release. The supervisor then runs
+  through `alpha-governance-artifacts run` like the account owners, and its
+  environment, platform code and extensions are all authenticated. This closes an
+  existing gap (the supervisor runs unsigned today) and gives 2b and forward paper a
+  fully signed runtime. Cost: a larger signed closure (the research dependencies), a
+  new profile and its installation tests, and M1b becomes the largest M1 part.
+- **S-B: signed extension wheels only.** The builder signs each extension wheel; a new
+  governance command installs it, hash-checked and offline, into the existing unsigned
+  research environment. The supervisor checks installed files against the signed
+  digest. Cheaper, but the platform code around the extension stays unsigned.
+
+**Implementation decisions under S-A (2026-10-04).**
+- **Distribution.** `alpha-research-paper-services` (`packages/paper-services`) depends on
+  the exact `contracts` and `execution` versions and ships the rest of what the
+  supervisor imports: `runtime`, `market_data`, the research owners candidates need
+  (`experiments`, `features`, `labels`, `models`, `observations`, `results`) and the
+  remaining `strategies` modules. It has its own lock and no notebook, tracking or
+  backtest dependencies. The supervisor's measured import closure is msgspec, pydantic
+  and websockets; `research.models` exports its pandas-based study helpers lazily so
+  estimator adapters load without pandas.
+- **Extensions.** An extension lives in `extensions/<name>/` with its own
+  `pyproject.toml`. A release selects it by listing it as a path dependency of
+  `packages/paper-services`; its dependency closure then passes the same admission
+  and audit as the platform.
+- **Candidates in the release.** The builder signs candidate bundles into the release
+  under `candidates/<definition identity>/`. A `PackagedCandidate` names the definition
+  identity and the extension distribution, and the supervisor reads bundles only from
+  its installed release.
+- **Installer.** `paper-services` binds two commands to the signed configuration:
+  `deployment` and `deployment-control`. The outer bound is the supervisor's duration
+  plus 60 s. Installation runs `deployment-check`, which loads every configured
+  candidate before the release is selected.
+
+**Out of scope for M1b.** Research studies keep importing a QR's own package directly;
+config-driven loading is needed only where a CLI or service must find code. Online
+feature-store inputs and non-book sources are M1c.
+
+## M1b result (2026-10-04)
+
+Implemented as approved under S-A. One commit; nothing signed or run.
+
+**What changed.**
+- **Paper services distribution.** `alpha-research-paper-services`
+  (`packages/paper-services`, its own lock) ships the supervisor, the candidate runtime
+  and the research owners candidates need, without notebook, tracking or backtest
+  dependencies. `research.models` exports its pandas-based study helpers lazily.
+- **Operating profile.** The governance builder accepts a third operating
+  application, `paper-services` (paper or shadow, configuration schema
+  `paper-services`, state schema `none`). It builds the extensions listed as path
+  dependencies from source, admits their closures (extensions may declare only
+  external requirements), and signs candidate bundles given by `--candidates` into
+  the release under `candidates/`. Provenance maps each extension wheel to its
+  `extensions/<name>/src` sources. The installed launcher binds the signed
+  configuration and candidates to `deployment`, `deployment-check` and
+  `deployment-control`, bounds a run by its duration plus 60 s, and installation runs
+  `deployment-check` before selecting the release.
+- **Extension loading.** `InstalledExtensions` loads the single provider an installed
+  distribution registers under `alpha_research.candidate_components`, verifies every
+  installed file against `RECORD`, and stamps the `RECORD` digest on every factory as
+  its implementation identity. Platform distributions cannot be named.
+- **Packaged candidates.** `PaperServiceInstance.candidate` is a `ReferenceCandidate` or
+  a `PackagedCandidate` (definition identity, extension, grid origin).
+  `PaperServiceCandidates` resolves both against `PaperCapabilities`, the environment's
+  declared paper profiles, and reads packaged bundles only from the signed candidates
+  directory after their provenance verifies. `alpha-execute deployment-check` prints
+  every instance's identities.
+- **Reference extension.** `extensions/engineering-candidates` registers a smoothed
+  imbalance feature, an imbalance target policy, a fold metric and a chart, and is
+  part of the default development environment.
+- **Rule change.** Platform design now states that code is loaded only from signed,
+  admitted installed distributions by registered identity; guides for runtime,
+  paper, execute, workflow, operations, locks, standards and tests are updated.
+- **Workspace.** 14 iCloud duplicate monitor files and 5 duplicate `current 2` links
+  under `logs/paper-monitoring/` were deleted.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (675 files), native stubs (1,559 modules), engineering standards (now including `extensions`), dependency admission (188 packages), link and secret checks; 2,447 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 36 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 675 files |
+
+The first `make check` failed strict mypy in the two new test files (literal role and
+capability keyword types); they were corrected before the run above.
+
+## M1c design note: declared input resolution (approved 2026-10-04)
+
+The owner approved T-A and F-A on 2026-10-04.
+
+**What exists.**
+- The supervisor resolves only one family of input: every candidate on a source reads
+  fields projected from that source's native book (`LiveBookDecisionSource`). Live capture
+  (`CaptureConfig` schema `1`) subscribes to books only, on OKX `books` and Bitfinex `R0`.
+- Research studies already declare `trade` and `non-book` inputs (for example
+  `captured_study.py` reads `trade_size` from retained public trades). A candidate
+  packaged from such a study loads, but the supervisor has no source for those inputs and
+  refuses it at preflight.
+- Feature-store serving exists only for dedicated accounts (`CandidateFeatureFeed`). A
+  candidate is either `source` or feature-served (`offline_features`/`online_features`),
+  never both. A feature version names **exactly one** materialization at one instant.
+  The online path therefore serves a frozen snapshot: during a live run it pauses as
+  `stale` once the snapshot ages out, or `feature-version-changed` when a newer version
+  is activated. A feature that updates during a paper run cannot be served today.
+- Shared accounts (`SharedStrategyInput`, `ProcessCandidateExecutor`) carry only
+  `DecisionInputs`, and the observer only builds them from book rows.
+
+**What the journey needs.** J3–J6 use a book feature and a signed public-trade-flow
+feature in one schema (a fast, intraday feature). J4 serves a QR feature online to a
+candidate, with missing, stale, revised, retry and rollback faults. J6 runs both QR
+candidates in the supervisor.
+
+**Design.**
+1. **One resolver.** A runtime `PaperInputs` owner maps each declared input family to a
+   source the environment provisions, through `PaperCapabilities` profiles (book,
+   trades, feature store). Preflight refuses any input with no provisioned source or a
+   freshness, clock or unit mismatch. `PaperServiceCandidates` uses it instead of
+   assuming book fields.
+2. **Typed step input on shared accounts.** `SharedStrategyInput` becomes a tagged union
+   of source `DecisionInputs` and a served `FeatureVector` with its lineage (definition,
+   version, snapshot identity, served-at). Both executors carry it. The journal's
+   continuation stays opaque bytes. Each `shared-candidate-delivery` group records the
+   served lineage, so replay verifies it against the store instead of trusting it.
+
+**Choices for the owner.**
+
+*T — how trade inputs reach live candidates.*
+- **T-A (recommended): live public trades beside books.** Capture subscribes to the
+  venue's public trades channel in the same session (OKX `trades`, Bitfinex `trades`),
+  retaining trades with their own venue and receipt clocks. A live trade source projects
+  the same trade fields and window semantics research uses at matched cutoffs, so a
+  study's trade feature runs unchanged in paper. Cost: `CaptureConfig` schema `2`
+  (channel list), two new parsers and recovery rules, a new collector release, and 2b
+  qualifies the extra stream.
+- **T-B: trades only through the feature store.** No capture change. Trade-derived
+  features reach paper only as materialized values. Their latency is the
+  materialization cadence, and they need F-A to update during a run.
+
+*F — what a feature-served deployment pins.*
+- **F-A (recommended): a served stream per version.** A version pins the feature
+  definition and its fitted transform; the store keeps an append-only sequence of
+  materializations of that version, keyed by instant. A scheduled job extends the
+  sequence. At each grid instant the supervisor reads the latest materialization at or
+  before it within the declared age, checks it through the isolated Feast generation as
+  today, and pauses without committing on missing, stale, future or rolled-back values.
+  Activation still moves between versions explicitly, and rollback is a version change.
+  Cost: the store's materialization table and its backup/restore change (replace in
+  place, per the owner's no-compatibility instruction).
+- **F-B: keep one snapshot per version.** The supervisor serves a pinned snapshot only.
+  This suits slowly changing features (hourly or daily). The journey's online feature
+  in J4 would then be a slow feature, separate from the fast features computed from
+  live sources.
+
+*Mixed inputs.* A candidate stays either source-fed or feature-served in M1c. Allowing
+both in one candidate means splitting the session state model, which no journey step
+needs. Defer it.
+
+*Non-book inputs* (`valid` or `authored` clocks) reach live candidates only through the
+feature store. M1c adds no live non-book feed.
+
+**Recommended plan (T-A, F-A).** Two commits, each with the full suite:
+- **M1c-1:** the resolver, the typed step input and live public trades;
+- **M1c-2:** served streams in the store and feature-served candidates on shared
+  accounts, with the J4 fault cases in unit and integration tests.
+
+**Consequences.** The `CaptureConfig`, feature-store and delivery record formats change
+going forward; stage-1/2a captures stay valid at their frozen commits. The 2b
+declaration must name whether its workload includes trades and served features. If it
+does not, the journey's use of them is unqualified for capacity.
+
+## M1c-1 result (2026-10-04)
+
+Implemented under T-A. One commit; nothing signed or run.
+
+**Implementation decisions.** Two points differ from the note's wording; both narrow
+the change:
+- **Separate connection, not the same session.** A trades feed is its own capture
+  (`CaptureConfig` channel `trades`, `depth` 0) in its own source process. The common
+  runner already journals, replays, retries and quality-checks any native stream, so
+  the new feed reuses it unchanged. `CaptureConfig` keeps schema `1` and book capture
+  identities are unchanged. A source process now carries one feed, and a trades feed
+  counts toward the eight-process envelope.
+- **Trade fields.** Live and retained trades expose the same four fields: the latest
+  trade's `price`, `quantity` and aggressor-signed `signed_quantity`, and `signed_flow`
+  over `(at - age, at]`. Units are the feed's currencies, as research already used.
+  The capability channel is `trade`, matching the input family, as the loader requires.
+
+**What changed.**
+- **Trade tapes.** `TradeTape` (`market_data.books`) with `OKXTrades` and
+  `BitfinexTrades`. OKX is ready at its acknowledgement; Bitfinex starts from its
+  snapshot, checks connection sequence numbers and treats the later of `te` and `tu`
+  as a duplicate.
+- **Live trade source.** `LiveTradeDecisionSource` replays each record through the
+  same tape and requires the collector's outcome and state identity. A flow window
+  must lie inside one synchronized coverage interval, and the stream must have
+  delivered a boundary within its idle time. `SavedDecisionSource` gains
+  `signed_quantity` and `signed_flow`, and a unit test shows live and retained trades
+  give equal fields.
+- **Resolution.** `PaperInputs` maps book and trade fields to their feeds and refuses
+  every other family before any process starts. `PaperServiceSource.trades` adds the
+  trades capture; `PaperCapabilities` adds its `trade` profile; source identity
+  includes it.
+- **Supervisor.** A source whose candidates read trades starts a `<source>.trades`
+  child sharing the book child's observers. Book and trade deliveries for one source
+  never run concurrently. A trades fault faults the source's accounts.
+  `SharedPaperCaptureObserver` retains each trade delivery in a sibling
+  `.trades.jsonl` log before applying it. Replay interleaves both logs by delivery
+  time (`deliver_trades`, `deliver`).
+- **Defect fixed (from M1a).** With two grids on one observer, an instant crossed by
+  the same book could be read after a later one, which the live source refuses as a
+  backwards cutoff. The live path also re-read inputs after deciding. Crossed bindings
+  now read in ascending instants, and only a replay re-reads retained inputs.
+- **Reference extension.** `SmoothedImbalance` takes an optional `signed_flow` input
+  that confirms the signal (zero when the flow disagrees).
+
+**Not covered by unit tests.** The supervisor's construction of a trade source
+inside real observers needs a running account owner. It is exercised first by the
+M3 journey rehearsals.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (684 files), native stubs, engineering standards, dependency admission (188 packages), link and secret checks; 2,473 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 36 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 684 files |
+
+## M1c-2 result (2026-10-04)
+
+Implemented under F-A. One commit; nothing signed or run. M1 is complete.
+
+**What changed.**
+- **Store streams.** A feature version is an append-only sequence of snapshots at
+  strictly increasing cutoffs (`versions` and `(definition, version, at)` tables).
+  `get_materialization(definition, version, at)` returns the latest snapshot by a
+  cutoff; `retrieve_online` serves the active version's latest snapshot by the
+  cutoff and reports `future` before its first one. `stream_identity` names what a
+  deployment pins, replacing a single snapshot identity.
+- **Publication order.** `prepare` computes a snapshot without writing it. The
+  publisher (`materialize_features`) publishes and reads back its Feast generation,
+  then appends it with `expected_identity`. A reader never finds a snapshot whose
+  generation is absent, and a revision that arrives after preparation refuses the
+  append. Calling it again with the same version and later decisions extends the
+  stream.
+- **Serving.** `ServedFeatures` serves a candidate's pinned stream and returns a
+  `ServedFeature` (vector, stream, version, snapshot cutoff and identity) or a pause
+  reason: future, stale, expired, missing, version changed or service unavailable.
+  `verify` reopens a retained snapshot. `CandidateFeatureFeed` uses it for dedicated
+  sessions.
+- **Shared accounts.** `SharedStrategyInput` carries source `inputs` or a `served`
+  feature; both executors take either. The observer serves feature-fed candidates
+  at their instants and keeps pause reasons. The delivery log retains the served
+  snapshot, and replay refuses a different value.
+- **Supervisor.** `PackagedCandidate.feature_version` selects a bundle's packaged
+  store definition; `PaperServiceConfiguration.features` (`PaperFeatureServing`)
+  binds the store, Feast root and worker; preflight refuses a feature-served
+  candidate without it. `PaperCapabilities(features=...)` derives the served
+  inputs' profiles from the registered store definition. `deployment-check` prints
+  each pinned stream. `AuthoredCandidates.load(served=..., feature_version=...)`
+  builds authored feature-served candidates.
+
+**Faults covered by unit tests.** Future, stale, expired, version rollback and
+re-activation, lost Feast service and recovery, a late revision reaching only later
+snapshots, a forged retained value refused on replay, a changed prepared snapshot,
+and a stream regressing or naming different bytes. Matched-cutoff parity with
+retained trades is in M1c-1; offline PIT parity is unchanged.
+
+**Open for M3 and the 2b declaration.**
+- **Live row production.** The store serves rows someone appends. A live paper
+  candidate fed from the store therefore needs a publisher process running
+  `materialize_features` on a live `DecisionSource` alongside the supervisor. The
+  journey (M3) must declare that process; nothing in the supervisor starts it.
+- **Serving cost.** Each served instant calls the Feast worker as a subprocess, as
+  dedicated online serving already did. If 2b includes served features, its
+  declaration must size this.
+- **Not unit-tested.** The supervisor's construction of `ServedFeatures` and its
+  preflight refusal need a running account owner; M3 rehearsals exercise them first.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (685 files), native stubs, engineering standards, dependency admission (188 packages), pip-audit, link and secret checks; 2,480 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 36 passed, 0 skipped (run on this code before the final guide edits) |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 685 files |
+
+## M2 design note: import audit, packaging API and guides (approved 2026-10-04)
+
+The owner approved E-A on 2026-10-04.
+
+**What exists.**
+- The ownership checker enforces private, deep and unexported imports over the
+  repository's roots only (finding 4).
+- No library call turns a completed study into a candidate bundle (P7). The
+  maintained consumers use a 150-line test-side builder that sets factory keys,
+  parameters, requirements and provenance by hand.
+- A packaged candidate reaches supervised paper only if its extension is listed as a
+  path dependency of `packages/paper-services`, that is, committed inside the
+  repository under `extensions/`. The journey authors its extension outside the
+  checkout.
+- The guide gaps are listed under [documentation gaps](#documentation-gaps).
+
+**Design.**
+1. **Import audit (P2), a governance command** as decided:
+   `alpha-governance-engineering-standards import-audit PATH`. It applies the
+   checker's private, deep and unexported import rules and the `sys.path` mutation
+   rule to every Python file under `PATH`. Each owner's `__all__` comes from the
+   installed distributions: `__init__.py` source is located and parsed, never
+   imported. It reports every finding and exits non-zero on any. Ownership style
+   rules (module functions, lambdas) stay the repository's own and are not imposed
+   on QR code.
+2. **Packaging API (P7).** `research.experiments.CandidatePackager` publishes a
+   `CandidateBundle` from:
+   - a completed attempt (store and attempt ID);
+   - its `DecisionStudy`;
+   - the installed extension's name;
+   - one `(factory_key, parameters)` selection per role;
+   - the cadence, state contract, metric and chart contracts;
+   - an optional feature-store definition.
+
+   It builds each selected component through `InstalledExtensions` and refuses any
+   whose identity differs from the one the study recorded, so a bundle cannot
+   package code other than what was studied. Requirements are derived from the
+   study's inputs, output and order types by one shared owner, which
+   `AuthoredCandidates` then also uses. Provenance (dataset, experiment, attempt,
+   report) is copied from the attempt store.
+3. **Guides.**
+   - **QR guide:** a runnable path from a clean machine: install the wheel; lay out
+     an extension from the `engineering-candidates` template; run the import audit;
+     run a study with `StudyArtifact` and `DecisionStudy.extensions` fingerprints;
+     package with `CandidatePackager`; define and stream a stored feature; add a
+     custom metric and chart for paper dashboards; take the candidate to paper.
+   - **Development environment:** `--no-editable` everywhere, a separate
+     environment for installed runs, Feast worker provisioning.
+   - **Operations runbook:** one ordered path for a packaged candidate: build with
+     `--candidates` (and the extension, per E below), `deployment-check`, signed
+     deployment, activation, run, stop.
+   - **Notebook guide:** reading a retained study result through the installed
+     readers.
+   - **Research program:** reviewed against the journey.
+
+**Choice for the owner — E: how an external extension enters a signed release.**
+- **E-A (recommended): the builder takes `--extension PATH`.** The paper-services
+  build accepts one or more extension source directories outside the repository.
+  Each must declare only requirements already in the paper-services lock, otherwise
+  it is refused with guidance to add the dependency through a reviewed lock change.
+  Each must also pass the import audit. The release records each extension's
+  source digest and wheel, as it does for repository extensions. QRs keep their own
+  repositories; the platform repository changes only when a new third-party
+  dependency is admitted. This scales to many QRs without repository churn.
+- **E-B: extensions are committed under `extensions/`.** A QR's extension enters a
+  release by a reviewed change to this repository, which adds the path dependency
+  and relocks, as M1b does. Review is explicit, but every QR change becomes a
+  platform change, and the journey's "no shared-code edit" rule needs an exception
+  for that step.
+
+**Plan.** One commit: the audit command, the packager and requirements owner, E, and
+the guides, with the full suite.
+
+## M2 result (2026-10-04)
+
+Implemented as approved under E-A. One commit; nothing signed or run.
+
+**What changed.**
+- **Import audit (P2).** `alpha-governance-engineering-standards import-audit PATH`
+  applies the private, deep and unexported import rules and the `sys.path` rule to
+  code outside the repository. It reads the installed owners' `__all__` without
+  importing them, and the reference extension passes.
+- **External extensions (E-A).** `alpha-governance-artifacts build --extensions DIR`
+  audits each project, refuses platform names, scripts, uv sources and more than
+  one provider, and builds its wheel. Closure admission treats it as a pure-Python
+  extra root whose every requirement is already in the locked closure; the signed
+  facts list it. Its source is signed under `source/external/<name>/`, and
+  provenance compares every wheel member to that source.
+- **Packaging API (P7).** `runtime.CandidatePackager` with `ComponentSelection`.
+  It is in `runtime`, not `research.experiments` as the note proposed, because it
+  builds components through installed extensions and research may not depend on
+  runtime. `CandidateRequirements` is the shared requirement rule that
+  `AuthoredCandidates` now uses. `InstalledExtensions.artifact` gives a study the
+  installed `RECORD` to retain, whose fingerprint is the identity the packager
+  requires.
+- **Defect fixed (from M1c-1).** `runtime/paper_inputs.py` was missing from the
+  paper-services wheel, so an installed supervisor would have failed to import it.
+  An engineering test now requires every runtime module that shipped code imports
+  to be shipped.
+- **Guides.**
+  - New [QR quickstart](../../examples/qr-quickstart.md).
+  - QR guide and development environment (`--no-editable`, separate installed
+    environments, Feast worker).
+  - Runbook: ordered packaged-candidate path; supervised steps now start the
+    supervisor from the signed paper-services target.
+  - Notebook guide: reading retained study results.
+  - Research program (QR code in QR extension packages; MR17 coverage).
+  - Admission, workflow, coding standards and runtime guides.
+
+**Tests added.** Import audit and CLI; external extension metadata and import
+refusals; external closure edges and the collector refusal; external source
+provenance; shipped runtime modules. An integration consumer runs a real study with
+the reference extension, packages it, loads it and steps it from warming to decided.
+It also checks the three refusals: changed parameters, a missing chart selection,
+and a study that did not retain the extension.
+
+**Not covered by tests.** No test runs `ReleaseBuilder.build` (signed builds run
+only in trials), so the `--extensions` build path is first exercised by the M3
+signed paper-services rehearsal.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (691 files), native stubs, engineering standards, dependency admission (188 packages), pip-audit, link and secret checks; 2,492 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed. The first attempt failed `format-check` on the new Markdown code blocks, which were then formatted |
+| Integration lane with the Feast worker | 37 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 691 files |
+
+## M3 design note: journey consumer and declaration (approved 2026-10-04)
+
+The owner approved this note, T-1, P-A (with its signed schema change), M-1, R-1,
+the declaration and the rehearsal scope on 2026-10-04. Legacy code that the changes
+supersede is removed, not kept beside them.
+
+**Sequencing as implemented.** J6 and J7 depend on P-A and M-1, and rehearsal 1
+stops at J5. The driver therefore lands in two parts:
+- M3a: the driver with J1–J5 and J8;
+- after M3b: rehearsal 1;
+- after M3c and M3d: M3e, the driver's J6–J7, then rehearsal 2.
+
+Every known gap is still fixed before any rehearsal reaches it.
+
+**What reading the code shows.** Three journey steps cannot pass on `e8dec10` as
+written. Each needs an owner choice (below) before rehearsals reach it:
+- **G-T — research cannot read live trades captures.** `alpha-collect` captures a
+  websocket `trades` feed (M1c-1), but only the supervisor's `LiveTradeDecisionSource`
+  consumes it. `DatasetPublication.publish_books` admits book captures only, and
+  `SavedDecisionSource` reads trades only from the REST acquisition path
+  (`alpha-acquire public`): polled, with unknown completeness and poll-time
+  availability. A J3 study of signed trade flow would therefore read different trades,
+  under a different availability clock, than the J6 candidate. J5's "replay decisions
+  equal the study's" would fail.
+- **G-P — no supported live feature publisher.** `materialize_features` extends a
+  stream, but no installed command runs it on live inputs. The 2a feature processes
+  are harness code under `tests/`. A QR following the quickstart (step 6) would have
+  to write a long-running process from internals.
+- **G-M — custom metrics never reach supervised dashboards.**
+  `CandidateMonitoringExporter` takes the dedicated path's `PaperConfiguration` and
+  `PaperCheckpoint`. Only `candidate_workflow.py` calls it; the supervisor's
+  diagnostic process never does. J6's "custom metric on paper dashboards" and its
+  alert therefore have no path for a packaged candidate on a shared account.
+- **J7 account restore.** `AccountWorkspace.restore` quarantines a restored journal
+  from managed activation by contract. `alpha-governance-artifacts install --state`
+  binds an explicitly quiesced snapshot to a new signed target, so the journey resumes
+  through that path (R-1 below). Whether the installer accepts a restored account
+  journal is first exercised in a rehearsal.
+- **J2 collection runs outside the signed collector.** The installed launcher bounds
+  every non-account run to 180 s, so a six-hour `capture-run` cannot run through the
+  signed collector target. R1 used a `--no-editable` environment's `alpha-collect`; J2
+  does the same and records that as a stated limitation, not a pass of signed
+  collection.
+- **Disk.** 483 GiB free on 2026-10-04 (497 GiB when the record opened); M5 needs at
+  least 512 GiB.
+
+**Choices for the owner.**
+
+*G-T — trades in research.*
+- **T-1 (recommended): one capture publication path and one trade schema.**
+  `DatasetPublication.publish_books` is replaced in place by one capture publication
+  path. It selects the reconstruction from each capture's declared capability, so
+  books and trades are published the same way, and a future stream type plugs in
+  without a parallel method. Trades captures publish into the same public-trade
+  partition schema that REST acquisitions use:
+  - venue trade IDs, exact price and size, aggressor side and event time are kept;
+  - availability is the durable receipt clock, rounded up to microseconds as for books.
+
+  Research therefore has one trade schema with two acquisition sources: websocket
+  capture for live windows, and REST for historical backfill, which websocket
+  capture cannot provide. The schema is changed in place where trades captures need
+  it, with no compatibility reader. `SavedDecisionSource` reads both with the same
+  field and window rules, so J3, J5 and J6 read the same trades.
+- **T-2: REST trades for research.** No code change. J3 reads polled REST trades;
+  J5 compares only book-fed decisions exactly and reports trade-fed differences.
+  The journey then cannot claim research-to-paper parity for its trade feature.
+
+*G-P — live feature publication.*
+- **P-A (recommended): a signed `feature-publisher` command.** The paper-services
+  release gains a fourth bound command. It reads the supervisor's retained book and
+  trades captures read-only as they grow, rebuilds the live sources, computes the
+  packaged candidate's feature and fitted transform through `InstalledExtensions`,
+  and calls `materialize_features` at each grid instant for the version the signed
+  configuration pins. It writes only the feature store and the Feast generation
+  root. Its life is bounded like the supervisor's, and it holds no account or
+  venue authority. Code still loads only from the signed release. Cost: a runtime
+  owner, a launcher binding, and a `PaperFeatureServing.publisher` field (cadence and
+  maximum lag). That field changes the signed paper-services configuration schema
+  going forward. The publisher is a runtime owner that is not tied to paper, so a
+  scheduled research job can reuse it, and one publisher can feed every deployment
+  that pins the same version. The store stays the only coupling between producer
+  and consumer.
+- **P-B: an unsigned research-environment publisher with its own websocket
+  captures.** No signed change, but it duplicates every source connection beyond
+  the eight-process envelope, and it loads QR code from an unsigned environment,
+  contrary to the code-loading rule.
+
+*G-M — candidate metrics on supervised paper.*
+- **M-1 (recommended): one exporter, exported from the supervisor's diagnostic
+  process.** `CandidateMonitoringExporter` is replaced in place. It takes one
+  candidate step record (feature vector, prediction, decision, instant and
+  continuation) that both the dedicated and shared paths produce, so there is one
+  export path, not two. The dedicated path's caller changes with it. At the telemetry
+  cadence, the diagnostic process exports each packaged candidate's runtime metric
+  contracts into `monitoring/telemetry.sqlite3`, with delayed labels revised as they
+  mature. A threshold alert on a candidate metric goes to the configured
+  `alert_socket`. No control path returns to accounts. Cost: exporter
+  generalization, diagnostic wiring, tests. 2b inherits the extra telemetry.
+- **M-2: offline export after a run** from the retained delivery logs. Cheaper, but
+  dashboards are not live and no alert fires during the run, so J6 would fail its
+  stated criterion.
+
+*R — J7 account resumption.*
+- **R-1 (recommended):** after a quiesced backup, restore into a fresh root, install
+  a fresh signed account target with `--state` bound to the restored journal
+  component, reconcile independently and `claim_paper`. The supervisor resumes from
+  the restored candidate checkpoints. If the installer refuses that state, the
+  rehearsal stops and records it for an owner decision. It is never worked around.
+
+**Plan, if approved as recommended.** Backward compatibility is not kept (owner,
+2026-10-04): superseded code, formats and readers are replaced in place. Evidence
+recorded earlier stays valid at its frozen commits. The known gaps are fixed before
+any rehearsal, because rehearsing into a known failure teaches nothing. There are
+four commits, and each passes the full suite, the integration lane and the Linux
+strict mypy run:
+- **M3a — journey driver,** with tests of its gate logic and summary schema. Nothing
+  runs yet.
+- **M3b — one capture publication path and one trade schema (T-1).**
+- **M3c — the signed feature publisher (P-A).** Its signed schema change needs this
+  approval.
+- **M3d — one candidate monitoring exporter (M-1).**
+- Then the rehearsals below. Every fix a rehearsal exposes is its own reviewable
+  commit before the next rehearsal; guide fixes go in the same commit as the code
+  they describe.
+- C3 stays as approved: the dedicated paper path is retired after MR17, not in M3.
+
+### Journey driver
+
+`tests/integration/consumers/journey/mr17_journey.py` is a QD consumer, like the 2a
+cohort driver. It is copied out of the frozen worktree by hash and run with the
+installed research interpreter (`-I`). One invocation owns one fresh attempt
+directory and stops at its first failed criterion. It never edits QR code and never
+retries a failed step.
+
+- **Classes.** `JourneyDeclaration` (frozen numbers, paths and windows, read from
+  `declaration.json`); `JourneyCommands` (runs each argv, retains stdout and stderr,
+  and appends `commands.jsonl` before the next command starts); one class per step
+  (`Provision`, `Data`, `Research`, `Features`, `Candidates`, `Paper`, `Operations`,
+  `Capacity`), each returning typed `Gate` rows; `JourneySummary` (writes
+  `summary.json`).
+- **CLI.** `run --declaration PATH --output DIR --through J1..J8`. A rehearsal may
+  stop after a named step. A counted attempt must declare `--through J8` and
+  `counted: true`, and the driver refuses a dirty or editable checkout and any
+  QR workspace whose commit differs from the declaration.
+- **What runs where.** QR steps run the QR's own scripts from the attempt's copy of
+  the QR workspace with the research interpreter. Operator steps run installed
+  commands: `alpha-governance-artifacts`, the signed targets through `run`, and
+  `alpha-dataset`. The driver composes only operator inputs (build requests, account
+  deployments, grants, observations, controls) and reads results.
+- **Summary JSON** (`summary.json`, schema `mr17-journey-summary`):
+
+  ```json
+  {
+    "schema": "mr17-journey-summary",
+    "attempt": "rehearsal-1",
+    "counted": false,
+    "commit": "<frozen commit>",
+    "declaration_sha256": "...",
+    "qr_workspace": {"commit": "...", "tree_sha256": "..."},
+    "guides": {"examples/qr-quickstart.md": "<sha256>"},
+    "installed": {"research": "<RECORD sha256>", "paper-services": "<release>"},
+    "started_at": "...",
+    "ended_at": "...",
+    "result": "passed | failed | stopped",
+    "first_failure": {"step": "J3", "criterion": "...", "observed": {}},
+    "steps": [
+      {
+        "step": "J1",
+        "status": "passed | failed | not_run | pending",
+        "started_at": "...",
+        "ended_at": "...",
+        "criteria": [{"name": "...", "passed": true, "observed": {}}],
+        "commands": ["<commands.jsonl ordinals>"],
+        "findings": [{"kind": "guide | code", "detail": "..."}]
+      }
+    ]
+  }
+  ```
+
+  `stopped` means a rehearsal ended at its declared `--through` step with every run
+  step passed. `pending` applies only to J8 while its prerequisites are open.
+
+### Fresh extension package and QR workspace
+
+- **Where.** A git repository at `~/AlphaResearchEvidence.noindex/mr17/qr-workspace/`,
+  outside iCloud and the checkout. It holds the `mr17-extensions` project
+  (`src/mr17_extensions/`, entry point `mr17-extensions =
+  "mr17_extensions:ComponentProvider"`) and the QR's scripts under `studies/`.
+  Each attempt copies the declared commit into `<attempt>/qr/` and records its tree
+  digest.
+- **Authoring rule.** It is written from `examples/qr-quickstart.md` and only the
+  guides and files it links. `qr/SOURCES.md` lists every file read, with its digest.
+  A link that leads into `tests/` (the quickstart links the packaging consumer) is
+  recorded as a guide finding.
+- **Independence limitation.** The author of the rehearsals also wrote the platform
+  code, so "fresh QR" knowledge cannot be proven by authorship. Two mechanical
+  checks bound it:
+  - the import audit (P2) over the whole workspace;
+  - a **guide-coverage** check: every supported name the workspace imports must
+    appear in a guide the quickstart links. An uncovered name is a guide finding
+    and fails J1 in the counted attempt.
+- **Components** (registered keys in parentheses):
+
+  | Component | Role | Definition |
+  | --- | --- | --- |
+  | `mr17.depth-imbalance` | feature | Book `imbalance` over the top five levels, from `bid_size` and `ask_size` |
+  | `mr17.trade-flow` | feature | Trade `signed_flow` over 30 s, divided by its 30 s absolute volume (zero when there is none) |
+  | `mr17.signals` | feature schema | One named schema holding both features |
+  | `mr17.standardize` | transform | Mean and standard deviation fitted on training rows only, retained as fitted state |
+  | `mr17.forward-mid-return` | label | Mid return from the instant to `instant + 60 s`, available at its end |
+  | `mr17.least-squares` | estimator | Exact least squares with intercept on `Fraction`; refuses a singular design |
+  | `mr17.quote-rule` | policy (order/quote) | Rule only: a one-tick-inside quote on the predicted side when both features agree beyond a threshold, otherwise cancel. It requotes only on a side or threshold change |
+  | `mr17.target` | policy (target) | Learned: target position equal to the clipped prediction times a size |
+  | `mr17.net-per-turnover` | metric | Net return per unit turnover, with runtime and research `applies_to` |
+  | `mr17.edge-chart` | chart | Cumulative net return against turnover |
+
+- **Candidates.** `mr17-rule` (book and trade source inputs, order/quote output,
+  rule only) and `mr17-learned` (feature-served from the stored `mr17.signals`
+  version, target output). Both are venue-level and take the instrument from their
+  source, so ETH is added by configuration.
+
+### Journey declaration (approved 2026-10-04)
+
+Abbreviations used in the commands:
+- `A` is `~/AlphaResearchEvidence.noindex/mr17/<attempt>`, and `C` is `$A/checkout`.
+- `T` is `/private/tmp/mr17/<attempt>`, which holds the environments and sockets (each
+  socket path stays under 100 bytes).
+- `GA` is `$T/build/bin/alpha-governance-artifacts`, and `PY` is
+  `$T/research/bin/python -I`.
+
+**J1 — Provision.**
+
+```sh
+git -C <repository> worktree add --detach $C <frozen commit>
+cd $C
+uv python install
+UV_PROJECT_ENVIRONMENT=$T/build uv sync --frozen --no-editable
+UV_PROJECT_ENVIRONMENT=$T/research uv sync --frozen --no-editable
+uv pip install --python $T/research/bin/python --no-deps $A/qr/mr17-extensions
+UV_CACHE_DIR=/private/tmp/uv-cache-research-worker \
+  uv sync --frozen --project configs/development/research-worker
+make local-services-up
+make local-services-status
+$T/build/bin/alpha-governance-engineering-standards import-audit $A/qr
+$GA fetch --repository $C --request $A/j1/collector-request.json \
+  --policy $A/j1/policy.json --dependencies $A/j1/wheels
+$GA build ... --registry $A/j1/registry      # collector, as the runbook lists
+$GA verify --release <collector release> --policy $A/j1/policy.json
+$GA install --release <collector release> --policy $A/j1/policy.json \
+  --target $A/j1/target-collector
+```
+
+Pass criteria:
+- every command exits 0;
+- the installed identities of research, extension, collector and worker are recorded;
+- the import audit and guide-coverage checks are clean;
+- an inventory of an execution target (built in J6) shows no `research`, notebook,
+  training, tracking or reporting modules.
+
+**J2 — Data.** One fixed window, the same for all eight feeds: books and trades for
+OKX `BTC-USDT` and `ETH-USDT`, and Bitfinex `tBTCUSD` and `tETHUSD`. The window is six
+hours in the counted attempt (owner decision 6).
+
+```sh
+$T/research/bin/alpha-collect capture-run --config $A/j2/config/<feed>.json \
+  --window $A/j2/window.json --run-directory $A/j2/runs/<feed>   # x8, concurrent
+$T/research/bin/alpha-collect capture-run-replay --run-directory $A/j2/runs/<feed> \
+  --max-seconds 7200                                                   # x8
+PY $A/qr/studies/j2_publish.py --runs $A/j2/runs --store $A/j2/raw \
+  --snapshots $A/j2/snapshots --lakefs-repository mr17-<attempt>
+$T/research/bin/alpha-dataset discover --snapshots $A/j2/snapshots \
+  --max-entries 100 --max-bytes 64000000
+PY $A/qr/studies/j2_reopen.py --snapshots $A/j2/snapshots --lakefs-reference <tag>
+```
+
+The grant-boundary refusal runs in J6, when the first account target is installed:
+an `authorize_paper` request whose instruments come from the J2 research selection,
+not that account's trading universe.
+
+Pass criteria:
+- every run's replay verification passes, with original receipt and venue clocks;
+- every gap is explicit in the quality report;
+- reopened lakeFS bytes equal the published snapshot;
+- the catalog lists every partition with its specification version and limits;
+- the grant refusal leaves the account state unchanged.
+
+**J3 — Research.** The first five hours are walk-forward development (one-hour
+train, 30-minute test, 30-minute step). The last hour is holdout, consumed once by
+the selected learned study.
+
+```sh
+PY $A/qr/studies/j3_study.py rule --snapshots $A/j2/snapshots --attempts $A/j3/attempts
+PY $A/qr/studies/j3_study.py learned --snapshots $A/j2/snapshots --attempts $A/j3/attempts
+PY $A/qr/studies/j3_study.py grid --attempts $A/j3/attempts \
+  --thresholds 0.2,0.4 --horizons 30,60
+PY $A/qr/studies/j3_study.py holdout --attempts $A/j3/attempts
+PY $A/qr/studies/j3_publish.py --attempts $A/j3/attempts   # publish_experiments to ClearML
+PY $A/qr/studies/j3_reopen.py --attempts $A/j3/attempts    # a fresh process
+PY $A/qr/studies/j3_extension.py --snapshots $A/j2/snapshots --attempts $A/j3/attempts
+```
+
+`j3_extension.py` covers P3:
+- ETH studies selected by configuration only;
+- the trade-flow input carried from study to candidate (packaged in J5, run in J6);
+- a study configuration with calendar `XNYS`, and an instrument definition of
+  product `perpetual` (different economics), each refused before any source
+  access or fold.
+
+Pass criteria:
+- both decision kinds are studied with costs;
+- every component identity is the extension's `RECORD` fingerprint, with no
+  built-in substitution;
+- holdout consumption is recorded once, and a second access is refused;
+- reports include the custom metric and chart;
+- ClearML lists the published experiments;
+- reopened results equal the originals;
+- both refusals are recorded, with no attempt data written.
+
+**J4 — Features.**
+
+```sh
+PY $A/qr/studies/j4_features.py define  --store $A/j4/store --feast $A/j4/feast
+PY $A/qr/studies/j4_features.py offline --snapshots $A/j2/snapshots --store $A/j4/store
+PY $A/qr/studies/j4_features.py stream  --version v1 --snapshots $A/j2/snapshots
+PY $A/qr/studies/j4_features.py faults  --store $A/j4/store --feast $A/j4/feast
+```
+
+The faults step injects, in order: a late revision, TTL expiry, a missing entity, a
+materialization retry after a stopped Feast worker, and a rollback from `v2` to `v1`.
+
+Pass criteria:
+- offline and online values are equal at matched cutoffs;
+- no value is served before its availability;
+- each fault returns its declared pause reason, and serving recovers exactly.
+
+**J5 — Candidates.**
+
+```sh
+PY $A/qr/studies/j5_package.py --attempts $A/j3/attempts --store $A/j4/store \
+  --candidates $A/j5/candidates
+PY $A/qr/studies/j5_replay.py --candidates $A/j5/candidates \
+  --snapshots $A/j2/snapshots --attempts $A/j3/attempts
+```
+
+`j5_package.py` uses `CandidatePackager`. `j5_replay.py` loads each bundle through
+`CandidateLoader` and replays it over the holdout inputs.
+
+Pass criteria:
+- the packager refuses a changed parameter;
+- replayed features, predictions and decisions equal the study's at every
+  matched instant.
+
+**J6 — Paper.** Four accounts, eight source processes (book and trades for each
+instrument), eight active instances and one provisioned inactive instance. This is
+inside the supported envelope.
+
+| Account | Instances |
+| --- | --- |
+| `okx-shared` | `mr17-rule`@okx-btc, `mr17-learned`@okx-btc (the shared-budget race pair); inactive `mr17-rule`@okx-btc with a second grid origin (for J7) |
+| `okx-isolated` | `mr17-rule`@okx-eth, `mr17-learned`@okx-eth |
+| `bitfinex-shared` | `mr17-rule`@bfx-btc, `mr17-learned`@bfx-btc |
+| `bitfinex-isolated` | `mr17-rule`@bfx-eth, `mr17-learned`@bfx-eth |
+
+Commands follow the runbook's
+[packaged-candidate path](../governance/operations.md#take-a-packaged-candidate-to-signed-paper):
+
+```sh
+$T/build/bin/alpha-governance-engineering-standards import-audit $A/j6/extensions/mr17-extensions
+$GA fetch --repository $C --request $A/j6/services-request.json \
+  --policy $A/j6/policy.json --dependencies $A/j6/wheels
+$GA build --repository $C --request $A/j6/services-request.json --policy $A/j6/policy.json \
+  --configuration $A/j6/services.json --dependencies $A/j6/wheels --audit $A/j6/audit \
+  --key <key> --registry $A/j6/registry \
+  --candidates $A/j6/candidates --extensions $A/j6/extensions
+$GA verify --release <services v1> --policy $A/j6/policy.json
+$GA install --release <services v1> --policy $A/j6/policy.json --target $A/j6/services
+$GA run --target $A/j6/services --policy $A/j6/policy.json -- deployment-check
+# for each account: build, verify, install an execution target from those identities, then
+$GA run --target $A/j6/target-<account> --policy $A/j6/policy.json -- account \
+  --request $A/j6/requests/<account>-<install|authorize|observe|claim|serve>.json
+$GA run --target $A/j6/services --policy $A/j6/policy.json -- feature-publisher ...   # P-A
+$GA run --target $A/j6/services --policy $A/j6/policy.json -- deployment \
+  --owners $A/j6/owners.json --root $A/j6/service-root --socket $T/s/supervisor.sock
+$GA run --target $A/j6/services --policy $A/j6/policy.json -- deployment-control \
+  --socket $T/s/supervisor.sock --request $A/j6/controls/<identity>.json
+```
+
+Phases, all within ordinary one-hour grants:
+
+| Phase | Supervisor life | Shape |
+| --- | --- | --- |
+| P-A | 30 min | Paper; reconciliation every 60 s. Selective `stop_instance` and `restart_instance` (with an observation) of `mr17-learned`@okx-btc at 10 min. Ends with an injected death of the `okx-isolated` owner while a request is in flight |
+| P-B | 10 min | Recovery as the runbook's step 5: stop, inspect, reconcile, resolve the uncertain order, fresh claims, relaunch |
+| S | 10 min | Shadow, on two fresh shadow targets (`okx-shadow`, `bitfinex-shadow`) with the same candidates on BTC, under their own grants |
+
+Scenarios:
+- **Shared-budget race.** On `okx-shared`, the rule candidate's quote size plus the
+  learned candidate's target exceeds the account's per-instrument limit, so the
+  first decisions contend for it.
+- **Adverse cost.** Every scenario declares a nonzero adverse cost.
+- **Alert.** A threshold on `mr17.net-per-turnover` is set so that it fires (M-1).
+  A local receiver bound to `alert_socket` retains it.
+
+Each account's orders are projected per hour against the 80-order grant before
+the run, as in 2a.
+
+Pass criteria:
+- exact independent reconciliation at every round;
+- cost and P&L per strategy, with gas inapplicable;
+- no duplicate economic effect, and the uncertain order is never retried;
+- the race is admitted once and refused once, with the account inside its limit;
+- served-feature lineage is retained and verified on replay, and trades deliveries are
+  retained in `.trades.jsonl`;
+- exact replay of every delivery log, with only the killed owner's tail unattributed;
+- the custom metric is on each account's dashboard, and the alert reached the receiver;
+- shadow made zero fills;
+- the research-selection grant was refused (J2).
+
+**J7 — Operations.**
+
+```sh
+PY $A/qr/studies/j7_backup.py --workspace $A --backup $A/j7/backup   # quiesced
+PY $A/qr/studies/j7_restore.py --backup $A/j7/backup --root $A/j7/restored
+$GA install --release <account release> --policy $A/j6/policy.json \
+  --target $A/j7/target-<account> --state $A/j7/restored/<account>   # R-1
+$GA build ... --configuration $A/j7/services-v2.json ...   # revision activates the inactive instance
+$GA install --release <services v2> --policy $A/j6/policy.json --target $A/j6/services
+$GA rollback --release <services v1> --policy $A/j6/policy.json --target $A/j6/services
+```
+
+The backup covers the research workspace (attempts, raw store, snapshots, jobs)
+through `WorkspaceBackup`, the feature store through `VersionedFeatureStore.backup`,
+and each stopped account through `AccountWorkspace.backup`. After the restore, the
+journey reconciles, claims and runs the supervisor for 5 minutes on the restored
+state. It then runs 5 minutes on services v2 and 5 minutes after the rollback to v1.
+
+Pass criteria:
+- restored manifests and identities equal the backup;
+- studies reopen and the restored store serves equal values;
+- resumption needs no manual repair;
+- v2 activates the inactive instance;
+- after the rollback, v1's code and configuration are selected and journals keep
+  their current facts.
+
+**J8 — Capacity.** No new measurement. The step links the accepted MR15 R1 and 2b
+records. It is `pending` until M4 and M5 pass, and passes only when both are
+accepted.
+
+**Evidence layout.**
+
+```text
+~/AlphaResearchEvidence.noindex/mr17/<attempt>/
+  declaration.json  summary.json  steps.jsonl  commands.jsonl
+  checkout/         frozen worktree, used only to build
+  consumers/        driver copy and digests
+  environments/     inventories of build, research, worker and every target
+  qr/               QR workspace copy, SOURCES.md, import audit, guide coverage
+  j1/ ... j8/       each step's inputs, outputs, logs and gate assessments
+logs/mr17/<attempt> -> that directory
+```
+
+Builder keys are created per attempt under `$T/keys` (mode 0700). Sockets live under
+`$T/s`, and the driver removes `$T` after the cleanup audit.
+
+**Rehearsal scope (owner decision 9).** All rehearsals are uncounted, and each is
+recorded here as run.
+- **Rehearsal 1:** J1–J5 on a 30-minute J2 window, with walk-forward and holdout
+  scaled to 20 + 10 minutes.
+- **Rehearsal 2 onward:** J1–J7 on a 60-minute window, with J6 phases shortened to
+  10/5/5 minutes.
+
+Each rehearsal stops at its first failure for owner review. The counted attempt (M6)
+uses the declared six-hour window and full phases on the code frozen at the 2b counted
+pass, and it needs separate approval.
+
+## M3a result (2026-10-04)
+
+The driver is implemented for J1–J5 and J8, in one commit. Nothing has been run.
+
+**What changed.**
+- **Driver.** `tests/integration/consumers/journey/mr17_journey.py`:
+  - It needs only `msgspec` and imports no platform code, because J1 creates the
+    installed environments. Run it with `run --declaration PATH`.
+  - The declaration (`mr17-journey-declaration`) fixes every input up front: the
+    commit, the QR workspace commit, the evidence and temporary roots, the feeds, the
+    capture window, the holdout count, the guides and the capacity records. It refuses
+    a counted attempt that stops before J8 or lacks both capacity records.
+  - Before J1 runs, the freeze requires a clean checkout and QR workspace at their
+    declared commits. It also requires the running driver to equal the frozen
+    worktree's copy.
+  - `Commands` appends each record to `commands.jsonl` before the next command
+    starts, including the eight concurrent J2 captures.
+  - `summary.json` is rewritten after each step.
+  - A declaration through J6 or J7 is refused until M3e.
+- **Independent checks.** `journey_checks.py` runs under the J1 research interpreter
+  with supported imports only:
+  - installed, non-editable research and extension identities;
+  - completed studies that pin `extension:mr17-extensions`, and the declared holdout
+    count;
+  - bundles reopened and tied to a completed attempt and the installed extension.
+- **Guide coverage.** It scans the QR workspace's platform imports against the
+  declared guides and the Markdown files they link. A rehearsal records each uncovered
+  name as a guide finding; a counted attempt fails J1.
+
+**Declaration refinements found while implementing.**
+- **QR results.** Each QR script also takes `--result PATH`. It writes its own
+  criteria and findings there (`{"criteria": [...], "findings": [...]}`), and the
+  driver retains them under the step, prefixed with the script label. The driver's
+  independent checks run in addition; they never replace these.
+- **Candidates bind one instrument.** `CandidatePackager` sets a definition's
+  entities from the study's economics entity. "ETH by configuration" therefore means
+  ETH studies and ETH bundles built from the same extension code with changed
+  configuration only. The J6 instances on ETH sources bind those ETH bundles
+  (`mr17-rule-eth`, `mr17-learned-eth`).
+- **Collector release.** The J1 signed collector is built with configuration schema
+  `1` and state schema `none`, using the first declared feed's capture configuration.
+  The first rehearsal confirms whether the builder accepts these.
+
+**Tests.** `test_mr17_journey.py` (17 cases) covers:
+- declaration and window refusals;
+- unique command ordinals and per-command exits, including concurrent ones;
+- guide-coverage links and uncovered names;
+- refusal of unimplemented steps before any work;
+- a dirty checkout failing J1 first, with a retained summary.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (694 files), native stubs (1,559 modules), engineering standards, dependency admission (188 packages), link and secret checks; 2,509 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 37 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 694 files |
+
+## M3b design note: one capture publication path and one trade schema (approved 2026-10-04)
+
+The owner approved this note on 2026-10-04. It makes T-1 concrete.
+
+**What the code shows.**
+- The public-trade format is REST-shaped throughout:
+  - `PublicTradeObservation.receipt` is a REST `PublicReceipt`;
+  - `PublicTradePartition` pins a `PublicAcquisition`;
+  - `PublicTradeManifest` admits exactly one partition, which is one REST job;
+  - research orders trades by `receipt.request.ordinal` and builds flow lineage
+    from `receipt.raw.sha256`.
+- `BookInput` is generic capture provenance (capture request, raw object, segment
+  chain), but it is named and admitted as a book.
+- `DatasetPublication.publish_books` is a library call only. `alpha-dataset` has CLI
+  publication for REST trades (`public-publish`) and none for captures.
+- Research flow over REST trades is marked `complete_tape_unproven`. The live trade
+  source refuses a flow window that crosses a coverage gap. Research never checks
+  coverage.
+
+**Design.** Each item replaces the code in place; no reader of an old format is kept.
+1. **`CaptureInput` replaces `BookInput`.** It is the same provenance for any captured
+   stream: request, raw object, bounded prefix and segment chain. Admission selects
+   the reconstruction from the capture's declared capability (`native-book` or
+   `native-trades`).
+2. **One trade observation.**
+   - `PublicTradeObservation.receipt` becomes `origin`: either a REST `PublicReceipt`
+     or a `CaptureTradeOrigin` (recording request identity, segment ordinal, record
+     index, raw digest and receipt nanoseconds).
+   - `ts_knowledge` for a captured trade is its durable receipt, rounded up to
+     microseconds, as for books.
+   - Tie-break ordering and flow lineage use `origin`'s ordinal and digest, so both
+     kinds sort and hash the same way.
+   - Captured trades carry no reference data; `specification_identity` is `None`.
+3. **Partitions and coverage.**
+   - `PublicTradePartition` pins either a `PublicAcquisition` or a trades
+     `CaptureInput`.
+   - A capture partition also retains its **coverage intervals**: the synchronized
+     periods between tape synchronization and each gap, invalid frame or session end.
+     They are derived when the capture is published, by replaying it through the same
+     `TradeTape` the live source uses.
+   - `PublicTradeManifest` admits one or more partitions.
+4. **Research applies the live rule.** For a captured partition, `signed_flow` is
+   missing when its window is not inside one coverage interval, exactly as
+   `LiveTradeDecisionSource` behaves. REST partitions keep `complete_tape_unproven`,
+   since their coverage is unknown.
+5. **One publication path.**
+   - `DatasetPublication.publish_captures(directories, ...)` replaces `publish_books`.
+     It publishes book captures into one `BookDatasetManifest` and trades captures into
+     one `PublicTradeManifest`, returning both snapshot identities.
+   - A new `alpha-dataset capture-publish --captures DIR... --store --snapshots
+     --max-records --max-bytes` command gives QRs and operators the same CLI path as
+     `public-publish`.
+6. **Parity proof.** A unit test feeds the same retained OKX and Bitfinex trades
+   captures to `LiveTradeDecisionSource` and to `SavedDecisionSource` over their
+   published snapshot. It requires equal `price`, `quantity`, `signed_quantity` and
+   `signed_flow` at every matched cutoff, including a window crossing a gap.
+
+**Consequences.**
+- The public-trade manifest, observation and partition formats change, so snapshots
+  published before the change no longer reopen.
+- Retained REST evidence (MR01 and the R1 records) stays valid at its frozen commits.
+- If the R1 corpus is assessed in M4, it is republished on the new code; its raw
+  captures are unchanged.
+- Callers of `publish_books` and `BookInput` change with the rename: capacity
+  consumers, `captured_study.py`, `source_acceptance.py` and the guides that name them.
+
+**Tests.**
+- Capture admission for both kinds, with segment chains.
+- Coverage intervals across an injected gap and a reconnect.
+- Mixed REST and capture partitions in one study.
+- The live/saved parity test.
+- The CLI publication and discovery path.
+- Refusal of a trades capture whose replay differs from its retained outcome.
+
+## M3b result (2026-10-04)
+
+Implemented as approved, in one commit. Nothing has been signed or run.
+
+**What changed.**
+- **One capture input.** `CaptureInput` replaces `BookInput` everywhere, including
+  callers and guides. `is_trades` names a public trades capture.
+- **Captured trades.** `SourceAdapters.trades` replays a trades chain, predecessors
+  first, through the venue `TradeTape`. Messages are numbered from zero across
+  segments, as in the live source. New contracts: `CapturedTrades`,
+  `TradeBoundary` and `CaptureTradeOrigin`.
+- **One trade schema.**
+  - `PublicTradeObservation` has exactly one origin: `receipt` (REST) or `capture`.
+    Readers use origin-neutral `instrument`, `ordinal`, `source_sha256` and
+    `ts_knowledge`.
+  - `PublicTradeHistory` keeps captured message `boundaries`.
+  - `PublicTradePartition` pins an `acquisition` or a trades `capture`. A captured
+    partition needs declared universes.
+  - Reopening replays the raw capture and refuses any difference.
+- **Shared coverage rule.** `TradeTapeCoverage` (in `market_data.books`) is the one
+  rule that both `LiveTradeDecisionSource` and publication use.
+- **Research rules.**
+  - `PublicTradeReader` returns a captured source's boundaries and idle time.
+  - `SavedDecisionSource` refuses every field before the first boundary, while
+    unsynchronized, and when the stream is stale.
+  - It refuses `signed_flow` unless the whole window lies in one covered interval.
+- **Latest-trade order.** Both paths order the latest trade by venue time, then
+  knowledge, then message position and index. The live source previously
+  tie-broke on trade ID.
+- **One publication path.**
+  - `DatasetPublication.publish_captures` replaces `publish_books`. It returns a
+    `CapturePublication` holding the book snapshot, if any, and one trades snapshot
+    per trades chain.
+  - The new `alpha-dataset capture-publish` command runs it.
+  - `alpha-collect capture --snapshot-directory` uses it.
+- **Journey driver.** J2 passes the QR workspace's `data/universes.json` to every
+  capture run, because captured trades need declared universes.
+
+**Implementation decisions.**
+- **One partition per trades manifest.** Each trades capture chain is its own
+  single-partition `public-trades` snapshot, rather than one manifest holding many
+  partitions. The reader and the manifest's one-partition rule stay unchanged,
+  and a study selects one trades snapshot per instrument.
+- **Parity scope.** At matched cutoffs, saved and live trade fields have equal
+  values and equal missing fields. Missing *reasons* can differ in wording, because
+  research reports unavailable rows through `ObservationHistory`'s generic reasons.
+- **Bounded live retention.** Parity assumes the live source's trade capacity is
+  not exceeded. Above it, the live source moves coverage forward, so it can only
+  report more missing flow windows, never different values.
+
+**Tests.** `test_captured_trades.py`:
+- live/saved parity at 144 cutoffs for OKX and Bitfinex, across synchronization, a
+  gap, a reconnect and a Bitfinex reconnect snapshot that repeats an earlier trade.
+  A mutation check showed it fails when research drops the stream rules;
+- coverage boundaries across the gap and reconnect;
+- the `capture-publish` CLI, with discovery;
+- refusal when the replay differs from the retained history;
+- refusal of a trades capture without declared universes.
+
+`test_public_data.py` adds one research selection that reads a REST snapshot and a
+captured snapshot together.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (696 files), native stubs (1,559 modules), engineering standards, dependency admission (188 packages), link and secret checks; 2,516 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 37 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 696 files |
+
+## Rehearsal 1 preparation (2026-10-04)
+
+**Driver change.** The declaration gains `lakefs_credentials`, the path of the
+private lakeFS keys. The driver passes only that path to QR scripts, as
+`ALPHA_LAKEFS_CREDENTIALS`; it never reads the file.
+
+**Findings while authoring the QR workspace.** These were found before any run and
+are recorded in the workspace's `SOURCES.md`.
+1. **Study authoring has no guide.** The study guide shows no complete
+   `DecisionStudy`, transform, estimator, label or order/quote policy; it links
+   test consumers instead (finding 2 of the gap inventory).
+2. **No supported lakeFS publication.** `LakeFSStorage` only resolves, reads and
+   materializes. The guide's only upload example is a test consumer that calls
+   lakeFS's REST API directly.
+3. **`DatasetVersion` requires derived `features/` bytes**, so J2's "lakeFS publish
+   and reopen" of a dataset with no features cannot pass as declared.
+4. **No guide for new instrument identities.** Nothing says how to assign an
+   instrument identity to a new listing, such as Bitfinex `tETHUSD`.
+5. **`CapturedStudyMarket` reads a capture through `CaptureInput.admit`**, which is
+   capped at 10,000 records. A 30-minute OKX book capture exceeds that.
+6. **`SavedDecisionSource` re-reads its whole selection at every decision**, so
+   study cost grows with decisions × records. That is workable for 30 minutes and
+   not for the counted six-hour window.
+
+Findings 3, 5 and 6 block J2's last command and J3. Rehearsal 1 therefore runs
+through J2 only. It still exercises everything before them: the first signed
+collector build, eight concurrent live captures with trades and universes,
+`capture-publish`, discovery and reopening. The lakeFS step is expected to fail on
+finding 3, and that failure is recorded as run.
+
+**Validation of the driver change (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: 2,516 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; strict mypy (696 files), standards, admission, link and secret checks; wheel smoke passed |
+| Integration lane with the Feast worker | 37 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 696 files |
+
+## Rehearsal 1 (uncounted, 2026-10-04)
+
+**Setup.**
+- Declared through J2 at commit `d9374e1`, with QR workspace `316802c`.
+- The capture window was 30 minutes.
+- Evidence is in `logs/mr17/rehearsal-1/`, stored outside iCloud.
+
+**Result: failed in J1** at 07:46 UTC, 15 seconds after the start.
+
+| Step | Commands | Outcome |
+| --- | --- | --- |
+| Freeze | Repository and QR workspace status, worktree, QR archive | Passed: both were clean at their declared commits, and the running driver equalled the frozen copy |
+| J1 | `uv python install`, build and research environments, extension install, Feast worker, `make local-services-up`/`status`, import audit | Passed, including the import audit of the QR workspace |
+| J1 | `check-environment` | **Failed** (exit 1) |
+| J1 | Guide coverage, signed collector release | Not run |
+| J2 | All | Not run |
+
+**Cause: a defect in the journey's own check, not in the platform.**
+`journey_checks.py` looked up the research distribution by the assumed name
+`alpha-research`. The research wheel's distribution is `alpha-research-lab`, so the
+lookup raised `PackageNotFoundError`. The unit tests could not catch this, because
+the check runs only inside an installed environment.
+
+**Fix (commit below).** The check now finds the distribution that installed the
+`research` package through `importlib.metadata.packages_distributions()`, instead
+of naming it. A run under the current non-editable environment passed all three
+environment criteria.
+
+**Validation of the fix (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: 2,516 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 37 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 696 files |
+
+## Rehearsal 2 (uncounted, 2026-10-04)
+
+**Setup.** Declared through J2 at commit `c146192`, with QR workspace `316802c` and
+a 30-minute capture window. Evidence is in `logs/mr17/rehearsal-2/`.
+
+**Result: failed in J1** at `collector-build`. Everything before it passed: the
+freeze, the environments, the extension install, the Feast worker, the local
+services, the import audit, the environment check and the collector fetch.
+
+**Cause: a driver defect.** The collector release policy pinned the build
+environment's interpreter after resolving its symlink. That resolves to uv's base
+CPython, which has no `hatchling`, so the builder's admitted-hatchling check
+failed. The 2a driver deliberately pins the environment's own `bin/python`.
+
+**Fix (commit below).** The policy pins `<build environment>/bin/python` without
+resolving it.
+
+**Probes after the fix, to avoid a long rehearsal stopping on another small defect.**
+These are uncounted engineering checks, not rehearsals, run in
+`/private/tmp/m17` with rehearsal 2's environments.
+- **Signed collector release.** Built, verified and installed with the corrected
+  policy (release `302e1124…`).
+- **Live captures.** A two-minute `capture-run` with universes for OKX BTC-USDT
+  books, OKX BTC-USDT trades and Bitfinex tBTCUSD trades. All three replay
+  verifications passed.
+- **Publication.** `capture-publish` produced one book snapshot and one trades
+  snapshot per venue.
+- **Reopening.** OKX had 90 trades over 95 boundaries; Bitfinex had 77 trades
+  over 109 boundaries. Uncovered boundaries (4 and 6) are each feed's session
+  start before synchronization and the capture end. The probe deliberately
+  selected no lakeFS keys.
+
+**QR workspace fix.** `j2_publish.py` now creates its result directory before
+writing `published.json` beside the result. It is at workspace commit `e653872`.
+
+**Validation of the fix (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: 2,516 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 37 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 696 files |
+
+## M3c design note: lakeFS publication, study scale and authoring guides (approved 2026-10-04)
+
+The owner approved this note and I-A on 2026-10-04. M3c was planned as the feature
+publisher (P-A). The gaps below block J2 and J3, which come first, so this note
+takes M3c, and the planned parts move down one letter: P-A becomes M3d, M-1 becomes
+M3e and the driver's J6–J7 become M3f.
+
+**What the rehearsals and authoring showed.**
+1. **lakeFS.**
+   - `LakeFSStorage` only resolves, reads and materializes; nothing publishes.
+   - `DatasetVersion` requires `raw/`, `snapshots/` *and* `features/`, a rule
+     inherited from the MR04 backtest consumer, so raw published captures cannot be
+     versioned.
+2. **Study market.** `CapturedStudyMarket` admits the whole capture in memory
+   through `CaptureInput.admit`, capped at 10,000 records. A 30-minute OKX book
+   capture has about 18,000.
+3. **Saved decision source.** `SavedDecisionSource.read` re-reads and re-verifies
+   its whole selection at every decision, so cost grows as decisions × records.
+4. **Guides.**
+   - No maintained example shows a transform, estimator, label or order/quote
+     policy. The study guide links test consumers instead.
+   - No guide says how a new listing gets an instrument identity.
+
+**Design.** Each item replaces code in place, and no old path is kept.
+1. **lakeFS publication.**
+   - `LakeFSStorage.publish(repository, branch, root, components, message)` uploads
+     the named component directories through the SDK adapter, commits, and returns
+     the resolved `DatasetVersion`. `LakeFSStorage.create(repository, namespace)`
+     creates a repository.
+   - `DatasetVersion` requires `raw/` and `snapshots/`; `features/` becomes
+     optional.
+   - The configured backtest, which needs derived features, keeps that requirement
+     in its own admission.
+   - J2 then publishes raw and snapshots, and J4 publishes a second version with
+     the feature bytes.
+2. **Streamed study market.** `CapturedStudyMarket` reads a published book snapshot
+   (snapshot identity and request identity) through the existing streamed book
+   reader. It verifies the snapshot once and yields only markets inside the
+   requested window, so memory is bounded by one window, not the capture.
+3. **Indexed saved decisions.** `SavedDecisionSource` reads its selection once, at
+   the selection's cutoff, and builds a per-requirement timeline of projected
+   values only (never full books).
+   - Book fields are indexed by knowledge time.
+   - Trades are indexed by event time, with every observed version. A read keeps,
+     per trade, the latest version known by the cutoff, as `PublicTradeReader`
+     does.
+   - Captured boundaries are indexed by receipt.
+   - Reference history resolves as today.
+   - `read(entity, at)` is a binary search plus a scan of the flow window, so folds
+     can read in any order. Results must equal today's at every cutoff; the
+     existing tests and a new randomized equality test over REST revisions,
+     captured gaps and books prove it.
+4. **Guides and template.**
+   - **Template.** The maintained template extension (`engineering-candidates`)
+     gains a fitted transform, an exact estimator, a forward label and an
+     order/quote policy, so every component role has a maintained example outside
+     `tests/`.
+   - **QR quickstart.** It gains a "Write a study" section: a complete `DecisionStudy`
+     with folds, holdout, economics, metric and chart, built from those components.
+     The study guide links it instead of the test consumers.
+   - **Instrument identity.** The study guide and QR guide state the rule: a new
+     listing gets one new canonical `InstrumentId` (a random UUID), authored once in
+     the QR's configuration and never derived from a symbol.
+
+**Choice for the owner — I: instrument identities.**
+- **I-A (recommended): authored and documented.** No code change. Existing
+  identities are authored UUIDs, so a derivation rule would introduce a second
+  convention.
+- **I-B: derived.** `InstrumentId.for_listing(venue, product, symbol)` returns a
+  UUIDv5. That needs a namespace decision, and existing identities would differ
+  from derived ones.
+
+**Journey declaration changes.**
+- J2's lakeFS step publishes raw and snapshots only.
+- J4 adds a lakeFS version with the feature bytes.
+- The driver passes the published book snapshot, not the capture directory, to the
+  study.
+
+**Plan.** One commit (M3c) with the full suite, then rehearsal 3, J1–J5 on a
+30-minute window. The QR workspace gains the J3–J5 scripts, written from the new
+guide.
+
+**Consequences.**
+- `DatasetVersion` admits versions without features. Retained MR04 versions still
+  contain features and stay valid.
+- `CapturedStudyMarket` callers and `captured_study.py` change to snapshot inputs.
+- Study results are unchanged; the equality tests prove it.
+
+## M3c result (2026-10-04)
+
+Implemented as approved, with I-A, in one commit. Nothing has been signed or run.
+
+**What changed.**
+- **lakeFS.**
+  - `LakeFSStorage.create` and `LakeFSStorage.publish` (upload, commit, resolve) go
+    through the SDK adapter, with new stub declarations.
+  - `DatasetVersion` requires `raw/` and `snapshots/`; `features/` is optional.
+  - Objects up to 2 GiB are verified and materialized in 64 MiB ranges, so a
+    capture segment never sits in memory. `read` returns only objects up to
+    64 MiB.
+  - The configured backtest now requires feature bytes itself.
+- **Streamed study market.** `CapturedStudyMarket` takes a published book snapshot
+  and request identity. It verifies the snapshot once, streams only each requested
+  window, and takes an optional `max_levels` depth bound, which is part of its
+  identity. `captured_study.py` is updated.
+- **Indexed saved decisions.** `SavedDecisionSource` reads its selection once, at
+  the selection cutoff, and answers every decision from indexes:
+  - **books:** the last row known by receipt;
+  - **trades:** each trade's change points in knowledge order, indexed per
+    instrument by event time;
+  - **captured trades:** boundaries by receipt.
+
+  Lineage is recomputed from each cutoff's query identity, through the new
+  `BookQueryReader.identity` and `ResearchReader.public_trade_versions`.
+- **Template and example.**
+  - **Template.** `engineering-candidates` gains `NamedProjection` (the
+    registered `projection` feature), `CenterScale` (a fitted transform),
+    `LeastSquares` (an exact estimator), `ForwardMidReturn` (a label),
+    `TouchQuote` (a rule order/quote policy) and `PredictionTarget` (a learned
+    target policy).
+  - **Example.** The new maintained [study example](../../examples/qr_study.py)
+    runs the rule study, the learned study and the frozen holdout over published
+    captures.
+  - **Guides.** The QR quickstart's step 4 is rewritten around them: capture,
+    publish, instrument identity (I-A), lakeFS, and the study rules.
+  - **Other guides.** The QR, study, observations, market-data and lakeFS guides
+    are updated.
+
+**Additions beyond the note, flagged for the owner.**
+- **Saved touch fields.** `SavedDecisionSource` also projects `ask`, `bid`,
+  `ask_size` and `bid_size`, with the live book source's units and aggregation. A
+  quoting study needs a price, and research previously offered only imbalance, so
+  no research quote could match paper. This is additive, with no format change.
+- **`BookSnapshot.request_identities`.** The example selects a book by instrument;
+  a request identity is a computed hash that discovery does not print.
+- **Defect fixed (from M2).** `CandidatePackager` read the fitted transform and
+  model of fold `len(folds)` instead of the last fold, `len(folds) - 1`. M2's
+  packaging test had no fitted state, so it never read them. The example's
+  integration test now packages a fitted two-fold study.
+
+**Open question for the owner — A: policy abstention.**
+- **The gap.** `DecisionTransition.intent` is required, and no intent means "do
+  nothing". A target policy can go flat, but a quote or order policy facing a
+  missing input can only invent a price or fail. The template's `TouchQuote`
+  fails with a clear error.
+- **Live consequence.** On live paper, a source gap would therefore fault the rule
+  candidate's step.
+- **Proposed (A-1).** An explicit abstain result: `DecisionTransition` with no
+  intent, using the "commit continuation, no order" path M1a added for warm-up.
+  It would need its own design note.
+- **Alternative (A-2).** Keep failing, and require a book freshness that makes
+  gaps rare. J6 would then risk an instance fault at a live gap.
+
+**Tests.**
+- `test_lakefs_versions.py`: the inventory rule; publication with ranged
+  verification, including a corrupted range and a staged file that is never linked;
+  and the size bounds.
+- `test_captured_market.py`:
+  - a capture of more than 10,000 records streamed one window at a time;
+  - the depth bound and its identity;
+  - live/saved equality of imbalance and touch fields at 89 cutoffs.
+- `test_public_data.py`: one selection mixing REST trades with a later revision,
+  captured trades with a gap and reconnect, and a captured book. The indexed source
+  must equal a fresh source pinned at each of 61 cutoffs, for two entities, lineage
+  included. A mutation check showed it fails when the effective-version rule is
+  removed.
+- `tests/integration/test_qr_study_example.py`: runs `examples/qr_study.py` as a
+  script for the rule study, the learned study and the learned holdout over
+  authored captures, then packages the learned study.
+- `test_engineering_candidates.py`: the template registry, a train-only
+  `CenterScale` fit, exact `LeastSquares` with a singular-design refusal,
+  `TouchQuote` stepping back and refusing a missing touch, and `PredictionTarget`
+  going flat without a prediction.
+
+**Journey driver.** QR scripts also receive `ALPHA_CLEARML_LOCAL_ENV`, the path of the
+private local-services file, for J3's ClearML publication. As with lakeFS, the driver
+never reads the file.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (702 files), native stubs (1,559 modules), engineering standards, dependency admission (188 packages), link and secret checks; 2,527 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 38 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 702 files |
+
+Two runs before this one failed and were fixed:
+- the first, on strict mypy in `test_captured_market.py` and then on the import
+  standard in `test_lakefs_versions.py`;
+- the second, on one unit test that pinned the template's old registry keys.
+
+## Rehearsal 3 (uncounted, 2026-10-04)
+
+**Setup.**
+- Declared through J3 at commit `8df9561`, with QR workspace `0f4ba88` and a
+  30-minute capture window.
+- It ran 09:55–10:27 UTC. Evidence is in `logs/mr17/rehearsal-3/`.
+
+**Result: failed in J2.**
+- **J1:** all 29 criteria passed, including the signed collector build, verify
+  and install that stopped rehearsal 2.
+- **J2:** six of the eight captures completed: every book feed and both Bitfinex
+  trades feeds. Both OKX trades captures exited 2 with stop reason
+  `readiness_deadline`. They had received 50 trades each, but the run never marked
+  itself ready.
+- **J3:** not run.
+
+**Cause: a platform defect from M1c-1.**
+- `capture-run`'s segment runner (`market_data.collection.rollover`) marked a feed
+  ready only on a `snapshot` outcome.
+- OKX trades have no snapshot; that tape synchronizes at its subscription
+  acknowledgement, as M1c-1 designed. Bitfinex trades start from a snapshot, so
+  they passed.
+- The supervisor's paper capture does not use this rule.
+
+**My error, recorded.** The two-minute probe after rehearsal 2 had already shown
+this failure: its OKX trades run ended with `readiness_deadline`. I checked only its
+stderr, which was empty, and not its exit code or stop reason.
+
+**Fix (commit below).**
+- The runner marks a feed ready on a `snapshot` *or* `acknowledgement` outcome
+  once its tape or book is ready. An OKX book is still ready only after its
+  snapshot.
+- A regression test runs `capture-run` on an OKX trades feed with the real
+  acknowledgement shape (including `connId`) and publishes the run as trades. It
+  fails without the fix.
+
+**J3–J5 dry runs while rehearsal 3 ran.** These are uncounted. They used a scratch
+environment from `8df9561` and 25 minutes of authored OKX books and trades, laid out
+as J2 leaves them.
+- **J3:** passed.
+  - The rule and learned studies, the two-variant grid, the holdout, and the
+    refusal of a changed second holdout.
+  - The fresh-process reopen, with the custom metric and chart.
+  - ETH studies selected by configuration, and the `XNYS` and perpetual-product
+    refusals.
+  - ClearML publication was not exercised, so as not to route the private key
+    path through my own commands.
+- **J4:** passed, except the lakeFS version, which was not exercised.
+  - Offline equals recomputation at 51 cutoffs, with no future leakage.
+  - The stream extends, and online matches offline.
+  - Expiry and missing entities are explicit.
+  - Publication fails closed with the Feast worker down, and the retry succeeds.
+  - Rollback serves the previous version, and a late revision reaches only later
+    cutoffs.
+- **J5:** passed. Both candidates package, a changed parameter is refused, and
+  replay through `CandidateLoader` equals the studies' decisions (18 learned, 10
+  rule).
+
+**Declaration corrections.**
+- **J3 refusal criterion.** A capability refusal (calendar `XNYS`) is retained as a
+  failed attempt holding only its publication policy. The criterion becomes
+  "refused before any input is read", not "no attempt data written".
+- **Learned feature.** The learned study's feature is declared `batch` with a
+  30-second expiry, so that one schema serves the study, the store and the
+  candidate.
+- **Learned candidate.** It is packaged source-fed until served learned features
+  exist (below).
+
+**New gaps for the owner.** Both belong to the M3d (feature publisher) design note.
+1. **Served learned candidates have no path.** The loader requires a served
+   candidate's stored definition to carry the fitted transform identity and the
+   transformed output fields. `materialize_features` refuses any definition with a
+   transform.
+2. **`CandidatePackager` accepts a mismatched feature-store definition.** It
+   accepted a stored definition whose schema differs from the study's; only the
+   loader refused it later.
+
+**Guide findings.** These are recorded in the QR workspace's `SOURCES.md`.
+- **Stateless features:** a stateless feature must be `batch` to be fitted.
+- **Feast worker command:** the guide never shows how to build it.
+- **ClearML keys:** the private file's key variable names are not documented.
+- **Order types:** `CandidatePackager`'s `order_types` (post-only quotes must
+  declare them) is not mentioned.
+- **Replay loading:** nothing shows how to load a bundle for replay.
+
+**Validation of the fix (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: 2,528 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 38 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 702 files |
+
+## Rehearsal 4 (uncounted, 2026-10-04)
+
+**Setup.**
+- Declared through J5 at commit `5b6cace`, with QR workspace `39920d6` and a
+  30-minute capture window.
+- Before it, a two-minute live probe with the fix showed all four trades feeds
+  ready, with stop reason `stop_deadline` and 146, 41, 62 and 48 trades. This time
+  exit codes and stop reasons were checked.
+- Evidence is in `logs/mr17/rehearsal-4/`.
+
+**Result: failed in J2 at 11:21 UTC,** at the driver's own `discover` criterion.
+- **J1:** passed.
+- **J2:** all eight captures and replays passed, and `capture-publish` published
+  one book snapshot (four books) and four trades snapshots.
+- **Cause: a driver defect.** The driver decoded `alpha-dataset discover`'s output
+  as a bare list. The command prints a `{status, result}` envelope.
+
+**Fix (commit below).**
+- The driver reads the envelope.
+- It requires status `complete` and exactly one book snapshot plus one per trades
+  feed.
+- A unit test covers the envelope, and decoding rehearsal 4's real output gives
+  five snapshots.
+
+**Continuation by hand.** This is uncounted and recorded here as run. The remaining
+QR steps ran on a scratch copy of rehearsal 4's J2 data, with rehearsal 4's frozen
+research environment and Feast worker.
+- **J2 reopen:** the book snapshot reopened with four partitions, and the four
+  trades snapshots reopened (Bitfinex BTC: 826 trades over 1,719 boundaries, 6
+  uncovered).
+- **J3:** passed, as were the driver's independent research checks.
+  - The rule study (111 s) and the learned study (159 s).
+  - The two-variant grid, the holdout and the refused changed holdout.
+  - The reopen with the custom metric and chart.
+  - The ETH rule and learned studies.
+  - The `XNYS` refusal (one failed attempt holding only its publication policy) and
+    the perpetual refusal.
+- **J4:** passed.
+  - Offline equals recomputation at 56 cutoffs, with no leakage.
+  - The stream extends, and online matches offline.
+  - Expiry and missing entities are explicit.
+  - Publication fails closed with the worker down, and the retry succeeds.
+  - Rollback works, and a late revision reaches only later cutoffs.
+- **J5:** the first run failed to package the rule candidate. My QR script took
+  "the first rule validation study", but the grid's variants share that family, so
+  it could pick a 0.4-threshold variant while declaring 0.2 parameters. QR
+  workspace `ab34f0d` selects the study whose recorded policy identity the
+  declared parameters rebuild. After that:
+  - both candidates packaged, and a changed parameter was refused;
+  - replay equals the studies (18 learned, 10 rule);
+  - the independent bundle checks passed.
+- **Not exercised by hand:** the lakeFS versions and the ClearML publication, which
+  need the private key paths only the driver passes.
+
+**Validation of the driver fix (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: 2,529 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 38 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 702 files |
+
+This commit also carries the M3d design note as a draft, not yet approved.
+
+## Rehearsal 5 (uncounted, 2026-10-04)
+
+**Setup.** Declared through J5 at commit `5aa3903`, with QR workspace `ab34f0d` and
+a 30-minute capture window. Evidence is in `logs/mr17/rehearsal-5/`.
+
+**Result: failed in J2 at 12:35 UTC,** at `reopen:lakefs_published`.
+- **J1:** passed.
+- **J2:** the eight captures, their replays, `capture-publish`, `discover` and the
+  snapshot reopen all passed.
+- **Cause: a defect from M3c, in `LakeFSStorage.publish`.** It passed each file's
+  bytes as the SDK's `upload_object(content=...)`. The generated SDK opens
+  `content` as a local file path, so the upload failed with "File name too long".
+  The unit test's fake API accepted bytes and could not show this.
+
+**Fix (commit below).**
+- `publish` passes the file path.
+- It takes each object's digest from a streamed read and its size from the file
+  system, and refuses an empty file, which a version cannot hold.
+- The stub declares `content: str` (a path).
+- The fake now reads the path, as the SDK does.
+
+The live upload path is exercised first by the next rehearsal, through the driver,
+which alone passes the private key path.
+
+**Validation of the fix (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: 2,529 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 38 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 702 files |
+
+## Rehearsal 6 (uncounted, 2026-10-04): J1–J5 passed
+
+**Setup.**
+- Declared through J5 at commit `cc1a2e6`, with QR workspace `ab34f0d` and a
+  30-minute capture window.
+- It ran 12:51–13:51 UTC. Evidence is in `logs/mr17/rehearsal-6/`.
+
+**Result: `stopped` at its declared step J5, with every run criterion passed.**
+
+| Step | Criteria | Highlights |
+| --- | --- | --- |
+| J1 | 29 passed | Fresh environments; extension install; import audit; non-editable research and extension identities; signed collector built, verified and installed |
+| J2 | 27 passed | Eight live captures and replays. `capture-publish`: one book snapshot (four books) and four trades snapshots. Discovery lists five. Reopen: Bitfinex BTC 742 trades over 1,551 boundaries. lakeFS: 21 objects committed and reopened byte-equal |
+| J3 | 26 passed | Rule and learned studies; the two-variant grid; the holdout and the refused changed holdout; ClearML publication (2 receipts); fresh-process reopen with the custom metric and chart; ETH studies by configuration; `XNYS` and perpetual refusals; independent checks |
+| J4 | 15 passed | Offline equals recomputation, with no leakage; the stream, with online matching offline; a lakeFS version with features; expiry, missing entity, fail-closed publication and retry, rollback, late revision |
+| J5 | 9 passed | Both candidates packaged; a changed parameter refused; replay through `CandidateLoader` equals the studies (18 learned, 10 rule decisions); independent bundle checks |
+
+**Guide findings to close before the counted attempt.** In a counted attempt guide
+coverage fails J1; this rehearsal recorded 31 uncovered names as findings. The QR
+workspace imports them, but no guide reachable from the quickstart names them:
+
+`AttemptHistory`, `BookQuery`, `CandidateBundle`, `CandidateDeployment`,
+`CandidateLoader`, `CandidateStateContract`, `CapabilityProfile`,
+`CapabilityRegistry`, `CapabilitySelection`, `DecimalGrid`, `DecisionContext`,
+`DecisionInputs`, `DecisionSource`, `DecisionTransition`, `Dimension`,
+`EstimatorLifecycle`, `FeastOfflineWorker`, `FeatureTransition`, `Fingerprint`,
+`FoldSummary`, `InputRequirement`, `IntentSimulationSpec`, `LimitExecutionConfig`,
+`LocalCandidateExecutor`, `Money`, `NumericField`, `OrderIntent`, `Quantity`,
+`QuoteIntent`, `TargetIntent`, `WireRecord`.
+
+Several are documented in owner guides that the quickstart does not link. Others,
+such as the replay registry and deployment, are documented nowhere a QR would look.
+The ClearML key names and the replay recipe are also open. These are guide work,
+done with M3f.
+
+**Not covered by this rehearsal:** J6–J8. J6 and J7 need M3d, M3e and M3f; J8 needs
+M4 and M5.
+
+## M3d design note: served learned features and the live feature publisher (approved 2026-10-04)
+
+The owner approved this note on 2026-10-04, including the signed
+`PaperFeatureServing.publisher` field. Nothing is implemented yet. This is the approved P-A
+publisher, extended by the two gaps rehearsal 3's dry runs found.
+
+**What the code shows.**
+- **Served vectors must be transformed.** `CandidateLoader` admits a served
+  candidate only if its stored definition carries the fitted transform identity and
+  the transformed output fields. The runtime then uses the served vector as the
+  transformed features. `materialize_features` refuses any definition with a
+  transform, and no supported path appends transformed vectors with their Feast
+  generation.
+- **The packager checks too little.** `CandidatePackager` accepts a stored
+  definition whose schema, transform or fields differ from the study's. Only the
+  loader catches the mismatch, at deployment.
+- **No live publisher exists.** No supported process extends a stream from live
+  inputs (gap G-P).
+- **Trades capture follows only source-fed candidates.** The supervisor starts a
+  source's trades capture only when a *source-fed* candidate reads trades.
+- **Where captures live.** Each feed's capture is retained under
+  `<root>/runs/<run>/<source>.<feed>/<recording>/`, as fsynced journals.
+
+**Design.** Each item replaces code in place, and no old path is kept.
+1. **Fitted materialization.**
+   - `materialize_features` accepts an optional fitted transform: the study's
+     `FittedTransform` and its retained `TransformVersion`.
+   - It computes each raw vector with the kernel and applies the retained state
+     (apply only, never fit).
+   - It appends the transformed vector under a definition whose
+     `transform_identity` and `output_fields` equal the version's, then publishes
+     and verifies the Feast generation as today.
+   - A definition with a transform but no matching version, or the reverse, is
+     refused.
+2. **The packager checks the stored definition.** `CandidatePackager.publish(...,
+   feature_store=...)` applies the loader's rule at packaging time: same schema,
+   the study's transform identity and output fields. For a fitted study, the
+   packager builds that definition itself from the last fold's `TransformVersion`,
+   so the QR passes only a name and entity type.
+3. **The live publisher (P-A).**
+   - **Owner.** A `runtime.FeaturePublisher` owner and an
+     `alpha-execute feature-publisher` command, bound by the signed paper-services
+     launcher like `deployment`.
+   - **Inputs.** For each feature-served `PackagedCandidate`, it loads the bundle's
+     kernel, transform state and stored definition from the signed release through
+     `InstalledExtensions`. It then follows the supervisor's retained book and
+     trades journals read-only, replaying each record through `CaptureReplay` into
+     `LiveBookDecisionSource`/`LiveTradeDecisionSource`.
+   - **Publication.** At each candidate grid instant it materializes one snapshot
+     of the pinned version through fitted materialization.
+   - **Bounds.** Its life is bounded like the supervisor's. It writes only the
+     feature store and the Feast generation root, and holds no account or venue
+     authority.
+   - **Configuration.** `PaperFeatureServing.publisher` (cadence equal to the
+     candidates' and a maximum lag) is a signed configuration field, as approved
+     for P-A.
+   - **Trades capture.** `PaperInputs` counts the publisher's inputs, so a source
+     whose served candidate needs trades still starts its trades capture.
+4. **Research parity.**
+   - J4 materializes the learned candidate's *transformed* vectors offline from the
+     J2 captures, with the study's last `TransformVersion`.
+   - J5 packages the learned candidate as served and replays it in
+     `offline_features` input mode. Its decisions must equal the study's.
+   - Paper (J6) reads the same stream through `online_features`.
+
+**Tests.**
+- Fitted materialization: transformed values, refusal of mismatched pairs, and
+  Feast parity.
+- Packager refusal of a mismatched definition, and a built definition matching the
+  loader's rule.
+- The publisher against authored growing journals: snapshots at grid instants,
+  lag, a missing input producing no snapshot, restart, and a bounded life.
+- A served replay equal to the study.
+- Wiring the supervisor to a running account owner stays a rehearsal check (J6).
+
+**Open for the owner alongside M3d.**
+- **A — policy abstention**, still open from M3c. A quote policy cannot abstain on
+  a missing touch, so a live data gap would fault the rule candidate.
+- **M3e and M3f** (the candidate monitoring exporter, and the driver's J6–J7) follow
+  M3d as planned.
+
+## M3d-1 result (2026-10-04)
+
+The first of two M3d commits: fitted materialization and the packager check. The
+live publisher (design item 3) is M3d-2. Nothing has been signed or run.
+
+**What changed.**
+- **Fitted materialization.**
+  - `materialize_features` takes an optional `transform` (`FittedTransform`) and
+    `transform_version` (`TransformVersion`).
+  - It applies the retained state to each raw vector and never refits. It stores
+    the result under a definition whose `transform_identity` and `output_fields`
+    equal the version's, then publishes Feast as before.
+  - A definition and transform that do not match, or one given without the other,
+    are refused before any read.
+- **Packager.**
+  - `CandidatePackager.feature_store(store, attempt_id, name=...)` builds the served
+    definition from the study: its feature schema and, for a fitted study, the last
+    fold's transform identity and output fields.
+  - `publish(..., feature_store=...)` refuses any other definition.
+
+**Tests.** `tests/integration/test_qr_study_example.py` gains a served test that
+runs with the real Feast worker and skips without one:
+- the packager builds the definition from the example's learned holdout study;
+- materializing that definition without the transform is refused;
+- materializing it with the transform stores vectors carrying the study's transform
+  identity;
+- the raw definition is refused at packaging, and the fitted definition packages as
+  a served candidate.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: 2,529 passed, 3 skipped (optional Feast cases with no worker selected, now including the new served test), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 39 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 702 files |
+
+## M3d-2 result (2026-10-04)
+
+The second M3d commit: the live feature publisher (design item 3) and the move of
+materialization into `research.features`. Nothing has been signed or run live.
+
+**What changed.**
+- **One materialization path.** `applications.explore.materialize_features` is
+  removed and replaced by `research.features.FeatureMaterializer.materialize`,
+  with the same contract. The paper-services wheel ships `research.features` but
+  not `applications.explore`, so the publisher could not use the old function.
+  Research workflows, tests and guides now call the new class.
+- **Following a live recording.** `market_data.storage.RecordingFollower` reads a
+  recording's journal incrementally and never writes.
+  - It reads only up to `cursor.json`'s offset, so a partial line is never decoded.
+  - It verifies the running SHA-256 against the cursor at that offset.
+  - It moves to a chain's next segment only once the current one is sealed and
+    fully read. It checks that segment against the run and its predecessor's name,
+    request identity and verified digest, as `CaptureRecording` does.
+- **Live inputs (`runtime.live_inputs`).**
+  - `LiveInputs` joins several sources into one ordered `DecisionSource`, for
+    example a book source and its instrument's trade source.
+  - The supervisor's observer now uses it in place of its own inline join.
+  - `FollowedFeed` replays a followed recording through the collector's native
+    reconstruction into a `LiveBookDecisionSource` or `LiveTradeDecisionSource`.
+- **The publisher.** `applications.execute.feature_publisher.FeaturePublisher`, run
+  as `alpha-execute feature-publisher --config --candidates --root`. The signed
+  launcher now admits this command and binds `--config` and `--candidates` as it does
+  for `deployment`.
+  - It binds the supervisor's run through a `status.json` naming the same
+    configuration identity and written after the publisher started, so an earlier
+    run's status in the same root is never adopted.
+  - It groups served instances by pinned stream and entity; instances sharing a
+    stream must share source and grid.
+  - It loads each bundle's kernel, transform state and stored definition through
+    `PaperServiceCandidates`.
+  - It follows the run's book recording, and its trades recording when the kernel
+    reads trades.
+  - At each grid instant it publishes once every followed feed holds a durable
+    record after the instant. It materializes the pinned version with
+    `FeatureMaterializer` and the fitted transform, Feast-verified before the
+    snapshot is appended.
+  - Its life ends when every followed recording is complete and accepted, or at
+    the supervisor's own end (duration plus drain reserve). It prints a per-stream
+    report: published, skipped, failures, last instant, last error.
+- **Configuration.** `PaperFeatureServing.publisher` is a `PaperFeaturePublisher`
+  carrying `max_lag_seconds` (1 to 300).
+  - `PaperServiceCandidates.published_inputs` counts a served stream's fields when
+    the publisher is declared, so a source starts its trades capture when a served
+    stream reads trades.
+  - Those fields now enter the source's projected requirements, so they also
+    change that source's identity.
+- **Packaging.** `runtime/live_inputs.py` is added to the paper-services wheel, and
+  `FeaturePublisher` is exported lazily from `applications.execute`.
+
+**Departures from the approved note.**
+1. **Where the owner lives.** The note named `runtime.FeaturePublisher`. The
+   publisher composes `PaperServiceCandidates` and the supervisor's layout, and
+   `runtime` may not depend on `applications`. So the owner lives in
+   `applications.execute`, and its reusable parts (`LiveInputs`, `FollowedFeed`) live
+   in `runtime`.
+2. **Clocks.** Each record is accepted on its receipt clock, the deterministic saved
+   reconstruction both live sources support, not on the publisher's own read time.
+   The published stream therefore equals what an offline reader of the same journals
+   computes, and a restart reproduces it.
+3. **Configuration.** The note listed "cadence equal to the candidates' and a
+   maximum lag". The signed field carries only the lag. The cadence comes from the
+   candidates' signed definitions, so it cannot disagree with them.
+4. **Lag rule.** An instant not published within the lag is skipped, whether its
+   feeds were late or the publisher was behind. A failed publication is retried
+   until then.
+5. **Limits, each failing closed.**
+   - Only batch feature definitions are served. An incremental definition binds one
+     checkpoint instance, which would clash with its offline history.
+   - One recording per feed: a restarted source stops the publisher with an error.
+   - Rows carry the live projection as their source and the supervisor run as their
+     dataset, and checkpoints are scoped to that run.
+
+**Open point for J6/J7 (owner decision before M3f).**
+- **What paper decides on.** At a grid instant the supervisor's observer serves the
+  latest snapshot published *by then*. The publisher can publish instant t only
+  after a record later than t exists on every feed, plus a Feast call. So a live
+  decision at t will usually read the snapshot of t − cadence, still within the
+  candidate's maximum age.
+- **What replay compares.** The delivery log retains the exact snapshot served, and
+  replay verifies it. An `offline_features` replay at t reads the snapshot at t.
+- **Consequence.** Paper-to-research parity in J7 must compare each paper decision
+  with the snapshot it actually served, not expect the value at t.
+- **Resolved.** The owner chose exact-instant serving; see the S-1 note.
+
+**Tests.**
+- **Follower** (`tests/unit/data/test_capture_recording.py`):
+  - incremental bounded polls;
+  - bytes past the cursor are never read;
+  - a changed durable byte is refused;
+  - a chain is followed across segments while it grows.
+- **Publisher** (`tests/unit/applications/test_feature_publisher.py`, authored
+  growing OKX journals):
+  - joined inputs keep declared order, and undeclared or repeated requirements are
+    refused;
+  - a followed feed reads exactly what the saved receipt reconstruction reads;
+  - instants publish only after both feeds pass them, with inputs equal to both
+    journals' saved reconstruction;
+  - a quiet feed holds publication, then instants beyond the lag are skipped;
+  - a failed publication is retried;
+  - a restart resumes after the stream's latest snapshot;
+  - the schedule ends with its recordings.
+- **Configuration and binding** (`tests/unit/applications/test_service_candidates.py`):
+  - publisher inputs start the trades feed only when declared;
+  - the lag bounds;
+  - status binding refuses a stale or foreign status;
+  - a run with no recording ends at the deadline;
+  - an incremental stream is refused;
+  - a configuration without a publisher is refused.
+- **Launcher** (`tests/engineering/test_paper_services_release.py`): the binding for
+  `feature-publisher`, and refusal of a `--config` override.
+- **End to end** (`tests/integration/test_qr_study_example.py`, with the real Feast
+  worker, skipped without one):
+  - the example's learned holdout study packages as a served candidate;
+  - its authored captures are placed as a supervisor run's recordings, and the
+    publisher runs to completion;
+  - at every published instant the served vector equals the one `FeatureMaterializer`
+    computes from the published captures through `SavedDecisionSource` with the
+    same transform.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` | Passed: 2,543 passed, 4 skipped (optional Feast cases with no worker selected, now including the publisher test), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 40 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 706 files |
+
+A first run failed the engineering-standards check: five cross-owner imports in the
+publisher bypassed public APIs, and three test helpers were module functions. Both
+were fixed (`FollowedFeed` and `LiveInputs` are now exported lazily from `runtime`)
+and the run above is the rerun.
+
+## S-1 design note: exact-instant feature serving (approved 2026-10-04)
+
+The owner chose on 2026-10-04 that a served candidate decides instant t only with
+the snapshot at exactly t. This replaces "the latest snapshot available". The owner
+approved this note on 2026-10-04, including the recorded-schema change in item 3
+with the schema name kept. Nothing is implemented yet.
+
+**What the code shows.**
+- **Online serving is "latest available".**
+  - At each crossed instant t, `SharedPaperCaptureObserver` serves an
+    `online_features` candidate through `ServedFeatures.serve`. That reads the
+    active version's latest snapshot by t, within the candidate's maximum age.
+  - The publisher (M3d-2) can publish t only after a record later than t exists on
+    every feed, plus a Feast call. So a live decision at t usually reads t − cadence.
+- **Offline replay is "exactly t".** `offline_features` replay requires a snapshot
+  exactly at t, which is what studies and J5 assume.
+- **One pending instant per candidate.** The observer decides each crossed instant
+  on the book that crosses it, from the latest eligible market at or before t. It
+  remembers only the latest crossed instant per candidate.
+- **Coordination is fixed in the log.** `SharedDecisionGroup` requires
+  `coordinated_at == at + 1µs`. `SharedBookDelivery` requires a delivery that decides
+  to also match (`matched`).
+
+**Design.**
+1. **One serving rule.** `ServedFeatures.serve` serves the snapshot exactly at t in
+   both input modes, with Feast parity for `online_features` as today. "No snapshot
+   at t yet" is a distinct result, `feature-pending`.
+2. **Deferred decisions.**
+   - When a served candidate's snapshot at t is pending, the observer keeps the
+     instant open. It retains that instant's market (the latest eligible market at or
+     before t, as today) and retries on each later book delivery.
+   - It decides t once the snapshot exists. It skips t with the pause reason
+     `feature-not-published` once the candidate's next instant is crossed, so the wait
+     is bounded by one cadence and needs no new setting.
+   - Source-fed candidates are unchanged and decide on the crossing book.
+3. **Recorded schema change (needs approval).**
+   - **Coordination.** A deferred group is coordinated when it is decided:
+     `coordinated_at` is one microsecond after the delivery that preceded the
+     deciding delivery, and at least `at + 1µs`. The invariant becomes
+     `at + 1µs ≤ coordinated_at < delivery.available_at`. Account knowledge therefore
+     never precedes a book already matched, and the decision's quote stays the
+     instant's market.
+   - **Matching.** `matched` may now accompany a deferred decision: a delivery that
+     decides also matches its own book, as today.
+   - **Unchanged.** Existing logs satisfy the new invariant, so no record is
+     reinterpreted. The schema name stays `shared-candidate-delivery`, because the
+     change only widens what it accepts. If you prefer a version bump, it would be
+     `shared-candidate-delivery-2`; I do not recommend one, since no consumer reads
+     the field differently.
+4. **Replay.** Replay accepts a retained group only for an instant crossed earlier
+   and not yet decided, with its coordination inside the widened bounds. It then
+   verifies the exact served snapshot as today. Replay never consults whether the
+   snapshot existed at the time; the log is the evidence.
+5. **Latency is measured.**
+   - The decision delay (`coordinated_at − at`) is already retained.
+   - Monitoring reports its distribution per candidate. J7 checks that the study's
+     simulated entry delay is at least the observed decision delay.
+   - Research gets no new feature now.
+6. **Release.** This changes the paper-services release, which stage 2b qualifies
+   anyway, as with AB-1.
+
+**Tests.**
+- A served instant decides once its snapshot appears, from the instant's market,
+  with coordination inside the bounds.
+- A snapshot that never appears skips the instant at the next crossing with
+  `feature-not-published`.
+- A late snapshot never serves a later instant's value.
+- Exact replay of deferred decisions, and refusal of a retained group coordinated
+  outside the bounds or for an undecided-later instant.
+- `ServedFeatures` refuses "latest" and returns `feature-pending`.
+- The integration publisher test, extended with the supervisor's observer in
+  process: paper decisions read exactly the research values at t.
+
+**Sequencing.** One commit, after M3d-2 and before the AB-1 abstention commit. Both
+touch `SharedPaperCaptureObserver`, and doing this first keeps AB-1's cancellation
+rule unaffected by deferral.
+
+**Addendum B (approved 2026-10-04): the quote of a deferred decision.** Item 2's
+"retains that instant's market" cannot be admitted. By the time a deferred decision
+is made, the account has observed and matched later markets, and its valuation clock
+never moves back. The account also requires a decision's quote to be its latest
+observed quote. The owner approved option B:
+- **Quote.** A group's quote is the latest eligible market known at coordination.
+  For a decision on the crossing book this is the instant's market, unchanged; for a
+  deferred one it is a later market.
+- **Bounds.** The supervisor log's quote bound moves from `SharedStrategyInput`
+  (quote no later than the instant) to the group and the runtime (quote strictly
+  before coordination).
+- **Account decision time.** It is the later of the feature instant and the quote's
+  time, when both were known. Every existing decision keeps its time. Account
+  admission is unchanged, so no execution-owner change is needed.
+
+## S-1 result (2026-10-04)
+
+Exact-instant serving with addendum B. Nothing has been signed or run live.
+
+**What changed.**
+- **Serving.** `ServedFeatures.serve` serves only the pinned version's snapshot
+  exactly at the cutoff in both modes, through the new
+  `VersionedFeatureStore.exact_materialization`. Online, a missing snapshot is
+  `feature-pending`, and the pinned version must be active. Offline, a missing
+  snapshot is an error, as before. `verify` also requires the retained snapshot to
+  be the cutoff's own. The "latest by the cutoff within the maximum age" path and
+  `ServedFeatures.maximum_age_us` are removed.
+- **Observer.**
+  - Each crossed instant opens if an eligible market at or before it exists.
+  - On every eligible delivery, open instants are tried in ascending order. A
+    decided group is quoted at the latest market known before that delivery and
+    coordinated at the later of instant + 1 µs and the preceding delivery + 1 µs.
+  - A source-fed instant decides or closes on its crossing delivery, as before.
+  - A served instant stays open while `feature-pending`. It is skipped as
+    `feature-not-published` when the delivery that opens its candidate's next
+    instant still cannot decide it. That same delivery decides it first if its
+    snapshot has just appeared.
+  - Replay recomputes the open instants, the quote and each coordination clock,
+    and refuses any difference.
+- **Schema (approved items 3 and B).**
+  - `SharedDecisionGroup` requires `at + 1µs ≤ coordinated_at` and a quote
+    strictly before coordination.
+  - `SharedBookDelivery` requires coordination no later than the delivery.
+  - A delivery that decides still matches its book.
+  - `SharedDecisionRuntime.evaluate` refuses inputs or quotes at or after
+    coordination, and dates each account decision at the later of the instant and
+    the quote time.
+- **Docs.** The runtime and feature-store guides describe the rule. The feature
+  guide's stale claims (an incremental instance always required, unfitted kernels
+  only) are corrected.
+
+**Departures from the note.**
+- **Monitoring.** Reporting the distribution of decision delay is moved to M3e,
+  the candidate monitoring exporter. The delay itself is retained in every group
+  (`coordinated_at − at`).
+- **Integration test.** The note's integration test with the observer in process
+  is not added. Exactness is covered by composition: the publisher integration
+  test proves the published values equal research's at t, and the observer unit
+  tests prove paper decides only on the snapshot at t. J6 checks the composition
+  live.
+
+**Tests.**
+- **Serving:**
+  - an instant reads its own snapshot or `feature-pending`;
+  - a retained feature from another cutoff is refused;
+  - pending, rollback and unavailable reasons;
+  - an offline cutoff without its snapshot is refused;
+  - online pending and expired pause before any Feast call.
+- **Deferral** (`test_served_decisions_wait_for_their_snapshot_and_replay_exactly`):
+  - an instant without a snapshot is skipped as `feature-not-published` once the
+    next instant decides;
+  - an instant whose snapshot is published after it opened decides on the next
+    delivery, coordinated after the preceding delivery and quoted at the market
+    known then;
+  - exact replay into a fresh journal, and an exact no-op retry into the live
+    journal;
+  - a forged served value or coordination is refused.
+- **Schema:** coordination before the instant or after the delivery is refused, and
+  a quote at or after coordination is refused by the runtime.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` | Passed: 2,543 passed, 4 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 40 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 706 files |
+
+A first run failed 8 public-paper workflow cases (the same 8 in the unit and
+integration lanes) with "shared decision names an instant that is not open". Opening
+an instant skipped instants the account had already committed, so replaying a
+retained log into the same journal, an exact retry, could not reopen them. Opening
+now depends only on the delivery stream, and the committed-instant check moved to
+live decision-making. The new no-op retry case fails on the old code and passes now.
+The run above is the rerun.
+
+## Extension identity defect (found 2026-10-04)
+
+**Found while dry-running the updated J4 and J5.** M1b defined an extension's
+identity as the SHA-256 of its whole installed `RECORD`. That file also lists what an
+installer writes: `direct_url.json` (the source path), `INSTALLER`, `REQUESTED` and
+uv's cache files. So the same extension code installed from another path got
+another identity:
+- rehearsal 4's environment, installed from `<attempt>/qr/mr17-extensions`;
+- the scratch environment, installed from the QR workspace.
+
+Packaging then refused a study made in the other environment.
+
+**Why it matters for J6.** A QR's studies pin the research environment's identity,
+while the signed paper-services release installs the extension from its own wheel.
+Every packaged candidate would have been refused by the supervisor.
+
+**Fix (commit below).** This keeps M1b's approved `RECORD`-based identity and its
+intent, that the signed deployment pins the exact extension code.
+- Every recorded file is still verified against `RECORD`.
+- The identity is now the SHA-256 of the **code inventory**: the sorted `RECORD`
+  entries of the package files, plus `METADATA` and `entry_points.txt`.
+- Installer-written files and bytecode caches are excluded.
+- `InstalledExtensions.artifact` retains that inventory as the study artifact.
+
+**Tests.**
+- Two installs differing only in installer files and bytecode get one identity, and
+  changed code changes it.
+- The two real `mr17-extensions` installs that disagreed now agree
+  (`5a8be3f9…`).
+- The existing identity test now checks the inventory.
+
+**Consequences.** Extension identities change once, so studies and bundles made
+before this commit no longer package or load with the current code. Recorded
+rehearsals stay valid at their own commits.
+
+**Validation.** This ran on a tree that also held uncommitted M3d-2 work, which is
+not in this commit.
+
+| Check | Result |
+|---|---|
+| `make check` | Passed: 2530 passed, 3 skipped, 25 performance deselected; wheel smoke passed |
+| Integration lane | 39 passed |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 703 files |
+
+## A-1 design note: explicit policy abstention (approved 2026-10-04)
+
+The owner approved A-1 and then AB-1 on 2026-10-04. Nothing is implemented yet.
+
+**What the code shows.**
+- **Policies cannot abstain.** `strategies.DecisionTransition.intent` and
+  `DecisionRecord.intent` are required, so a policy must emit an order, quote,
+  target or exposure at every decision.
+- **Paper already has a "do nothing" path.** Since M1a (C2), an account decision may
+  carry no intent. The account then commits the continuation, reserves nothing and
+  reports `no_intent`. The instance's working orders are untouched.
+- **Research has no such path.** The research simulator (`LimitOrderExecution`)
+  plans one order set per decision. A later decision cancels the earlier plan after
+  `cancel_delay_us`, and every order expires after `lifetime_us`. A decision with no
+  plan does not exist today.
+
+**Design.**
+1. **Abstention.** `DecisionTransition.intent` becomes `DecisionIntent | None`, and
+   so does `DecisionRecord.intent`. A policy returns `None` to abstain; its state
+   still advances.
+2. **Admission.** A policy's declared output still bounds what it may emit;
+   abstention is allowed for every output.
+3. **Research and paper treat abstention identically,** per the choice below.
+4. **Template.** `TouchQuote` abstains on a missing touch instead of failing.
+   `PredictionTarget` keeps going flat, which is an intent, not an abstention.
+5. **Records.** Studies, candidate steps and delivery logs record an abstention as a
+   decision with no intent, so replay compares it exactly.
+
+**Choice for the owner — AB: what abstention does to working orders.**
+- **AB-1 (recommended): abstention cancels the instance's working orders.** It makes
+  one rule hold in research and paper: every decision fully specifies the instance's
+  desired working orders, and an abstention means none. Research already replaces
+  an earlier plan at each decision, so parity holds by construction, and a new venue
+  or order type implements only "replace this instance's working set". A missing
+  input means the policy cannot price, so resting quotes from an earlier decision
+  should not stay live.
+  - **Research:** the simulator treats an abstaining decision like a new decision
+    with no orders: it cancels the earlier plan after `cancel_delay_us`.
+  - **Paper:** the account cancels the instance's non-terminal orders, under the same
+    fencing as its `stop_instance` cancellation, and commits the continuation.
+  - **Target policies:** for a held target this cancels only working orders; the
+    position is unchanged.
+  - **Cost:** a change in the execution owner, so a new execution release, which 2b
+    qualifies anyway.
+- **AB-2: abstention leaves working orders to their own lifetime.** This is the
+  smallest change, because paper already behaves this way. But a research order then
+  expires after `lifetime_us`, while a paper order has no matching lifetime, so the
+  two would differ until both declare one.
+
+**Tests.**
+- Abstention in a study, with exact replay.
+- Candidate steps that abstain.
+- AB-1 cancellation in the simulator and in the account (with fencing and retry).
+- The template quote abstaining on a missing touch.
+- Delivery-log replay of an abstention.
+
+**Widened AB-1 (approved 2026-10-05): every decision replaces the instance's
+working orders.**
+- **Why AB-1 had to widen.**
+  - AB-1 assumed paper replaces an instance's working orders at each decision, as
+    research does. It does not.
+  - Account admission only adds a decision's orders, and paper matching cancels an
+    order only after an explicit request, from an instance stop or an operator.
+  - So for order and quote candidates, paper accumulated orders at every decision
+    while research replaced its plan. Reserved exposure grew until the budget
+    rejected new decisions.
+- **Rule.**
+  - When the account admits a decision for an instance, with or without an intent,
+    it first requests cancellation of that instance's live orders at the decision
+    time, under the fencing `stop_instance` uses (shared physical parents included).
+    It then admits the new orders.
+  - Paper matching already applies `cancel_delay_us` to a cancel request, so the
+    timing matches research's replaced plans. An abstention is the same rule with no
+    new orders. The research simulator treats a decision without an intent as a plan
+    with no orders.
+- **Warm-up.** A warming step carries no intent either, so it also cancels the
+  instance's live orders. This matters only after a restart, when old orders would
+  otherwise rest with no policy managing them.
+- **Rejections.**
+  - A rejected decision (budget, risk) is rolled back whole, including its cancel
+    requests, so its earlier orders keep working.
+  - A replaced order keeps its reservation until its cancel completes, as at a
+    venue. So a budget-bound candidate may be rejected where research, which models
+    no budgets, is not. J7 declares and checks that difference.
+- **Targets.** A target decision is no longer refused (`pending_target`) for live
+  orders of its instance that already carry a cancel request; it is still refused
+  for any other live order. A replaced order that fills before its cancel completes
+  is reflected in the holding of the next decision.
+- **Scope.**
+  - The account owner, which serves the supervised paper services and the dedicated
+    account path.
+  - The older single-candidate `PaperOrderJournal` workflow, outside the journey,
+    keeps explicit replacement only. Retiring it is proposed separately.
+- **Release and records.** This is an execution-owner change and needs a new
+  execution release, which stage 2b qualifies anyway. Paper journals gain cancel
+  requests at each decision.
+- **N1 (approved 2026-10-05): no netting across supervised instances.**
+  - The account nets child orders that share a portfolio, side, price and
+    time-in-force into one physical order. The supervisor gave every instance the
+    portfolio `reference`.
+  - So one instance's replacement would cancel a shared physical order and strand
+    another instance's portion until an explicit reconcile and reissue.
+  - The supervisor now binds each instance as its own portfolio
+    (`portfolio_id` = instance id). A decision replaces only its own orders, and
+    each candidate's fills stay its own, as research simulates them.
+  - Account netting and self-trade protection are unchanged.
+
+## AB-1 result (2026-10-05)
+
+Explicit abstention, with every paper decision replacing its instance's working
+orders and no netting across supervised instances (widened AB-1 and N1). Nothing
+has been signed or run live.
+
+**What changed.**
+- **Contracts.** `DecisionTransition.intent` and `DecisionRecord.intent` accept
+  `None`, which records an abstention. `PolicySession` admits an abstention for
+  every declared output and still advances the policy state.
+- **Research simulator.** A decision without an intent replaces the earlier plan
+  like any decision, after `cancel_delay_us`, places nothing, and is recorded as
+  `abstained`.
+- **Paper account.**
+  - `AccountAdmission.request_instance_cancels` is the cancellation `stop_instance`
+    used, now shared by stopping and by replacement.
+  - In paper mode, every non-protective admission first requests cancellation of
+    the instance's live orders at the decision time, physical parents included.
+    The event identity is `replace:<decision>:<order>`.
+  - A target is held back (`pending_target`) only by live orders not already being
+    replaced, directly or through their parent.
+  - Venue modes and protective reductions are unchanged: replacement there needs
+    the venue path to send its cancels, which is outside MR17.
+- **Supervisor.** Each instance is bound as its own portfolio (`portfolio_id` =
+  instance id).
+- **Template.** `TouchQuote` abstains without a then-known touch. Its identity is
+  now `touch-quote/2`, because its behaviour changed.
+- **Docs.** The strategies, simulation, runtime and paper guides describe
+  abstention and replacement.
+
+**Consequences and open points.**
+- **One existing test changed.** A new decision is no longer refused while another
+  instance's stranded remainder awaits reconciliation, because it now replaces its
+  own remainder. The reconciliation guard is unchanged and is exercised through the
+  explicit reissue command instead.
+- **The QR's own quote policy** in the workspace still refuses a missing touch.
+  Abstention is now available to it through the strategies guide; adopting it is
+  the QR's choice, observed in J6.
+- **The older single-candidate `PaperOrderJournal` workflow** (`alpha-paper`)
+  keeps explicit replacement only. It is outside the journey and superseded by the
+  supervised services. Retiring it is proposed for the owner.
+
+**Tests.**
+- An abstention cancels the resting plan after cancel latency and places nothing.
+- A candidate step abstains as a decided step with no intent, and the policy state
+  advances.
+- **Paper account:**
+  - a rejected decision leaves the working order untouched (rollback);
+  - an abstention requests cancellation of the instance's physical order and
+    reports `no_intent`;
+  - a target then proceeds past the order it replaces.
+- The template quote abstains on a missing touch.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` | Passed: 2,546 passed, 4 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 40 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 706 files |
+
+A first run failed on two counts:
+- **Strict mypy.** One test list needed the now-optional intent type. That stopped
+  `make check` before its unit tests.
+- **Public-paper workflow (8 cases).** Its independent model did not know the
+  replacement rule. The netted physical order, still partly unfilled when the next
+  decision coordinated, now carries that decision's cancel request, while fills
+  and economics are unchanged.
+
+The consumer now derives replacement independently, from its retained delivery log
+and the paper events: an order is replaced when a later decision of an owning
+instance coordinates while it is still live.
+
+A second run passed integration, performance and Linux strict mypy. It failed
+`make check` on 2 dependency-closure tests unrelated to AB-1. Their fixture policy
+had fixed dates whose review expired on 2026-10-04, so the governance check
+correctly refused it from 2026-10-05. The fixture's dates now follow the calendar;
+the production expiry rule is unchanged.
+
+`make check` was then rerun alone, because only that test fixture had changed, and
+passed as shown. The other three rows are from the second run. The repository's own
+dependency policy review falls due on 2026-10-31.
+
+## M3e design note: the candidate monitoring exporter (approved 2026-10-05)
+
+M-1 (approved) chose one exporter, run from the supervisor's diagnostic process. It
+writes each packaged candidate's runtime metrics to `monitoring/telemetry.sqlite3`
+at the telemetry cadence, revises delayed labels as they mature, and sends threshold
+alerts to `alert_socket`. S-1 added the decision-delay distribution. This note fixes
+the specifics.
+
+**What the code shows.**
+- **The exporter is single-candidate only.** `runtime.CandidateMonitoringExporter`
+  takes the older dedicated `PaperConfiguration` and continuation. It emits only a
+  learned candidate's prediction and its outcome. Its only caller is a test consumer.
+- **The diagnostics process already does most of the work.** It inspects each
+  account read-only, builds per-instance P&L (`PaperScopeReport`) with attributed
+  fills, and appends account events to the telemetry store. It neither loads
+  candidates nor evaluates their metric components.
+- **Metric components need fold evidence.** They read a `ReportContext` of
+  `FoldSummary` rows: a ledger of `accounting.Fill`s, a terminal mark and a mark
+  curve. Paper fills are the same `Fill` type.
+- **Contracts already carry the declarations.** `CandidateMetricContract` declares
+  `applies_to=("runtime", ...)`, units and `warning_below`/`warning_above`.
+- **Alerts exist only for account controls.** `OperationalAlerts` journals alerts
+  for those controls; `HealthAlert.deliver` is the generic local datagram.
+- **Labels need data from after the decision.** A label adapter needs the base
+  observation at the instant and a future one at the horizon.
+
+**Design.** Everything replaces code in place.
+1. **One exporter.** `CandidateMonitoringExporter` is rebuilt around a
+   `CandidateEvidence` record: the loaded candidate, its instance and account, the
+   instance's attributed paper fills, marks and decided steps. From that it emits:
+   - **runtime metrics:** each runtime metric contract, evaluated by the bundle's
+     own metric component over one paper fold;
+   - **decision delay:** `runtime.decision-delay`, coordination − instant, per
+     decided step;
+   - **predictions:** `research.prediction` for learned candidates;
+   - **labels:** `research.outcome`, revised as each matures.
+
+   The old dedicated-path caller (a test consumer) moves to the new record.
+2. **Paper fold — choice D1.**
+   - The ledger is the instance's attributed fills, with the instance's budget limit
+     as its initial cash.
+   - Marks and the curve come from the supervisor's own book recording, at each of
+     the candidate's grid instants. The diagnostics process follows it read-only
+     with `RecordingFollower`/`FollowedFeed`, on receipt clocks as the publisher
+     does.
+   - So the curve is deterministic and survives a diagnostics restart.
+   - The alternative is to keep marks in memory from each diagnostic sample. That is
+     simpler, but a restart loses the curve.
+3. **Labels — choice D2.**
+   - For a learned candidate, the bundle's label adapter is evaluated from the same
+     followed book source: the base at the instant, the future at instant + horizon.
+   - An event is `pending` until the horizon has passed on that source, then
+     revised with its value.
+   - The alternative is to defer labels until after MR17: J6 does not require them,
+     but M-1 did.
+4. **Alerts — choice D3.**
+   - A new `CandidateMetricAlerts` journal in `monitoring/` alerts once each time a
+     metric crosses from inside its warning band to outside it, and records each
+     attempt.
+   - The alert identity is `candidate-metric:<instance>:<metric>:<sample>`. The
+     message is bounded and sent through `HealthAlert.deliver` to the configured
+     `alert_socket`.
+   - The account-control `OperationAlert` schema is untouched. The alternative is to
+     generalize it, which changes a retained schema.
+5. **Wiring — choice D4.**
+   - `PaperServiceDiagnostics` receives the release's candidates directory, so it
+     loads candidates through `PaperServiceCandidates`, read-only and with no
+     account authority.
+   - It reads decided steps from the supervisor's fsynced delivery logs, tailed
+     incrementally.
+   - Candidate events go into the same telemetry store under each account's
+     monitoring identity, so they appear on that account's dashboard.
+   - The dashboard renders candidate metric events as their own panel.
+
+**Tests.**
+- **Exporter:**
+  - metric values equal the component evaluated over a hand-built fold;
+  - decision delays;
+  - pending-then-revised labels;
+  - band-crossing alerts sent exactly once and journaled;
+  - an unwritable socket recorded as failed and never retried silently.
+- **Diagnostics:** an integration test with authored recordings, a packaged
+  candidate and an account, checking that the dashboard shows the metric and a
+  local receiver gets the alert.
+- **Migration:** the dedicated-path consumer migrated.
+
+**Recommendation.** D1 (curve from recordings), D2 (labels now, as M-1 approved),
+D3 (separate candidate alert journal) and D4 as written.
+
+**R1 replaces D3 (approved 2026-10-05).**
+- **Why.** A generic dashboard and alert path already exists. `MonitoringConfiguration`
+  holds metric specs, dashboard panels and exact `AlertRule`s, and
+  `DashboardBuilder` delivers through the existing `OperationalAlerts` journal to a
+  local socket. A separate candidate alert journal would be a second alert path.
+- **Rendering.** At a bounded cadence (60 s), the diagnostics process renders each
+  account's dashboard with the existing builder.
+- **Configuration.** The installed defaults, plus one panel per runtime metric
+  contract, plus one `AlertRule` per declared warning band, addressed to
+  `alert_socket`.
+- **Alerts.** One alert path for all monitoring, live during the run, with no new
+  schema. Existing alert semantics apply: a breach repeats once per dashboard
+  cadence.
+
+## M3e result (2026-10-05)
+
+The candidate monitoring exporter (M-1), with D1, D2 and D4, and R1 in place of D3.
+Nothing has been signed or run live.
+
+**What changed.**
+- **The exporter (rebuilt in place).** `runtime.CandidateMonitoringExporter` takes a
+  loaded candidate, the account scope, mode and study, and no longer the older
+  dedicated configuration. It emits:
+  - **runtime metrics:** each runtime metric contract, evaluated by the bundle's own
+    metric component over one paper fold (`CandidateEvidence`);
+  - **decision delays:** `runtime.decision-delay`, in seconds;
+  - **predictions:** `research.prediction`;
+  - **outcomes:** `research.outcome` for labels the caller computes.
+
+  `thresholds` turns each contract's warning band into a `MetricThreshold`.
+- **Telemetry.** `MetricThreshold`, and `MonitoringConfiguration.paper(...,
+  thresholds=...)` places an `AlertRule` for each declared band edge on the page
+  that holds its series.
+- **Diagnostics.** `CandidateTelemetry` runs inside the diagnostics process. The
+  supervisor now passes it the run directory and the release's candidates.
+  - **Each account sample:** it exports the account's instances' runtime metrics
+    from the fills that sample already holds. It tails the account's fsynced
+    delivery logs for newly decided instants' delays. For each learned instance it
+    exports the newly committed prediction from that instance's latest continuation.
+  - **Every 60 s:** it renders the account's paper pages under
+    `monitoring/dashboards/<account>/<clock>-<page>/`, delivering breaches to
+    `alert_socket` through `monitoring/alerts.sqlite3`.
+  - **Failures** are counted in the diagnostics' failures and never reach an
+    account.
+- **Supporting changes.**
+  - The read-only `InspectedPaperAccount` is now public.
+  - The only consumer of the old exporter is migrated.
+  - The quickstart and paper guide describe candidate metrics on supervised
+    dashboards.
+
+**Departures from the note.**
+- **D1, simplified to research's own convention.** A study fold's curve is its
+  opening mark and terminal mark. The paper fold is built the same way: the
+  instance's attributed fills, its budget limit as capital, and a terminal mark at
+  the latest bid in the account's sample. So the curve needs neither the recording
+  nor any retained history, and it survives a restart.
+- **D2, not implemented: an owner decision.** A candidate bundle has no label
+  component: its roles are feature, transform, estimator, policy, metric and chart.
+  Computing labels at runtime would first need the study's label component packaged
+  as a new bundle role. The exporter keeps `outcome()` for labels computed
+  elsewhere.
+- **Predictions are sampled.** They come from each instance's latest continuation at
+  each telemetry sample, so a step superseded between two samples is not exported.
+  Decision delays come from the complete delivery logs.
+- **Shadow accounts.** They export candidate events, but dashboards are rendered for
+  paper accounts only: the paper view is paper-mode only.
+- **Alert text.** Metric alerts use the existing alert journal, whose datagram text
+  is `account-control:<digest>`.
+- **Untested here.** Delivery-log tailing is not unit-tested; J6 exercises it.
+- **Runtime labels after MR17 (owner decision, 2026-10-05).** A label component role
+  in candidate bundles, and runtime label computation, are deferred until after MR17.
+
+**Tests (`tests/unit/applications/test_service_candidates.py`).**
+- **Exporter:**
+  - the runtime metric equals the packaged `fold-net` component over the paper fold
+    (−11/10 USDT);
+  - the band threshold;
+  - the decision delay and its refusal;
+  - the band's rule triggers and is journaled through the existing builder.
+- **Diagnostics sample:** an account sample exports the metric, renders a dashboard
+  page, and delivers the alert to a bound local datagram receiver, journaled as
+  `delivered`.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` | Passed: 2,548 passed, 4 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 40 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 707 files |
+
+A first run failed strict mypy. The diagnostics test doubles in
+`tests/unit/applications/test_paper_services.py` still overrode `_serve` with the old
+signature, which also stopped `make check` before its unit tests. They now take the
+run directory and candidates. The run above is the rerun.
+
+## M3f-1 result (2026-10-05)
+
+Guide coverage and shadow dashboards: the first of three M3f commits. M3f-2 adds the
+driver's J6, and M3f-3 its J7.
+
+**Guide coverage.**
+- **Before.** Against the current QR workspace, 29 imported names were in none of
+  the 18 documents reachable from the declared entry guides.
+- **The QR API map.** `examples/qr-api.md`, linked from the quickstart's extension
+  section, lists every supported name a component, study, replay or feature-store
+  call needs, grouped by task, each with its import package and purpose.
+  - It closes the rehearsal finding that no guide shows replaying a bundle, with a
+    six-step replay recipe: capability profiles, deployment, loader and executor.
+  - It states that each decision replaces working orders, and how a policy abstains.
+- **ClearML keys.** The quickstart now links the ClearML local-services guide. That
+  guide already named `CLEARML_LOCAL_ACCESS_KEY` and `CLEARML_LOCAL_SECRET_KEY` but
+  was unreachable from the entry guides; this closes rehearsal 6's J3 finding.
+- **Stale quickstart text corrected.**
+  - The extension identity is the code inventory, not the whole `RECORD`.
+  - A policy may abstain, which replaces the "a policy must decide at every
+    decision" paragraph.
+- **After.** The driver's own `GuideCoverage` finds 0 uncovered names.
+
+**Shadow dashboards.**
+- `MonitoringConfiguration.paper` is replaced by `account`, for paper or shadow
+  accounts.
+- Its metric specs take the query's mode, and its title names the mode.
+- The diagnostics now render shadow accounts' pages too, so J6's "custom metric on
+  each account's dashboard" covers the shadow phase.
+- Its callers and the telemetry guide are updated.
+
+**Tests.** A shadow-mode exporter's metric forms a shadow page with its band rule,
+and a research-mode view is refused.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` | Passed: 2,549 passed, 4 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 40 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 707 files |
+
+## M3f-2 design note: the journey's J6 (approved 2026-10-05)
+
+The owner approved this note on 2026-10-05. It fixes the numbers the J6 declaration
+left open, extends the QR's candidates to the declared instruments, and fixes how the
+driver runs J6. Nothing is implemented yet.
+
+**Frozen J6 numbers** (MR15's qualified 2a envelope, sized for live BTC and ETH).
+- **Accounts.** `okx-shared` (BTC), `okx-isolated` (ETH), `bitfinex-shared` (BTC) and
+  `bitfinex-isolated` (ETH), each opened with 100,000 in its quote currency.
+- **Budgets.** 10,000 firm and per account, 5,000 per instance, and 1,000 maximum
+  order notional.
+- **Admission.** Fee rate 0.001, quote age 30 s, state age 120 s and price deviation
+  500 bps.
+- **Sizes and the race.**
+  - BTC accounts have a position limit of 0.01. The rule candidate quotes 0.006 per
+    side and the learned candidate targets 0.006, so on `okx-shared` the two contend
+    for the limit: one is admitted and one refused.
+  - ETH accounts have a position limit of 0.5, with 0.1 for each candidate.
+- **Adverse cost.** 0.5 quote currency per base unit in every scenario.
+- **Grants.** 80 orders per hour per account, each grant expiring after one hour.
+- **Alert.** The QR's net-per-turnover contract declares a warning band that a short
+  run cannot satisfy, so its alert fires during P-A and the receiver must hold it.
+
+**Candidates for every declared instrument.** The QR workspace's J3 and J5 study and
+package the rule and learned candidates for OKX BTC and ETH and Bitfinex BTC and ETH:
+eight bundles. This roughly quadruples J3's runtime.
+
+**How J6 runs.**
+- **Platform side.** `journey_paper.py` is copied and run like `journey_checks.py`,
+  with the research interpreter. It authors:
+  - the services configuration, each account's configuration, deployment and
+    authorization, the owners file, and the control and observation files;
+  - install and claim through `InstalledPaperAccount`;
+  - an independent reconciliation of every account every 60 s, from its settled
+    ledger and open orders as MR15's reconciler does.
+  - After each phase it checks: reconciliation, per-strategy costs and P&L, the
+    race, exact replay of every delivery log, served-feature lineage, dashboards
+    and the received alert, and zero shadow fills.
+- **Driver side.** The driver builds, verifies and installs:
+  - the services release, with the QR's candidates and extension;
+  - an execution release and a target per account (and per shadow target).
+
+  It then runs P-A, P-B and S as declared, including the owner's death and
+  recovery, and records every command.
+- **Rehearsals** use the declared 10/5/5-minute phases.
+
+**Addendum Q1 (approved 2026-10-05): quote legs are admitted independently in
+paper.**
+- **Found while designing the race check.** A paper account admitted a quote decision
+  whole or not at all. A flat instance's ask leg failed for want of owned inventory
+  (`insufficient_owned_inventory`), so the whole quote was refused.
+- **Why it matters.** The research simulator admits each leg on its own: it refuses
+  the ask and rests the bid. The QR's rule candidate could never trade in paper, and
+  J7 parity would fail.
+- **The change.** Paper admission admits each leg of a quote independently.
+  - A leg the instance cannot fund (inventory, cash, its budget or the position
+    limit) is dropped and its reason retained in the step result
+    (`StepCommit.dropped`, `DroppedLeg`).
+  - A quote with no admissible leg is refused as before.
+  - Single orders and targets keep all-or-nothing admission.
+- **Release.** This is an execution-owner change, in the account release that stage
+  2b qualifies.
+
+**Two related findings.**
+- **The race needs separate batches.** The rule and learned candidates on one account
+  shared a grid origin, so they decided in one batch, which is admitted or refused
+  whole. The plan now starts the learned candidates 5 s after the rule, so on
+  `okx-shared` the rule's bid reserves first and the learned target then contends
+  for the 0.01 limit.
+- **The QR's price grid was wrong for ETH.** The authored grid used a 0.1 tick for
+  every OKX instrument, but OKX ETH quotes in 0.01, so an ETH holdout holding a
+  position could not value it. The grid is now per venue and asset:
+  - OKX: BTC 0.1, ETH 0.01;
+  - Bitfinex: BTC 1, ETH 0.1.
+
+**Addendum CI-1 (approved 2026-10-05): candidates pin the runtime they deploy on.**
+- **Found by the first J6 run.** The services release's install check refused every
+  QR candidate. The loader required a bundle's `code_sha256` (every installed
+  platform module) and `environment_sha256` (every installed distribution) to equal
+  the running environment's.
+  - The QR packages in the full research environment.
+  - The signed paper-services release installs only its three wheels, with its own
+    lock.
+  - So no packaged candidate could ever load there. Packaging and loading had only
+    been tested in one environment.
+- **The change.**
+  - `CandidateDefinition` gains `runtime_code_sha256` and
+    `runtime_environment_sha256`, computed by `runtime.CandidateRuntime`, and the
+    loader requires those.
+  - The code identity hashes exactly the platform files the three operating wheels
+    ship, by name and bytes. They are listed in `runtime/candidate_runtime.json`,
+    which is shipped.
+  - The environment identity hashes the interpreter, the platform and the versions
+    of the paper-services lock's third-party distributions.
+  - `code_sha256` and `environment_sha256` keep one meaning only: the link to the
+    candidate's study, checked at packaging.
+  - An engineering test keeps the JSON equal to the wheels' include tables and the
+    lock, and those versions equal to the root lock's.
+- **Effect.** Bundles made earlier must be repackaged; recorded rehearsals stay valid
+  at their own commits.
+
+**M3e defect: the signed supervisor could not import.**
+- **Also found by that run.** M3e's runtime metrics import report contracts from
+  `research.studies`, which no operating wheel ships. In the installed paper-services
+  environment `applications.execute.services` failed to import, so the supervisor
+  could not start.
+- **Why no check caught it.**
+  - Unit and integration tests run in the full environment.
+  - The wheel smoke test installs the full wheel.
+  - The shipped-imports check followed only `runtime.*` imports.
+- **The fixes.**
+  - The report contracts a candidate's metric and chart components use
+    (`ReportObservation`, `LedgerPoint`, `FoldSummary`, `ReportContext`,
+    `MetricValue`, `ChartSpec` and the metric and chart protocols) move into a new
+    shipped package, `research.reports`. `research.studies` still exposes them.
+  - The model's `EvaluationRecord` moves from `research.studies` into
+    `research.models`, which ships, because `research.models.linear` imported it at
+    load.
+  - A new engineering test requires every module-level platform import of shipped
+    code to resolve to a shipped file. Names are compared exactly, because macOS
+    paths are case-insensitive.
+
+**Build defect: external extension sources were signed out of order.**
+- A paper-services release built with an external extension listed the extension's
+  source files after the repository's in `source.json`. Verification reads them in
+  sorted order, where `external/` falls before `packages/`, so every such release
+  failed verification.
+- The builder now sorts the complete source list (`ReleaseBuilder.release_sources`),
+  with a regression test.
+
+**Addendum F-1 (approved 2026-10-05): installed runs share their target.**
+- **Found by the second J6 run.** The launcher's `run` held the target's exclusive
+  installation fence for the whole child process. This note's layout runs the
+  publisher, the supervisor and `deployment-control` through one services target at
+  once, so whichever started first held the fence. The supervisor died one second
+  after the publisher started with a bare `[Errno 35]`, and every control failed the
+  same way.
+- **The change.**
+  - `run` takes the fence shared; `install` keeps it exclusive. Any number of runs
+    may share a target, and an installation still cannot select a release under a
+    running process, or start while one runs. This holds for every target, account
+    targets included.
+  - Single-instance ownership belongs to each application, which already fences
+    itself: the account service's journal lock, the journal's writer lock, and the
+    supervisor's endpoint and `supervisor.lock` fences.
+  - The publisher was the one process without a fence of its own. It now holds an
+    exclusive `publisher.lock` in its serving root, so two publishers cannot feed
+    one store.
+- **Tests.** Two runs share a target; a run and an installation still refuse each
+  other in both orders; a second publisher on one serving root is refused.
+- **The driver hung after the failure.** A failed J6 step left its background
+  processes serving until their own lives ended, and the driver waited on them. A
+  failed phase now stops every background process it started before it reports.
+
+**Addendum SW-1 (approved 2026-10-05): a persistent Feast serving worker.**
+- **Found by the third J6 run.** P-A ran end to end, but the OKX sources were faulted
+  `heartbeat_stalled` about a minute in, and Bitfinex BTC soon after.
+  - Each learned decision read its served features through `FeastServingBridge`,
+    whose worker ran a fresh process of the separately locked Feast environment per
+    request. Importing Feast alone takes 2.1 s on the development machine.
+  - The supervisor does not drain a source's pipe while that source has an
+    observation in flight. A source's capture child blocks on a full pipe by design,
+    so its heartbeat stops, and the supervisor faults a source whose heartbeat is
+    older than 2 s. OKX's 400-level books fill the pipe within that time.
+  - Integration tests used small authored books, so no pipe filled.
+- **The change.**
+  - The worker program (`alpha-explore feast-worker` and `feast-serving-worker`)
+    answers newline-delimited requests until its input ends. A one-shot caller sends
+    one request and closes its input, as before. A failed request still ends the
+    worker non-zero with its reason on stderr.
+  - `research.features.FeastWorkerSession` keeps one worker process alive behind the
+    existing `FeastWorker` protocol. Requests are serialized, and each reply is bounded
+    by the configured timeout and byte budget. A worker that dies, times out or
+    fails raises `FeatureAccessError` with its stderr, and the next request starts a
+    fresh worker.
+  - The supervisor and the publisher each own one session and close it when they end.
+    The worker environment, its isolation and the configuration are unchanged.
+  - Each starts its session's worker as it starts (`FeastWorkerSession.start`), and the
+    serving worker loads the Feast SDK as it starts. Otherwise the first served reads
+    still paid the two-second start at one instant: the fifth J6 run's four learned
+    reads queued behind it, and every source stalled. Warm, a read takes about 3 ms
+    and a materialization about 0.2 s on the development machine.
+- **Tests.** The session reuses one process across requests, restarts after a
+  failure and kills a worker that exceeds its timeout. The worker program answers
+  several requests on one input.
+
+**Serving defect: a stream not yet published faulted its accounts.**
+- **Found by the fourth J6 run.** The paper services store starts empty, and the
+  publisher registers a definition and activates its version only at its first
+  publication. A learned decision before then raised "feature-store definition is not
+  registered", which `ServedFeatures` did not turn into a pause, so the supervisor
+  faulted every account.
+  - A registered definition with no version active yet would have read as
+    `feature-version-changed`.
+- **The fix.**
+  - `VersionedFeatureStore.published_version` returns `None` before a definition's
+    first publication, and still refuses differing definition bytes.
+  - `ServedFeatures` names that state `feature-pending`, as the runtime guide already
+    defines it ("no snapshot at the cutoff yet"), so the instant waits and is retried.
+  - A unit test serves before registration and before activation.
+
+**Addendum GR-1 (approved 2026-10-05): the J6 grant follows what the plan deploys.**
+- **Found by the sixth J6 run.** Each paper decision replaces its instance's working
+  orders (AB-1), so an active instance places an order, or two for a quote, every 15 s.
+  The plan granted 80 orders an hour and a lifetime buy quantity of 1 per instrument.
+  Both ETH accounts reached the quantity within minutes (ten 0.1 bids) and were
+  faulted. A 30-minute P-A would also pass 80 orders on every account.
+- **The change.** The plan derives each account's grant:
+  - `maximum_orders` is the account's instances × 2 legs × decisions in the grant's
+    hour (3600 s / 15 s cadence); `okx-shared` with three instances gets 1,440.
+  - Each instrument's quantity is `maximum_orders` × that instrument's order size, so
+    the order count is the binding cap.
+  - Exposure stays bounded by the position limits (BTC 0.01, ETH 0.5), the budgets
+    and the 1,000 maximum order notional.
+
+**Addendum EX-1 (approved 2026-10-05): extensions import only what the release ships.**
+- **Also found by that run.** Every candidate dashboard was missing. The QR's metric
+  component imported its report contracts from `research.studies`, as the QR API map
+  directed. The paper-services release does not ship `research.studies`, so every live
+  metric evaluation raised and no page was rendered. The failure was counted but
+  never shown.
+  - The release builder already audits external extension imports, but against the
+    full build environment, where `research.studies` exists. M3e's import closure test
+    covers only platform code at module level.
+- **The change.**
+  - The QR API map and quickstart name `research.reports` for the contracts components
+    use (`FoldSummary`, `ReportContext`, `MetricValue`, `ChartSpec`,
+    `ReportObservation`, and the metric and chart protocols). `research.studies` no
+    longer re-exports them; studies import them from `research.reports` too.
+  - `ImportAudit` takes the release's shipped files and reports an `unshipped-import`
+    for any platform module the release does not ship, including imports inside
+    functions. The builder audits every external extension against the files listed in
+    `runtime/candidate_runtime.json`, so a paper-services build refuses such an
+    extension with that finding.
+  - The QR workspace's extension imports its contracts from `research.reports`, as a QR
+    following the corrected guide would.
+- **Tests.** The audit reports an unshipped import at module and function level and
+  accepts a shipped one; the builder's extension read refuses an extension that
+  imports `research.studies`.
+
+**Addendum MS-1 (approved 2026-10-05): each candidate's telemetry has its own scope.**
+- **Found by the seventh J6 run.** Candidate dashboards were still missing.
+  - M3e's exporter scoped every candidate's facts to its account (`account:<id>`).
+    J6 deploys two or three candidates per account, all exporting the QR's
+    `mr17.net-per-turnover`. In one sample they produced events with the same key and
+    different values, the store refused the whole append ("telemetry revision reused
+    with different bytes"), and nothing was exported or rendered.
+  - Even without the collision, an account page keeps one "last value" series per
+    name, so it would have merged different candidates. M3e's tests deployed one
+    candidate per account.
+- **The change.**
+  - Candidate telemetry scopes each instance's facts as
+    `account:<id>:strategy:<instance>`, the convention paper monitoring already uses
+    for per-instance facts. Metric names stay the QR's contract names.
+  - Each account renders its account page and one page set per candidate scope. A
+    candidate's page carries its metrics and their warning bands. Page directories are
+    named by scope, so several pages at one instant do not collide.
+- **Tests.** Two instances of one candidate on one account both export their metric
+  and render their own pages without a telemetry failure, and the single-candidate
+  test reads its facts and its alert from the candidate's scope.
+
+**Account command defect: an inspection dropped the saved batch's outcome.**
+- **Found by the eighth J6 run**, the first whose dashboards, alerts and delivery-log
+  replay all passed. The race check read every `okx-shared` batch's outcome through the
+  installed account command and got none.
+  - The journal's `saved_batch` projection carries the outcome (`portfolio`), but the
+  account application replaced the response's `portfolio` with the command's own
+  commit, which an inspection does not have. The earlier fix had been tested only
+  against the journal.
+- **The fix.** A command's own commit stays its outcome; otherwise the response keeps
+  what its projection read. The saved-batch test now reads each outcome both from the
+  journal and through `AccountExecutionApplication`.
+- **The race check.** Replayed against that run's journal, the race appears: the rule's
+  bids were admitted (`reserved`), and the learned target was refused at the 0.01 limit
+  (`holding_limit`). The check now reads groups in order until it has seen both,
+  instead of only the first 24. It counts only a `holding_limit` refusal, so an
+  operator stop (`instance_stopped`) is not taken for the race.
+
+**Addendum RC-1 (approved 2026-10-05): a reference contender makes the race certain.**
+- **Found by the first complete J6 run** (all of P-A, P-B and S ran). The race passed in
+  one run and not in the next. It needs both QR candidates to want a long position at
+  once: in rehearsal 99 the learned target was refused at the limit while the rule
+  held 0.006; in rehearsal 101 the learned candidate stayed flat, so each of the rule's
+  refusals was its own limit and no race happened.
+- **The change.**
+  - On `okx-shared` the plan adds `reference-okx-btc`, the platform's `fixed_clip`
+    reference formula (opening clip marketable through the modeled adverse cost) at
+    the BTC size, on the 15 s grid starting 2.5 s after the rule. It holds 0.006 from its
+    first decision, so a long bid from either QR candidate meets the 0.01 limit because
+    of the reference's holding. The QR candidates are unchanged; the grant and budgets
+    count the fourth instance.
+  - The race check is symmetric and attributed: it passes when one contender is
+    refused for `holding_limit` while another contender holds a non-zero position at
+    that instant, from the account's attributed fills. A refusal while every other
+    contender is flat is a candidate's own limit, not the race.
+
+**Supervisor defect: an account's report was marked twice per instrument.**
+- **Also found by that run.** In P-B the isolated accounts never retained a report, so
+  their dashboards were missing. A trades child shares its book child's observers, and
+  the supervisor collected each account's marks from both children, so every report
+  carried two marks for one instrument and an account holding a position was refused.
+- **The fix.** `PaperServices.latest_markets` reads book children only, so each source
+  marks its instrument once; the trades-child test requires one mark.
+
+**Addendum KC-1 (approved 2026-10-05): accounts state their knowledge clock.**
+- **Also found by that run.** J6's reconciler, like MR15's, stamped each observation
+  at the account's last accepted market from the supervisor status.
+  - An account matches only an observation at or after its knowledge clock. That
+    clock includes every order's decision instant, which is later than the market
+    the decision saw.
+  - So every account holding a working order mismatched and was faulted
+    (`bitfinex-isolated` in P-A). MR15's sustained run held no working orders at its
+    reconciliations, so it never met this.
+- **The change.**
+  - A new account projection, `reconciliation`, answers one account's view, its open
+    orders and its knowledge clock from one consistent snapshot. The clock is added to
+    the account response as `AccountExecutionResult.known_at`, and it is the clock
+    reconciliation compares against, computed by the same admission code.
+  - An observation stamped at `known_at` is always safe: the account already refuses
+    any market earlier than its own clock, so the stamp cannot refuse a market in
+    flight.
+  - J6's reconciler and restart observation read that projection in one call. The
+    two separate reads they made before could also tear against a live account.
+  - They stamp at the later of `known_at` and the account's last accepted market from
+    the supervisor status. Both are safe: markets reach an account in order. The
+    knowledge clock covers working decisions, and the market clock keeps a quiet
+    account's reconciled state fresh against its state-age limit, which `known_at`
+    alone would not advance.
+  - MR15's capacity reconciler (`AccountReconciler`) moves to the same projection and
+    stamp, at the owner's request. It no longer skips a round before the first
+    market. MR15's recorded evidence stays valid at its own commit.
+- **Tests.** The projection's clock covers a working order's decision instant, and an
+  observation stamped at it reconciles while the order is open. One stamped at the
+  last market does not. The capacity reconciler stamps at `known_at` without a market
+  and at a later accepted market when there is one.
+
+## M3f-2 result (2026-10-05)
+
+The journey's J6 is implemented and passes, with every addendum above approved and
+built. One commit.
+
+**The passing development run (uncounted, not evidence).** `rehearsal-103` ran the
+driver's own J6 under a development harness. The harness takes the J1–J5 outputs from
+a dry run of the same tree and shortens the phases to 300, 180 and 180 s. All 81 J6
+criteria passed:
+- Signed builds, verification and installation of the services and four account
+  releases; claims under one-hour grants; the research grant refused unchanged.
+- **P-A.** Selective stop and restart of `learned-okx-btc`; the injected
+  `okx-isolated` owner death with a request in flight. Every reconciliation round
+  matched. Reports were retained, and the QR's custom metric reached every account's
+  dashboards. Alerts reached the local receiver, and every delivery log replayed
+  exactly. In the shared-budget race a contender was refused at the 0.01 limit while
+  another held its position.
+- **P-B.** All four accounts were settled, reconciled and reclaimed under fresh owners,
+  relaunched, and ended by a shutdown control, with the same checks passing.
+- **S.** Both shadow accounts served the BTC candidates with zero fills, and their
+  checks passed.
+
+**What the runs found.** Eleven development runs (90–103) each stopped at a different
+defect, all recorded above:
+- Fixes in shipped code:
+  - F-1: installed runs share their target.
+  - SW-1: a persistent, pre-started Feast serving worker.
+  - KC-1: accounts state their knowledge clock.
+  - A stream not yet published is pending, not a fault.
+  - EX-1: extensions import only what the release ships.
+  - MS-1: each candidate's telemetry has its own scope.
+  - An inspection keeps its saved batch's outcome.
+  - A report is marked once per instrument.
+- Fixes in the journey: GR-1 sizes the grant from the plan, RC-1 adds the reference
+  contender, the recovery observes a fresh quote, and deployments are authored from
+  the installed release's deployment check. The last is needed because a reference
+  candidate's identity names the code and environment that load it.
+- From run 100 the harness recorded every criterion and continued, so one run showed
+  all of a phase's remaining failures.
+
+**Also in this commit.**
+- The Linux CI failure on PR #105: the telemetry test bound its alert socket under
+  `/private/tmp`, which Linux lacks. It now uses the repository's socket root.
+- The QR workspace's extension imports its report contracts from `research.reports`.
+
+**Not done here.** M3f-3 (J7), the next counted-style rehearsal, and M4–M6.
+
+**Validation (as run, 2026-10-05).**
+
+| Lane | Result |
+| --- | --- |
+| `make check` | Passed: 2,568 passed, 4 skipped, 25 deselected; wheel smoke passed |
+| Integration (`-m integration`, Feast worker selected) | Passed: 40 passed |
+| Performance (`-m performance`) | Passed: 25 passed |
+| Linux strict mypy | Passed: no issues in 712 source files |
+
+## Milestones
+
+1. **M1 — one candidate execution model (P1).** Three commits, each with its design
+   note first and the full suite passing:
+   - **M1a:** one candidate engine on shared accounts, built-in candidates and candidate
+     binding in `PaperServiceInstance` (done 2026-10-04).
+   - **M1b:** signed extension packages and component registration (done 2026-10-04).
+   - **M1c:** declared input resolution, including feature-store serving in the
+     supervisor: M1c-1 (resolver and live trades) and M1c-2 (served feature
+     streams), both done 2026-10-04.
+2. **M2 — external import audit (P2) and guides.** The governance command; QR guide
+   quickstart and extension walkthrough, development environment correction, operator
+   path for a packaged candidate, and the study-to-bundle API (P7). Done 2026-10-04.
+3. **M3 — journey consumer and declaration.** The journey driver and its summary;
+   architectural extension through the journey (P3); the exact commands; uncounted
+   rehearsals to find remaining guide gaps.
+4. **M4 — MR15 R1 closure.**
+5. **M5 — MR15 stage 2b** (P4–P6), under its own declaration and gates.
+6. **M6 — counted journey**, recorded here, and roadmap update.
+
+Each milestone (each M1 part) is one commit and passes the full suite, the integration lane and the
+Linux strict mypy run, reported as run.
+
+## Owner decisions (approved 2026-10-04)
+
+The owner approved the recommended option for every decision on 2026-10-04:
+
+1. **Record.** This page is the MR17 acceptance record.
+2. **R1.** R1 closure is an MR17 prerequisite and runs before 2b. If the
+   2026-09-29 to 2026-10-03 corpus survives complete, it is assessed; otherwise a fresh
+   72-hour acquisition is redeclared. The corpus location is still to be confirmed.
+3. **Evidence reuse.** The journey re-exercises every item-5/6 boundary on the frozen
+   release; the MR07–MR14 records are scope references only.
+4. **P1.** Approved, then superseded the same day by the
+   [approved direction](#m1-design-note-candidates-in-supervised-paper-2026-10-04): one
+   candidate execution model, built-in candidates, signed extension packages and declared
+   input resolution, with the journal, signed configuration and code-loading rule
+   changes that follow.
+5. **P2.** The external import audit is a governance command, not part of the runtime
+   wheel.
+6. **J2 data.** A fresh fixed 6-hour simultaneous public capture of both venues and both
+   instruments, independent of R1.
+7. **J6 envelope.** Paper runs stay inside the qualified 2a envelope (at most 50 minutes,
+   one-hour grants).
+8. **Calendar/economics.** Explicit refusal carried through the journey.
+9. **Rehearsals.** Uncounted journey rehearsals are allowed early, during M1–M3; the
+   counted attempt needs separate approval.
+10. **Disk.** Free space to at least 512 GiB before 2b; the prerequisite is not
+    redeclared. Moving the repository out of iCloud-synced Documents is recommended.
+11. **Long runs.** 2b uses a detached `nohup` driver with its own `caffeinate`, monitored
+    by status files. The iCloud waiver is renewed only if syncing cannot be paused.
+12. **Ordering.** P1 and P2, then guides, then the journey with rehearsals, then R1, then
+    2b, then the counted journey. Code freezes at the 2b counted pass.

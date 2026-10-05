@@ -81,20 +81,19 @@ shutdown deadline, and its PID, completion counts and forced fencing are retaine
 for resource and cleanup review. Existing report fields and telemetry remain
 available; a delayed diagnostic does not become a fresh account observation.
 
-The supervised native-source definition also binds an explicit selected-book
-paper cadence, `market_interval_us`. It defaults to 3,000,000 microseconds and
-must be positive and no greater than source freshness or capture idle time; the
-complete deployment and input identities include it. Every native record is
-retained and validated in order. The first eligible market, then eligible markets
-at least one interval after the last selected market, can match outstanding paper
-orders and evaluate active policies. Intermediate eligible books advance the freshest
-monitoring mark without modeled fills or policy checkpoints; invalid source
-input still faults promptly. A valid but momentarily one-sided or crossed book
-is unpriced and faults only if no eligible market follows within the smaller of
-source freshness and capture idle time. The retained
-`SharedBookDelivery.market_effects` is always explicit: `false` marks skipped
-economics for exact replay. This is a declared paper
-market model rather than native-feed downsampling or MR15 throughput evidence.
+Supervised instances decide on candidate grids: each instance's candidate
+declares its cadence and UTC grid origin, bounded by source freshness and capture
+idle time, and the signed deployment binds the candidate's identity. Every native
+record is retained and validated in order. At each grid instant the due
+candidates decide from the latest eligible market at or before it; the book that
+crossed the instant then matches outstanding paper orders. Books between instants
+advance the freshest monitoring mark without modeled fills or candidate
+checkpoints; invalid source input still faults promptly. A valid but momentarily
+one-sided or crossed book is unpriced and faults only if no eligible market
+follows within the smaller of source freshness and capture idle time. Retained
+`SharedBookDelivery` records hold each decided instant and whether the book
+matched, for exact replay. This is a declared paper market model rather than
+native-feed downsampling or MR15 throughput evidence.
 
 The immutable deployment can bind multiple explicit source/scenario identities
 per account. A versioned active selection can enable an already provisioned

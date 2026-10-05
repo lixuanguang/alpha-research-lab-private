@@ -384,6 +384,27 @@ class AccountJournal:
         if not selected_accounts:
             raise ValueError("unknown account")
         selected_ids = {account.ledger.account_id for account in selected_accounts}
+        if request.projection == "reconciliation":
+            # One snapshot answers the facts and their clock, so they cannot tear.
+            (account,) = selected_accounts
+            transaction = AccountTransaction(snapshot.state, snapshot.tables)
+            return AccountExecutionResult(
+                accounts=selected_accounts,
+                orders=tuple(
+                    tagged
+                    for tagged in state.orders
+                    if tagged.account_id == account.ledger.account_id
+                    and tagged.context is None
+                    and not tagged.order.is_terminal
+                ),
+                net_orders=tuple(
+                    parent
+                    for parent in state.net_orders
+                    if parent.account_id == account.ledger.account_id
+                    and not parent.order.is_terminal
+                ),
+                known_at=self._admission.knowledge_at(transaction, account),
+            )
         if request.projection == "accounts":
             return AccountExecutionResult(accounts=state.accounts, orders=())
         if request.projection == "orders":
@@ -401,10 +422,18 @@ class AccountJournal:
                 ),
             )
         if request.projection == "saved_batch":
+            # The batch's retained outcome rides in ``portfolio``, so an operator can
+            # read why a coordinated decision was admitted or refused.
+            saved = (
+                snapshot.find_batch(request.query_batch)
+                if request.query_batch is not None
+                else None
+            )
             return AccountExecutionResult(
                 accounts=(),
                 orders=(),
-                saved_batch=self._saved_batch(snapshot, request.query_batch),
+                saved_batch=None if saved is None else saved.batch,
+                portfolio=None if saved is None else saved.result,
             )
         if request.projection == "paper_activations":
             return AccountExecutionResult(

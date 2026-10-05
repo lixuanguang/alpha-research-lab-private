@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import hashlib
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -251,3 +252,129 @@ class CaptureRecording:
         if cursor.request_identity != request.identity:
             raise ValueError("capture cursor differs from its request")
         return cursor
+
+
+class RecordingFollower:
+    """Follow a live recording's durable records incrementally, read-only.
+
+    The writer appends, fsyncs, then atomically replaces each journal's
+    ``cursor.json``. A poll reads only up to the cursor's offset, so a partial line
+    is never decoded, and checks its running digest against the cursor's at that
+    offset, so every followed byte is verified. A chain moves to its next segment
+    once the current one is sealed and fully read. Positions are run-wide, as
+    ``CaptureRecording`` numbers them; the follower never writes.
+    """
+
+    def __init__(self, recording: CaptureRecording, *, max_line_bytes: int = 16_777_216) -> None:
+        """Bind the recording; nothing is read until ``poll``."""
+        if type(max_line_bytes) is not int or max_line_bytes <= 0:
+            raise ValueError("follower requires a positive line bound")
+        self.recording = recording
+        self.position = 0
+        self._max_line_bytes = max_line_bytes
+        self._segment = 0
+        self._offset = 0
+        self._digest = hashlib.sha256()
+        self._codec = DomainCodec()
+        self._located: tuple[Path, CaptureRequest] | None = None
+        self._previous: tuple[str, str, str] | None = None
+
+    def poll(self, *, max_records: int) -> tuple[CaptureRecord, ...]:
+        """Return the next durable records, at most ``max_records``, verified against cursors.
+
+        Raises:
+            ValueError: A cursor regressed, bytes differ from it, or the chain's lineage breaks.
+        """
+        if type(max_records) is not int or max_records <= 0:
+            raise ValueError("follower poll requires a positive record bound")
+        records: list[CaptureRecord] = []
+        while len(records) < max_records:
+            located = self._current()
+            if located is None:
+                break
+            root, request = located
+            cursor = CaptureRecording._cursor(root, request)
+            if cursor.offset < self._offset:
+                raise ValueError("capture cursor regressed behind the follower")
+            if cursor.offset > self._offset:
+                records.extend(self._read(root, cursor, max_records - len(records)))
+                continue
+            if self._digest.hexdigest() != cursor.sha256:
+                raise ValueError("followed bytes differ from the durable cursor")
+            if not (root / "manifest.json").is_file() or not self._advance():
+                break
+        return tuple(records)
+
+    def _read(self, root: Path, cursor: CaptureCursor, limit: int) -> list[CaptureRecord]:
+        """Decode whole lines between the follower's offset and the cursor's."""
+        records: list[CaptureRecord] = []
+        with (root / "journal.jsonl").open("rb") as source:
+            source.seek(self._offset)
+            while self._offset < cursor.offset and len(records) < limit:
+                line = source.readline(min(self._max_line_bytes, cursor.offset - self._offset))
+                if not line.endswith(b"\n"):
+                    raise ValueError("durable journal prefix ends inside a record")
+                self._offset += len(line)
+                self._digest.update(line)
+                records.append(self._codec.decode_json(line, CaptureRecord))
+                self.position += 1
+        if self._offset == cursor.offset and self._digest.hexdigest() != cursor.sha256:
+            raise ValueError("followed bytes differ from the durable cursor")
+        return records
+
+    def _current(self) -> tuple[Path, CaptureRequest] | None:
+        """Locate the journal being followed, or None before it exists.
+
+        A chain's next segment must match the run and bind its predecessor's name,
+        request identity and the digest the follower verified, as ``_segments`` does.
+        """
+        request = self.recording.request
+        if isinstance(request, CaptureRequest):
+            if not (self.recording.root / "cursor.json").is_file():
+                return None
+            return self.recording.root, request
+        if self._located is not None:
+            return self._located
+        segments = self.recording.root / "segments"
+        if not segments.is_dir():
+            return None
+        for path in segments.iterdir():
+            if not (path / "cursor.json").is_file():
+                continue
+            segment = self._codec.decode_json((path / "request.json").read_bytes(), CaptureRequest)
+            lineage = segment.segment
+            if lineage is None or lineage.ordinal != self._segment:
+                continue
+            if (
+                lineage.run_identity != request.identity
+                or path.name != segment.recording_id
+                or segment.config != request.config
+                or segment.implementation_identity != request.implementation_identity
+                or segment.universes != request.universes
+            ):
+                raise ValueError("followed segment differs from retained run")
+            if (
+                self._previous is not None
+                and (
+                    lineage.previous_recording_id,
+                    lineage.previous_request_identity,
+                    lineage.previous_sha256,
+                )
+                != self._previous
+            ):
+                raise ValueError("followed segment predecessor differs from the followed prefix")
+            self._located = path, segment
+            return self._located
+        return None
+
+    def _advance(self) -> bool:
+        """Move past a sealed, fully read segment; a single journal has no successor."""
+        if self._located is None:
+            return False
+        path, segment = self._located
+        self._previous = path.name, segment.identity, self._digest.hexdigest()
+        self._located = None
+        self._segment += 1
+        self._offset = 0
+        self._digest = hashlib.sha256()
+        return True

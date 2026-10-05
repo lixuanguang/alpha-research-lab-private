@@ -278,6 +278,11 @@ class LimitOrderExecution:
                         decision=decision, order_identities=(), reason="replaced_before_arrival"
                     )
                     continue
+                if decision.intent is None:
+                    outcomes[index] = IntentDecisionOutcome(
+                        decision=decision, order_identities=(), reason="abstained"
+                    )
+                    continue
                 book = self._fresh_book(last_book, at)
                 if book is None:
                     outcomes[index] = IntentDecisionOutcome(
@@ -457,6 +462,8 @@ class LimitOrderExecution:
     ) -> tuple[OrderIntent, ...]:
         """Resolve target/exposure against current holdings or retain explicit orders."""
         intent = decision.intent
+        if intent is None:
+            raise ValueError("an abstention has no order requests")
         if type(intent) is OrderIntent:
             return (intent,)
         if type(intent) is QuoteIntent:

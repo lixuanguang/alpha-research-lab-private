@@ -27,7 +27,7 @@ from configuration import CaptureConfig, Configuration
 from market_data.acquisition import AcquisitionManifest
 from market_data.adapters.sources import SourceAdapters
 from market_data.contracts import CaptureRecord, CaptureRequest
-from market_data.datasets import BookInput, DatasetPublication, SnapshotCatalog, SnapshotStore
+from market_data.datasets import CaptureInput, DatasetPublication, SnapshotCatalog, SnapshotStore
 from market_data.query import BookMarketRow, BookQuery, QueryReader
 from market_data.storage import CaptureJournal, RawStore
 from market_data.validation import QualityPolicy
@@ -375,10 +375,12 @@ def main() -> None:
         CaptureRecord(kind="end", epoch=0, received_ns=1717200000000002000, reason="message_limit")
     )
     journal.finish(1)
-    book_id = DatasetPublication(
-        SourceAdapters(), completed.run.implementation_identity
-    ).publish_books((capture,), raw, output / "snapshots", max_records=16, max_bytes=_LIMIT)
-    book = BookInput.read(capture, max_records=16)
+    book_id = (
+        DatasetPublication(SourceAdapters(), completed.run.implementation_identity)
+        .publish_captures((capture,), raw, output / "snapshots", max_records=16, max_bytes=_LIMIT)
+        .book
+    )
+    book = CaptureInput.read(capture, max_records=16)
     trade_inputs = tuple(
         TradeSelection(
             name=name,

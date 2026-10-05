@@ -149,8 +149,8 @@ class TestCapacityFeatures:
                                     book=book,
                                     available_at=base + timedelta(milliseconds=position + 1),
                                 ),
-                                inputs=(),
-                                coordinated_at=None,
+                                decisions=(),
+                                matched=False,
                             )
                         )
                         + b"\n"
@@ -191,8 +191,8 @@ class TestCapacityFeatures:
                             book=row,
                             available_at=datetime.now(UTC) - timedelta(microseconds=1),
                         ),
-                        inputs=(),
-                        coordinated_at=None,
+                        decisions=(),
+                        matched=False,
                     )
                 )
                 + b"\n"

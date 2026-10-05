@@ -12,7 +12,6 @@ from applications.explore.decisions import (
 from applications.explore.diagnostics import compare_factors, compare_windows
 from applications.explore.feature_store import (
     ServedDecision,
-    materialize_features,
     run_served_decision,
 )
 from applications.explore.jobs import QueuedStudy, StudyJobHandler, schedule_study
@@ -39,7 +38,6 @@ __all__ = [
     "inspect_eda",
     "inspect_experiment",
     "main",
-    "materialize_features",
     "publish_experiments",
     "run_candidate",
     "run_decisions",

@@ -30,19 +30,20 @@ class ReconcilingAccount(Protocol):
 class AccountReconciler:
     """Reconcile every account on a fixed cadence and stop at the first mismatch.
 
-    Paper facts are the account's own settled ledger and open physical orders, as
-    the four-owner recovery uses. They are read through the ``accounts`` and
-    ``net_orders`` projections: a full inspection carries every paper trace, grows
+    Paper facts are the account's own settled ledger and open physical orders, read
+    with the account's knowledge clock from one snapshot through the
+    ``reconciliation`` projection; a full inspection carries every paper trace, grows
     with the run and exceeds the owner socket's one MiB response bound. A mismatch
     faults the account (``account_break``), so it is retained as a failure and never
     retried.
 
-    Each observation is stamped with the account's last accepted market instant, never
-    the wall clock: a reconciliation advances the account's knowledge clock, and a
-    selected market already in flight but available before that clock would be
-    refused (``paper market precedes current account knowledge``), faulting the
-    account. Markets are delivered to an account in order, so its last accepted one
-    is never later than any market still to arrive.
+    Each observation is stamped at the later of the account's knowledge clock
+    (``known_at``) and its last accepted market, never the wall clock: a
+    reconciliation advances the account's knowledge, and a market already in flight
+    but earlier than the stamp would be refused, faulting the account. Neither clock
+    can refuse one: the account already refuses any market before its own clock, and
+    markets reach an account in order. The knowledge clock covers every working
+    order's decision; the market clock keeps a quiet account's state fresh.
     """
 
     def __init__(
@@ -51,46 +52,38 @@ class AccountReconciler:
         *,
         period_seconds: float,
         record: Callable[[str, object], None],
-        knowledge: Callable[[str], datetime | None],
+        accepted_market: Callable[[str], datetime | None],
     ) -> None:
         """Bind each owner's client, cadence, evidence writer and accepted-market clock."""
         if period_seconds <= 0 or not accounts:
             raise ValueError("reconciliation requires accounts and a positive cadence")
         self.accounts, self.period_seconds, self._record = dict(accounts), period_seconds, record
-        self._knowledge = knowledge
+        self._accepted_market = accepted_market
         self.failures: list[str] = []
         self.attempts = 0
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def reconcile(self, account_id: str) -> bool:
-        """Read one account's facts, reconcile them under a fresh identity and retain both.
-
-        Without an accepted market yet the round is skipped and retained as skipped.
-        """
+        """Read one account's facts, reconcile them under a fresh identity and retain both."""
         client = self.accounts[account_id]
-        at = self._knowledge(account_id)
-        if at is None:
-            self._record("account_reconcile_skipped", {"account": account_id})
-            return True
         started = time.monotonic()
-        accounts = client.execute(
-            AccountExecutionRequest(action="inspect", account_id=account_id, projection="accounts")
-        ).accounts
-        orders = client.execute(
+        facts = client.execute(
             AccountExecutionRequest(
-                action="inspect", account_id=account_id, projection="net_orders"
+                action="inspect", account_id=account_id, projection="reconciliation"
             )
-        ).net_orders
-        ledger = next(item.ledger for item in accounts if item.ledger.account_id == account_id)
+        )
+        if facts.known_at is None:
+            raise ValueError("reconciliation projection omitted the account's knowledge clock")
+        (account,) = facts.accounts
+        accepted = self._accepted_market(account_id)
         observation = AccountObservation(
             identity=f"sustained-reconcile-{uuid4().hex}",
-            at=at,
-            snapshot=AccountLedger(ledger).snapshot(),
-            open_orders=tuple(
-                item.order
-                for item in orders
-                if item.account_id == account_id and not item.order.is_terminal
+            at=facts.known_at if accepted is None else max(accepted, facts.known_at),
+            snapshot=AccountLedger(account.ledger).snapshot(),
+            open_orders=(
+                *(item.order for item in facts.orders),
+                *(item.order for item in facts.net_orders),
             ),
         )
         matched = client.reconcile(observation)

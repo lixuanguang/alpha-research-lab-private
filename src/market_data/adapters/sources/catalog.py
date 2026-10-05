@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import hashlib
 import tarfile
 import time
 from collections.abc import Callable, Iterator, Mapping
@@ -24,10 +25,11 @@ from market_data.adapters.venues.okx import (
     OKXBook,
     OKXPublic,
 )
-from market_data.books import BookProjection, CaptureReplay
+from market_data.books import BookProjection, CaptureReplay, TradeTape
 from market_data.contracts import (
     BookObservation,
     ByteReader,
+    CapturedTrades,
     CaptureRecord,
     FixtureReader,
     OccurrenceVerifier,
@@ -35,7 +37,7 @@ from market_data.contracts import (
     SavedPartitionReader,
     SourceRequest,
 )
-from market_data.datasets import BookInput
+from market_data.datasets import CaptureInput
 from reference_data.catalogs import InstrumentDefinition
 from serialization import DomainCodec
 
@@ -161,7 +163,66 @@ class SourceAdapters:
         return factory(request)
 
     @staticmethod
-    def books(selection: BookInput, store: ByteReader) -> Iterator[BookObservation]:
+    def trades(selection: CaptureInput, store: ByteReader) -> Iterator[CapturedTrades]:
+        """Replay a trades capture chain, predecessors first, through the venue tape.
+
+        Positions count every record of the chain from zero, as the live trade source
+        does. The final segment is bounded by ``max_records`` and must end with a
+        structural capture boundary.
+
+        Yields:
+            Each message's coordinates, tape outcome, synchronization and added trades.
+
+        Raises:
+            ValueError: The input is not a trades capture or its replay is invalid.
+        """
+        selection.__post_init__()
+        capture = selection.capture
+        if capture is None or capture.config.channel != "trades":
+            raise ValueError("captured trades require a trades capture input")
+        replay = CaptureReplay(capture.config, book_factory=BookAdapters.create)
+        codec = DomainCodec()
+        position = 0
+        segments = (*selection.capture_chain()[:-1], None)
+        record: CaptureRecord | None = None
+        for ancestor in segments:
+            descriptor = selection.raw if ancestor is None else ancestor.raw
+            binding = selection.request.binding if ancestor is None else ancestor.capture.binding
+            limit = selection.max_records if ancestor is None else None
+            with store.open(descriptor=descriptor, request=binding) as source:
+                count = 0
+                while limit is None or count < limit:
+                    line = source.readline(capture.config.max_bytes + 1)
+                    if not line:
+                        break
+                    if not line.endswith(b"\n"):
+                        raise ValueError("incomplete trades capture message")
+                    record = codec.decode_json(line, CaptureRecord)
+                    outcome = replay.apply(record)
+                    tape = replay.book
+                    if not isinstance(tape, TradeTape):
+                        raise ValueError("trades capture replay requires a trade tape")
+                    yield CapturedTrades(
+                        position=position,
+                        epoch=record.epoch,
+                        received_ns=record.received_ns,
+                        kind=record.kind,
+                        outcome=outcome,
+                        synchronized=tape.ready and not replay.invalid,
+                        state_identity=tape.identity,
+                        raw_sha256=hashlib.sha256(record.raw).hexdigest(),
+                        trades=tape.trades if outcome in ("snapshot", "update") else (),
+                    )
+                    position += 1
+                    count += 1
+                if ancestor is None:
+                    for line in source:
+                        record = codec.decode_json(line, CaptureRecord)
+        if record is None or (record.kind != "end" and capture.segment is None):
+            raise ValueError("trades input lacks a completed capture boundary")
+
+    @staticmethod
+    def books(selection: CaptureInput, store: ByteReader) -> Iterator[BookObservation]:
         """Reconstruct validated native input in original position order.
 
         Args:

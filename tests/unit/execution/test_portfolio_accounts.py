@@ -15,9 +15,11 @@ from msgspec.structs import replace
 # project library imports
 from accounting import Fill
 from accounting.accounts import AccountLedger, AccountSnapshot
+from applications.execute import AccountExecutionApplication
 from configuration.accounts import AccountConfiguration, InstrumentFeeRate, OpeningAccount
 from execution import (
     AccountDecision,
+    AccountExecutionRequest,
     AccountJournal,
     AccountObservation,
     AccountQuote,
@@ -32,7 +34,8 @@ from financial_units import Currency, Dimension, Money, Price, Quantity, Quantit
 from reference_data.instruments import InstrumentId
 from risk.budgets import AccountLimit, BudgetPolicy, InstanceLimit
 from risk.spot import SpotLimits
-from strategies import OrderIntent
+from serialization import DomainCodec
+from strategies import OrderIntent, QuoteIntent, TargetIntent
 
 
 class TestPortfolioAccounts:
@@ -263,15 +266,8 @@ class TestPortfolioAccounts:
         retry_at = cancel_at + timedelta(microseconds=1)
         reopened.observe(AccountQuote(price=self._price(), at=retry_at))
         before_orders = reopened.orders()
-        refused = reopened.coordinate(
-            PortfolioBatch(
-                identity="new-decision-cannot-bypass-residual-reconciliation",
-                at=retry_at + timedelta(microseconds=1),
-                decisions=(self._decision(instance="beta", identity="beta-next", at=retry_at),),
-            )
-        )
-        assert refused.status == "rejected"
-        assert refused.reason == "reissue_requires_current_reconciliation"
+        with pytest.raises(ValueError, match="reissue_requires_current_reconciliation"):
+            reopened.reissue_pending("shared", retry_at)
         assert reopened.orders() == before_orders
         assert len(reopened.net_orders()) == 1
         assert reopened.reconcile(
@@ -310,6 +306,199 @@ class TestPortfolioAccounts:
         assert final.snapshot(instance_id="alpha").positions == (self._quantity("1"),)
         assert final.snapshot(instance_id="beta").positions == (self._quantity("2"),)
         assert final.snapshot(instance_id="beta").fees == (self._money("0.02"),)
+
+    def test_each_paper_decision_replaces_its_instance_working_orders(self, tmp_path: Path) -> None:
+        """Abstaining or deciding again cancels the instance's orders; a rejection does not."""
+        journal = self._ready(tmp_path / "replace.sqlite3")
+        first_at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=first_at))
+        first = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-first",
+                at=first_at + timedelta(microseconds=1),
+                decisions=(self._decision(instance="alpha", identity="alpha-1", at=first_at),),
+            )
+        )
+        assert first.status == "committed" and len(first.net_orders) == 1
+        parent = first.net_orders[0].order.identity
+        second_at = first_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=second_at))
+        refused = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-too-large",
+                at=second_at + timedelta(microseconds=1),
+                decisions=(
+                    self._decision(
+                        instance="alpha", identity="alpha-big", at=second_at, quantity="200"
+                    ),
+                ),
+            )
+        )
+        assert refused.status == "rejected"
+        assert not journal.net_orders()[0].order.cancel_requested
+        abstain = self._decision(instance="alpha", identity="alpha-abstain", at=second_at)
+        abstain = replace(
+            abstain,
+            request=replace(
+                abstain.request, decision=replace(abstain.request.decision, intent=None)
+            ),
+        )
+        abstained = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-abstains",
+                at=second_at + timedelta(microseconds=2),
+                decisions=(abstain,),
+            )
+        )
+        assert (abstained.status, abstained.reason) == ("committed", "no_intent")
+        (replaced,) = journal.net_orders()
+        assert replaced.order.identity == parent and replaced.order.status == "cancel_requested"
+        target_at = second_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=target_at))
+        target = self._decision(instance="alpha", identity="alpha-target", at=target_at)
+        target = replace(
+            target,
+            request=replace(
+                target.request,
+                decision=replace(
+                    target.request.decision, intent=TargetIntent(quantity=self._quantity("1"))
+                ),
+            ),
+        )
+        held = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-target",
+                at=target_at + timedelta(microseconds=1),
+                decisions=(target,),
+            )
+        )
+        assert held.status == "committed", held.reason
+
+    def test_reconciliation_projection_states_the_accounts_knowledge_clock(
+        self, tmp_path: Path
+    ) -> None:
+        """An observation matches at the stated clock, which covers a working decision."""
+        journal = self._ready(tmp_path / "known.sqlite3")
+        market_at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=market_at))
+        decided_at = market_at + timedelta(seconds=2)
+        journal.observe(AccountQuote(price=self._price(), at=decided_at))
+        working = journal.coordinate(
+            PortfolioBatch(
+                identity="working",
+                at=decided_at + timedelta(microseconds=1),
+                decisions=(self._decision(instance="alpha", identity="bid", at=decided_at),),
+                crossing="internal_at_quote",
+            )
+        )
+        facts = journal.result_snapshot(
+            AccountExecutionRequest(
+                action="inspect", account_id="shared", projection="reconciliation"
+            )
+        )
+        assert working.status == "committed"
+        assert facts.known_at is not None and facts.known_at >= decided_at
+        assert [parent.order for parent in facts.net_orders] == [
+            parent.order for parent in working.net_orders
+        ]
+        snapshot = AccountLedger(facts.accounts[0].ledger).snapshot()
+        open_orders = tuple(parent.order for parent in facts.net_orders)
+        assert not journal.reconcile(
+            AccountObservation(
+                identity="at-market", at=market_at, snapshot=snapshot, open_orders=open_orders
+            )
+        )
+        assert journal.reconcile(
+            AccountObservation(
+                identity="at-knowledge",
+                at=facts.known_at,
+                snapshot=snapshot,
+                open_orders=open_orders,
+            )
+        )
+        with pytest.raises(ValueError, match="requires an account"):
+            AccountExecutionRequest(action="inspect", projection="reconciliation")
+
+    def test_quote_legs_are_admitted_independently(self, tmp_path: Path) -> None:
+        """A flat instance's quote rests its bid and drops its unfunded ask, as research does."""
+        journal = self._ready(tmp_path / "quote.sqlite3")
+        at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=at))
+        quote = self._decision(instance="alpha", identity="alpha-quote", at=at)
+        bid = OrderIntent(
+            side="buy", quantity=self._quantity("1"), limit=self._price("99"), time_in_force="gtc"
+        )
+        ask = OrderIntent(
+            side="sell", quantity=self._quantity("1"), limit=self._price("101"), time_in_force="gtc"
+        )
+        quote = replace(
+            quote,
+            request=replace(
+                quote.request,
+                decision=replace(quote.request.decision, intent=QuoteIntent(bid=bid, ask=ask)),
+            ),
+        )
+        committed = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-quotes", at=at + timedelta(microseconds=1), decisions=(quote,)
+            )
+        )
+        assert committed.status == "committed"
+        assert [child.order.intent.side for child in committed.children] == ["buy"]
+        dedicated = self._ready(tmp_path / "dedicated.sqlite3")
+        dedicated.observe(AccountQuote(price=self._price(), at=at))
+        step = dedicated.admit(quote.request)
+        assert (step.status, [order.intent.side for order in step.orders]) == ("committed", ["buy"])
+        assert [(leg.leg, leg.reason) for leg in step.dropped] == [
+            ("ask", "insufficient_owned_inventory")
+        ]
+        unfunded = replace(
+            quote,
+            request=replace(
+                quote.request,
+                decision=replace(
+                    quote.request.decision,
+                    identity="alpha-unfunded",
+                    intent=QuoteIntent(
+                        bid=replace(bid, quantity=self._quantity("1000")),
+                        ask=ask,
+                    ),
+                ),
+            ),
+        )
+        refused = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-unfunded-quotes",
+                at=at + timedelta(microseconds=2),
+                decisions=(unfunded,),
+            )
+        )
+        assert refused.status == "rejected"
+        codec = DomainCodec()
+        config_path, request_path = tmp_path / "config.json", tmp_path / "request.json"
+        config_path.write_bytes(codec.encode_json(self._config()))
+        for identity, outcome in (("alpha-quotes", committed), ("alpha-unfunded-quotes", refused)):
+            request = AccountExecutionRequest(
+                action="inspect",
+                account_id="shared",
+                projection="saved_batch",
+                query_batch=identity,
+            )
+            request_path.write_bytes(codec.encode_json(request))
+            # The installed command answers exactly what the journal's projection reads.
+            for inspected in (
+                journal.result_snapshot(request),
+                AccountExecutionApplication().run(
+                    config_path=config_path,
+                    journal_path=tmp_path / "quote.sqlite3",
+                    request_path=request_path,
+                ),
+            ):
+                assert inspected.saved_batch is not None
+                assert (inspected.saved_batch.identity, inspected.portfolio) == (
+                    identity,
+                    outcome,
+                )
 
     def test_conflicting_physical_facts_persist_and_block_new_batches(self, tmp_path: Path) -> None:
         """Physical receipt and fill conflicts survive restart without new economics."""

@@ -147,9 +147,11 @@ marked `modeled`; `data.source_clock_drift_seconds` and
 `data.receipt_to_durable_seconds` are explicit `not_measured` values. Neither is
 computed by subtracting unrelated clocks.
 
-`MonitoringConfiguration.paper(...)` selects dimensioned `last` values for
-paper state and report economics, keeps account and strategy scopes separate,
-and produces up to 32 panels per page. Currency and instrument series remain
+`MonitoringConfiguration.account(...)` selects dimensioned `last` values for a
+paper or shadow account's state, report economics and deployed candidates' series,
+keeps account and strategy scopes separate, and produces up to 32 panels per page.
+Its `thresholds` add declared band edges, such as a candidate metric's warning
+bands, as alert rules on the page holding their series. Currency and instrument series remain
 separate; values from different scopes or currencies are not summed. The report
 digest links valuation series to the retained exact report, including its
 valuation cutoff and gas applicability. Lifecycle facts remain available for

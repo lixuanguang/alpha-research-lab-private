@@ -112,6 +112,10 @@ invalid-data episodes.*
 
 ## Implementing a study
 
+[From a clean machine to a paper candidate](qr-quickstart.md) is the runnable path:
+provision, lay out your own extension package, audit its imports, run and retain a
+study, package a candidate, serve a stored feature and take the candidate to paper.
+
 Use the [market-data interfaces](../src/market_data/README.md),
 [simulation contract](../src/simulation/README.md) and
 [study/report interfaces](../src/research/studies/README.md) when implementing a
@@ -125,9 +129,14 @@ Import only the supported API: the names each package lists in its
 `__init__.py` `__all__`, as the
 [platform design](../docs/architecture/platform-design.md#functional-apis-and-application-entrypoints)
 defines. Deep modules and private names can change without notice.
-Quant development maintains the [installed reference consumer](../tests/integration/consumers/research/decision_study.py)
-and [captured-source consumer](../tests/integration/consumers/research/captured_study.py)
-as executable engineering acceptance. Their losing/no-trade and queue-sensitivity
+Start from the [QR quickstart](qr-quickstart.md) and its maintained
+[study example](qr_study.py), which runs a rule-only order/quote study and a learned
+target study (fitted transform, exact estimator, forward label) over published
+captures and packages the result. Its components come from the
+[`engineering-candidates` template](../extensions/engineering-candidates/), which
+has a maintained example of every component role. Quant development's own test
+consumers under `tests/` are engineering acceptance, not templates. Your own
+components belong in your own extension package, not under `tests/`. Their losing/no-trade and queue-sensitivity
 cases are not QR deliverables or empirical strategy evidence. Formal QR research
 still starts only after all infrastructure and MR17/G5 acceptance.
 

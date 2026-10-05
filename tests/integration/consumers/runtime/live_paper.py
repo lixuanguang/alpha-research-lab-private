@@ -47,13 +47,8 @@ from research.observations import (
     NumericField,
     NumericHistorySource,
 )
-from research.studies import (
-    ChartDefinition,
-    DecisionStudy,
-    MetricDefinition,
-    PublicationPolicy,
-    StudyArtifact,
-)
+from research.reports import ChartDefinition, MetricDefinition
+from research.studies import DecisionStudy, PublicationPolicy, StudyArtifact
 from risk import SpotLimits
 from runtime import (
     CandidateComponents,
@@ -194,7 +189,7 @@ class _LiveCandidateConsumer:
         if start.kind != "start":
             raise ValueError("live paper journal starts with another lifecycle event")
         journal = self._journal(journal_path, loaded, paper)
-        source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=10_000)
+        source = LiveBookDecisionSource(request, loaded.definition.inputs, history_capacity=10_000)
         runtime = PaperCandidateRuntime(loaded, paper, journal, source=source)
         books = BookRegistry(
             BookRegistryConfiguration(
@@ -204,7 +199,7 @@ class _LiveCandidateConsumer:
                         source_id=request.identity,
                         capability=BookAdapters.capability(request.config),
                         max_age_ns=min(
-                            loaded.manifest.inputs[0].max_age_us * 1000,
+                            loaded.definition.inputs[0].max_age_us * 1000,
                             request.config.idle_seconds * 1_000_000_000,
                         ),
                         allow_degraded=True,
@@ -297,7 +292,7 @@ class _LiveCandidateConsumer:
 
         next_request = replace(request, recording_id=str(uuid4()))
         next_source = LiveBookDecisionSource(
-            next_request, loaded.manifest.inputs[0], history_capacity=10_000
+            next_request, loaded.definition.inputs, history_capacity=10_000
         )
         if next_source.identity != deployment.source_identity:
             raise ValueError("fresh capture recording changed the admitted source binding")
@@ -519,7 +514,7 @@ class _LiveCandidateConsumer:
             implementation_identity=InstalledIdentity.sha256(),
         )
         source_identity = LiveBookDecisionSource(
-            request, scenario.requirement, history_capacity=10_000
+            request, (scenario.requirement,), history_capacity=10_000
         ).identity
         starts_at = datetime.now(UTC).replace(microsecond=0) + timedelta(seconds=2)
         deployment: CandidateDeployment = _CandidateAcceptance._deployment(

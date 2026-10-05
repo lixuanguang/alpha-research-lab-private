@@ -308,7 +308,10 @@ class OwnershipChecker:
         "tools/governance/src",
         "tools/typing/stubs",
         "examples",
+        "extensions",
     )
+    # Research extensions are optional; a repository may have none.
+    OPTIONAL_ROOTS: ClassVar[frozenset[str]] = frozenset({"extensions"})
     GUIDANCE: ClassVar[dict[str, str]] = {
         "module-function": (
             "only application orchestrators, command main functions, pytest hooks, lazy "
@@ -340,7 +343,7 @@ class OwnershipChecker:
             SyntaxError: If a file cannot be parsed.
         """
         for name in cls.ROOTS:
-            if not (repository_root / name).is_dir():
+            if name not in cls.OPTIONAL_ROOTS and not (repository_root / name).is_dir():
                 raise FileNotFoundError(f"missing ownership source root: {name}")
         source_root = repository_root / "src"
         exports = {

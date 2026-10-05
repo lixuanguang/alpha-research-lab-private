@@ -26,6 +26,7 @@ from research.experiments.candidates import (
     CandidateAssessment,
     CandidateBundle,
     CandidateComponent,
+    CandidateDefinition,
     CandidateManifest,
     CandidateMetricContract,
     CandidateStateContract,
@@ -282,21 +283,18 @@ class TestCandidateBundles:
                     ),
                 )
             )
-        manifest = CandidateManifest(
+        provenance = ("assessment", "attempt", "dataset-selection", "experiment", "study-report")
+        definition = CandidateDefinition(
             name="candidate-reference",
             version="reference",
-            qualification="empirical" if empirical else "engineering",
             code_sha256=_CODE_SHA256,
             environment_sha256=_ENVIRONMENT_SHA256,
-            dataset=artifacts["dataset-selection"],
-            experiment=artifacts["experiment"],
-            attempt=artifacts["attempt"],
-            report=artifacts["study-report"],
+            runtime_code_sha256=_CODE_SHA256,
+            runtime_environment_sha256=_ENVIRONMENT_SHA256,
             feature_schema=artifacts["feature-schema"],
             feature_store=None,
             transform=artifacts["transform-version"] if learned else None,
             estimator=artifacts["estimator-version"] if learned else None,
-            assessment=artifacts["assessment"] if empirical else None,
             components=tuple(components),
             inputs=(market_input,),
             requirements=cls._requirements(),
@@ -332,10 +330,27 @@ class TestCandidateBundles:
                     applies_to=("research", "runtime"),
                 ),
             ),
-            artifacts=tuple(artifacts[name] for name in sorted(artifacts)),
+            artifacts=tuple(
+                artifacts[name] for name in sorted(artifacts) if name not in provenance
+            ),
+        )
+        manifest = CandidateManifest(
+            definition=definition,
+            qualification="empirical" if empirical else "engineering",
+            dataset=artifacts["dataset-selection"],
+            experiment=artifacts["experiment"],
+            attempt=artifacts["attempt"],
+            report=artifacts["study-report"],
+            assessment=artifacts["assessment"] if empirical else None,
+            artifacts=tuple(artifacts[name] for name in sorted(artifacts) if name in provenance),
             limitations=("Synthetic software reference; no exchange execution evidence.",),
         )
         return manifest, payloads
+
+    @staticmethod
+    def _defined(manifest: CandidateManifest, **changes: object) -> CandidateManifest:
+        """Replace definition fields while keeping the manifest's provenance."""
+        return replace(manifest, definition=replace(manifest.definition, **changes))
 
     def test_reopen_exact_rule_bundle_and_reject_changed_bytes(self, tmp_path: Path) -> None:
         """A completed attempt reopens; mutating even a report object fails at read."""
@@ -356,12 +371,14 @@ class TestCandidateBundles:
         manifest, payloads = self._bundle_inputs(tmp_path, learned=True)
         bundle = CandidateBundle(tmp_path / "candidate")
         bundle.publish(manifest, payloads)
-        assert manifest.estimator is not None
-        assert manifest.transform is not None
-        assert bundle.artifact(manifest.estimator) == payloads["estimator-version"]
-        assert bundle.artifact(manifest.transform) == payloads["transform-version"]
+        definition = manifest.definition
+        assert definition.estimator is not None
+        assert definition.transform is not None
+        assert bundle.artifact(definition.estimator) == payloads["estimator-version"]
+        assert bundle.artifact(definition.transform) == payloads["transform-version"]
+        assert bundle.definition() == definition
         with pytest.raises(ValueError, match="estimator artifact"):
-            replace(manifest, estimator=None).__post_init__()
+            self._defined(manifest, estimator=None).__post_init__()
 
     def test_substituted_schema_and_learned_state_have_no_report_provenance(
         self, tmp_path: Path
@@ -376,14 +393,14 @@ class TestCandidateBundles:
             altered = payloads[name] + b" "
             reference = self._artifact(name, altered)
             inventory = tuple(
-                reference if item.name == name else item for item in manifest.artifacts
+                reference if item.name == name else item for item in manifest.definition.artifacts
             )
             if name == "feature-schema":
-                changed = replace(manifest, feature_schema=reference, artifacts=inventory)
+                changed = self._defined(manifest, feature_schema=reference, artifacts=inventory)
             elif name == "transform-version":
-                changed = replace(manifest, transform=reference, artifacts=inventory)
+                changed = self._defined(manifest, transform=reference, artifacts=inventory)
             else:
-                changed = replace(manifest, estimator=reference, artifacts=inventory)
+                changed = self._defined(manifest, estimator=reference, artifacts=inventory)
             with pytest.raises(ValueError, match=expected):
                 CandidateBundle(tmp_path / f"changed-{name}").publish(
                     changed, {**payloads, name: altered}
@@ -396,19 +413,16 @@ class TestCandidateBundles:
             replace(component, identity="unselected-policy")
             if component.role == "policy"
             else component
-            for component in manifest.components
+            for component in manifest.definition.components
         )
-        changed_policy = replace(
-            manifest,
-            components=policy_components,
-        )
+        changed_policy = self._defined(manifest, components=policy_components)
         with pytest.raises(ValueError, match="components differ"):
             CandidateBundle(tmp_path / "changed-policy").publish(changed_policy, payloads)
         metric_components = tuple(
             replace(component, identity="f" * 64) if component.role == "metric" else component
-            for component in manifest.components
+            for component in manifest.definition.components
         )
-        changed_metric = replace(manifest, components=metric_components)
+        changed_metric = self._defined(manifest, components=metric_components)
         with pytest.raises(ValueError, match="metric selections differ"):
             CandidateBundle(tmp_path / "changed-metric").publish(changed_metric, payloads)
 
@@ -497,15 +511,14 @@ class TestCandidateBundles:
         reference = self._artifact("feature-parameters", binary)
         changed_components = tuple(
             replace(component, parameters=reference) if component.role == "feature" else component
-            for component in manifest.components
+            for component in manifest.definition.components
         )
         changed_inventory = tuple(
-            reference if item.name == "feature-parameters" else item for item in manifest.artifacts
+            reference if item.name == "feature-parameters" else item
+            for item in manifest.definition.artifacts
         )
-        changed = replace(
-            manifest,
-            components=changed_components,
-            artifacts=changed_inventory,
+        changed = self._defined(
+            manifest, components=changed_components, artifacts=changed_inventory
         )
         with pytest.raises(ValueError, match="JSON object"):
             CandidateBundle(tmp_path / "binary").publish(

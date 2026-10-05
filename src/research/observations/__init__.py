@@ -12,6 +12,7 @@ from research.observations.inputs import (
     ObservationHistory,
 )
 from research.observations.live import LiveBookDecisionSource
+from research.observations.live_trades import LiveTradeDecisionSource
 from research.observations.windows import Observation, Observations, ObservationState, TradePoint
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "DecisionSource",
     "InputRequirement",
     "LiveBookDecisionSource",
+    "LiveTradeDecisionSource",
     "NamedObservation",
     "NumericField",
     "NumericHistorySource",

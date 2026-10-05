@@ -5,14 +5,24 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 from collections import deque
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from fractions import Fraction
+from types import MappingProxyType
+from typing import ClassVar
 
 # project library imports
 from financial_units import ExactRatio
 from market_data.books import BookDepth, VisibleBook
-from market_data.contracts import BookObservation, BookQuote, CaptureRecord, RecordingRequest
+from market_data.contracts import (
+    BookObservation,
+    BookQuote,
+    CaptureRecord,
+    Level,
+    RecordingRequest,
+)
 from research.observations.inputs import DecisionInputs, InputRequirement, NamedObservation
 from serialization import DomainCodec
 
@@ -34,6 +44,10 @@ class _LiveBoundary:
 class LiveBookDecisionSource:
     """Project one captured OKX or Bitfinex book into an incremental named source.
 
+    One source requirement name, clock and freshness covers one or more exact book
+    fields: ``imbalance`` (dimensionless), ``ask`` and ``bid`` (quote/base) and
+    ``ask_size`` and ``bid_size`` (base), each read from the same canonical book.
+
     The caller durably appends a ``CaptureRecord``, applies it to ``CaptureReplay``
     and passes its ``BookProjection.capture`` result with actual delivery time.
     A new recording with the same subscription keeps this source identity but
@@ -44,20 +58,26 @@ class LiveBookDecisionSource:
     def __init__(
         self,
         request: RecordingRequest,
-        requirement: InputRequirement,
+        requirements: tuple[InputRequirement, ...],
         *,
         history_capacity: int,
     ) -> None:
-        """Bind a stable subscription, named imbalance and finite causal read window.
+        """Bind a stable subscription, named book fields and finite causal read window.
 
         Args:
             request: Immutable source, instrument and recording identity; a segment
                 chain is one recording whose identity is its whole-run request.
-            requirement: One exact book imbalance with a supported source clock.
+            requirements: Distinct supported book fields sharing one name, clock and
+                freshness, in the order decisions receive them.
             history_capacity: Maximum retained receipt boundaries, from 1 to 10000.
         """
         request.__post_init__()
-        requirement.__post_init__()
+        if type(requirements) is not tuple or not requirements:
+            raise ValueError("live decision source requires book field requirements")
+        for item in requirements:
+            if type(item) is not InputRequirement:
+                raise TypeError("live decision source requires InputRequirement")
+            item.__post_init__()
         config = request.config
         if (
             config.venue not in ("okx", "bitfinex")
@@ -65,12 +85,17 @@ class LiveBookDecisionSource:
             or (config.venue == "bitfinex" and config.channel != "R0")
         ):
             raise ValueError("live decision source requires supported public spot books")
+        first = requirements[0]
         if (
-            requirement.family != "book"
-            or requirement.clock
-            not in (("event", "receipt") if config.venue == "okx" else ("receipt",))
-            or requirement.field.name != "imbalance"
-            or requirement.field.units != "dimensionless"
+            first.family != "book"
+            or first.clock not in (("event", "receipt") if config.venue == "okx" else ("receipt",))
+            or len({item.field.name for item in requirements}) != len(requirements)
+            or any(
+                (item.name, item.family, item.clock, item.max_age_us)
+                != (first.name, first.family, first.clock, first.max_age_us)
+                or self._FIELD_UNITS.get(item.field.name) != item.field.units
+                for item in requirements
+            )
         ):
             raise ValueError("unsupported live book decision projection")
         if type(history_capacity) is not int or not 1 <= history_capacity <= 10_000:
@@ -78,7 +103,8 @@ class LiveBookDecisionSource:
         self._request = request
         # The request is immutable; its identity hashes the encoded request.
         self._request_identity = request.identity
-        self._requirement = requirement
+        self._requirements = requirements
+        self._requirement = first
         self._codec = DomainCodec()
         self._history: deque[_LiveBoundary] = deque(maxlen=history_capacity)
         self._identity = hashlib.sha256(
@@ -87,7 +113,7 @@ class LiveBookDecisionSource:
                     request.config,
                     request.implementation_identity,
                     request.universes,
-                    requirement,
+                    requirements,
                     history_capacity,
                 )
             )
@@ -116,8 +142,8 @@ class LiveBookDecisionSource:
 
     @property
     def requirements(self) -> tuple[InputRequirement, ...]:
-        """Expose the single exact book field and source freshness contract."""
-        return (self._requirement,)
+        """Expose the exact book fields and their shared source freshness contract."""
+        return self._requirements
 
     @property
     def latest_book(self) -> BookObservation | None:
@@ -391,23 +417,27 @@ class LiveBookDecisionSource:
             else:
                 if selected.book_payload is not None:
                     book = self._retained_book(selected.book_payload)
-                value = None if book is None else self._book_value(book)
-                projected = (
-                    row
-                    if value is None
-                    else NamedObservation(
-                        input=row.input,
-                        entity=row.entity,
-                        event_at=row.event_at,
-                        available_at=row.available_at,
-                        value=value,
-                        reason=row.reason,
-                        lineage=row.lineage,
-                    )
+                values = None if book is None else self._book_values(book)
+                decision = DecisionInputs(
+                    entity=entity,
+                    decision_at=at,
+                    observations=tuple(
+                        NamedObservation(
+                            input=requirement,
+                            entity=row.entity,
+                            event_at=row.event_at,
+                            available_at=row.available_at,
+                            value=None if values is None else values[requirement.field.name],
+                            reason=row.reason,
+                            lineage=row.lineage,
+                        )
+                        for requirement in self._requirements
+                    ),
                 )
-                decision = DecisionInputs(entity=entity, decision_at=at, observations=(projected,))
         self._last_decision_at, self._last_decision = at, decision
-        self._last_decision_book = book if decision.observations[0].value is not None else None
+        self._last_decision_book = (
+            book if all(row.value is not None for row in decision.observations) else None
+        )
         self._last_decision_book_payload = (
             selected.book_payload
             if selected is not None and self._last_decision_book is not None
@@ -447,16 +477,22 @@ class LiveBookDecisionSource:
         selected: NamedObservation | None = None,
     ) -> DecisionInputs:
         """Construct one explicit absent value without changing its source identity."""
-        row = NamedObservation(
-            input=self._requirement,
+        return DecisionInputs(
             entity=entity,
-            event_at=at if selected is None else selected.event_at,
-            available_at=None if selected is None else selected.available_at,
-            value=None,
-            reason=reason,
-            lineage=lineage,
+            decision_at=at,
+            observations=tuple(
+                NamedObservation(
+                    input=requirement,
+                    entity=entity,
+                    event_at=at if selected is None else selected.event_at,
+                    available_at=None if selected is None else selected.available_at,
+                    value=None,
+                    reason=reason,
+                    lineage=lineage,
+                )
+                for requirement in self._requirements
+            ),
         )
-        return DecisionInputs(entity=entity, decision_at=at, observations=(row,))
 
     def _lineage(self, record: CaptureRecord, row: BookObservation, delivery_at: datetime) -> str:
         """Bind receipt, delivery, native clocks, quality and original bytes."""
@@ -488,21 +524,42 @@ class LiveBookDecisionSource:
             ask = min((price for price, _ in row.asks), default=None)
         return bid is not None and ask is not None and bid < ask
 
+    _FIELD_UNITS: ClassVar[Mapping[str, str]] = MappingProxyType(
+        {
+            "imbalance": "dimensionless",
+            "ask": "quote/base",
+            "bid": "quote/base",
+            "ask_size": "base",
+            "bid_size": "base",
+        }
+    )
+
     @staticmethod
-    def _book_value(row: BookObservation) -> ExactRatio | None:
-        """Calculate exact visible imbalance for L2 levels or native L3 orders."""
+    def _book_values(row: BookObservation) -> dict[str, ExactRatio] | None:
+        """Calculate exact visible imbalance and touch prices/sizes for L2 or native L3."""
         depth = BookDepth.from_observation(row)
         bids = depth.bids
         asks = depth.asks
-        if (
-            not bids
-            or not asks
-            or max(price for price, _ in bids) >= min(price for price, _ in asks)
-        ):
+        if not bids or not asks:
+            return None
+        bid_price, bid_level = max(bids, key=LiveBookDecisionSource._level_price)
+        ask_price, ask_level = min(asks, key=LiveBookDecisionSource._level_price)
+        if bid_price >= ask_price:
             return None
         bid_size = sum((Fraction(level.size) for _, level in bids), Fraction())
         ask_size = sum((Fraction(level.size) for _, level in asks), Fraction())
-        return ExactRatio.from_fraction((bid_size - ask_size) / (bid_size + ask_size))
+        return {
+            "imbalance": ExactRatio.from_fraction((bid_size - ask_size) / (bid_size + ask_size)),
+            "ask": ExactRatio.from_fraction(Fraction(ask_price)),
+            "bid": ExactRatio.from_fraction(Fraction(bid_price)),
+            "ask_size": ExactRatio.from_fraction(Fraction(ask_level.size)),
+            "bid_size": ExactRatio.from_fraction(Fraction(bid_level.size)),
+        }
+
+    @staticmethod
+    def _level_price(item: tuple[Decimal, Level]) -> Decimal:
+        """Order displayed levels by their exact price."""
+        return item[0]
 
     @staticmethod
     def _from_ns(ns: int) -> datetime:

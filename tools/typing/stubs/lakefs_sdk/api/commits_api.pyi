@@ -1,7 +1,7 @@
 """Describe immutable lakeFS reference resolution."""
 
 # third party library imports
-from lakefs_sdk import ApiClient, Commit
+from lakefs_sdk import ApiClient, Commit, CommitCreation
 
 class CommitsApi:
     """Describe explicit reference access."""
@@ -22,5 +22,25 @@ class CommitsApi:
 
         Returns:
             Server-resolved immutable identity.
+        """
+        ...
+    def commit(
+        self,
+        repository: str,
+        branch: str,
+        commit_creation: CommitCreation,
+        *,
+        _request_timeout: int,
+    ) -> Commit:
+        """Commit a branch's staged objects.
+
+        Args:
+            repository: Repository name.
+            branch: Branch to commit.
+            commit_creation: Commit message.
+            _request_timeout: Socket timeout seconds.
+
+        Returns:
+            The new immutable commit.
         """
         ...

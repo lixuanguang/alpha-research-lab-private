@@ -14,7 +14,7 @@ from typing import Literal
 from applications.explore import StudyComponents, evaluate_study
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from market_data.adapters.sources import SourceAdapters
-from market_data.datasets import BookHistory, BookInput
+from market_data.datasets import BookHistory, CaptureInput
 from market_data.storage import RawStore
 from reference_data.catalogs import InstrumentDefinition, ReferenceHistory
 from research.experiments import AttemptStore, Fingerprint, TemporalSplit, TimeWindow
@@ -129,10 +129,13 @@ class _CapturedScenario:
         reader: ResearchReader,
         captures: Path,
         consumer_artifact: StudyArtifact,
+        snapshots: Path,
+        raw: RawStore,
     ) -> None:
         """Keep original inputs and the exact external consumer source bytes."""
         selection.__post_init__()
         self._selection, self._reader, self._captures = selection, reader, captures
+        self._snapshots, self._raw = snapshots, raw
         self._consumer_artifact = consumer_artifact
         self._adapters = SourceAdapters()
         self._codec = DomainCodec()
@@ -159,16 +162,18 @@ class _CapturedScenario:
             if item.instrument_id == book_selection.query.instrument
         )
         capture_directory = self._capture_directory(instrument.venue)
-        captured = BookInput.read(capture_directory, max_records=100)
+        captured = CaptureInput.read(capture_directory, max_records=100)
         if (
             captured.request.identity != book_selection.query.request_identity
             or captured.request.config.instrument_id != instrument.instrument_id
         ):
             raise ValueError("saved book selection differs from original captured request")
         market = CapturedStudyMarket(
-            captured,
-            RawStore(capture_directory),
+            self._snapshots,
+            self._raw,
             readers=self._adapters,
+            snapshot_id=book_selection.query.snapshot_id,
+            request_identity=book_selection.query.request_identity,
             max_bytes=32_000_000,
             clock_assumption="receipt-as-matching",
         )
@@ -436,7 +441,9 @@ def main() -> None:
         ),
         payload=consumer_bytes,
     )
-    scenarios = _CapturedScenario(selection, reader, args.captures, consumer_artifact)
+    scenarios = _CapturedScenario(
+        selection, reader, args.captures, consumer_artifact, args.snapshots, RawStore(args.raw)
+    )
     selections = tuple(item for item in selection.inputs if isinstance(item, BookSelection))
     if len(selections) != 2 or {item.name for item in selections} != {
         "okx_book",

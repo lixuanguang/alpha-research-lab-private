@@ -31,7 +31,7 @@ from alpha_research_governance.dependency_admission.selected_closure import (
 )
 from alpha_research_governance.dependency_admission.wheel_archive import WheelArchive
 
-OperatingApplication = Literal["collector", "execution"]
+OperatingApplication = Literal["collector", "execution", "paper-services"]
 _REGISTRY = {"registry": "https://pypi.org/simple"}
 _MAX_WHEEL_BYTES = 256 * 1024 * 1024
 
@@ -51,7 +51,7 @@ class SelectedWheelhouse:
 
         Args:
             repository_root: Checkout with current full dependency admission.
-            application: Collector or execution operating dependency graph.
+            application: Collector, execution or paper services operating dependency graph.
             destination: Caller-selected directory for retained actual wheel bytes.
             uv_executable: Independently pinned uv executable used for offline export.
 
@@ -62,7 +62,7 @@ class SelectedWheelhouse:
             DependencyAdmissionError: Admission, export, artifact or inventory differs.
             OSError: Required local bytes or a requested pinned artifact are unavailable.
         """
-        if application not in {"collector", "execution"}:
+        if application not in {"collector", "execution", "paper-services"}:
             raise DependencyAdmissionError(["unsupported operating application"])
         root = repository_root.resolve(strict=True)
         project = root / "packages" / application

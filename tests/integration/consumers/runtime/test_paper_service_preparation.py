@@ -16,7 +16,6 @@ import pytest
 from paper_services import NativeBookFixture, PaperServiceWorkload
 
 # project library imports
-from applications.execute import ServiceBookInputs
 from configuration import (
     PaperAuthorization,
     PaperDeployment,
@@ -63,10 +62,7 @@ class TestPaperServicePreparation:
         successor.require_successor(initial)
         assert summary["initial_selection"] == initial.identity
         assert initial.duration_seconds == 45
-        assert all(
-            source.capture.duration_seconds == 60 and source.market_interval_us == 3_000_000
-            for source in initial.sources
-        )
+        assert all(source.capture.duration_seconds == 60 for source in initial.sources)
         oracle = workload.first_touch_oracle()
         assert oracle["shared"] == (
             workload.money("99798.799" if venue == "okx" else "99798.80"),
@@ -112,8 +108,11 @@ class TestPaperServicePreparation:
                     item for item in definitions if item.instance_id == strategy.instance_id
                 )
                 source = next(item for item in initial.sources if item.name == definition.source)
-                inputs = ServiceBookInputs((), source.freshness_us, source.market_interval_us)
-                assert strategy.feature_identity == inputs.identity
+                candidate = workload.candidate(initial, definition, source)
+                assert PaperServiceWorkload.reference(definition).cadence_us == 3_000_000
+                assert strategy.feature_identity == candidate.feature.schema.identity
+                assert strategy.policy_identity == candidate.policy.identity
+                assert strategy.candidate_identity == candidate.definition.identity
                 assert deployment.scope_for(strategy.instance_id).input_identity == (
                     workload.input_identity(source)
                 )

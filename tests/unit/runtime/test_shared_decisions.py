@@ -21,17 +21,26 @@ from configuration.accounts import InstrumentFeeRate
 from execution import AccountJournal, AccountObservation, AccountQuote, OrderEvent, PortfolioContext
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
-from research.features import FeatureVector
-from research.observations import NumericField
+from research.experiments import CandidateStateContract
+from research.features import FeatureSchema, ProjectionFeature
+from research.observations import DecisionInputs, InputRequirement, NamedObservation, NumericField
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
-    SharedDecisionCheckpoint,
+    AuthoredCandidates,
+    LoadedCandidate,
+    SharedCandidateCheckpoint,
     SharedDecisionRuntime,
     SharedStrategyBinding,
     SharedStrategyInput,
 )
 from serialization import DomainCodec
-from strategies import ConfirmedSignal, DecisionContext, DecisionTransition, OrderIntent
+from strategies import (
+    ConfirmedSignal,
+    DecisionContext,
+    DecisionPolicy,
+    DecisionTransition,
+    OrderIntent,
+)
 
 
 class _AccumulatingOrder:
@@ -81,7 +90,7 @@ class _AccumulatingOrder:
 
 
 class TestSharedDecisions:
-    """Exercise fresh policy injection, retries, rejection state and incompatible restart."""
+    """Exercise fresh candidate injection, retries, rejection state and incompatible restart."""
 
     at = datetime(2026, 9, 25, tzinfo=UTC)
     currency = Currency.from_code("USD")
@@ -90,6 +99,9 @@ class TestSharedDecisions:
         kind=QuantityKind.BASE_UNIT,
     )
     field = NumericField(name="signal", units="score")
+    signal = InputRequirement(
+        name="signal", family="non-book", clock="authored", field=field, max_age_us=1_000_000
+    )
 
     @classmethod
     def _money(cls, value: str) -> Money:
@@ -149,6 +161,44 @@ class TestSharedDecisions:
         )
 
     @classmethod
+    def _candidate(
+        cls,
+        name: str,
+        policy: DecisionPolicy,
+        *,
+        warmup: int = 0,
+        on_restart: Literal["reset", "restore"] = "restore",
+    ) -> LoadedCandidate:
+        """Wrap an authored policy over the projected signal as a one-second candidate."""
+        return AuthoredCandidates(venue="fixture").load(
+            name=f"shared-{name}",
+            feature=ProjectionFeature(
+                FeatureSchema(
+                    implementation="named-projection",
+                    inputs=(cls.signal,),
+                    outputs=(cls.field,),
+                    parameters=(),
+                    mode="batch",
+                    ttl_us=1_000_000,
+                )
+            ),
+            policy=policy,
+            instance=name,
+            entity=str(cls.dimension.instrument_id),
+            cadence_us=1_000_000,
+            starts_at=cls.at,
+            source_identity="reference-source",
+            state=CandidateStateContract(
+                feature_mode="batch",
+                warmup_observations=warmup,
+                checkpoint_schema="candidate-checkpoint" if on_restart == "restore" else None,
+                on_gap="continue",
+                on_restart=on_restart,
+                policy_state_schema="reference-policy-state",
+            ),
+        )
+
+    @classmethod
     def _bindings(cls) -> tuple[SharedStrategyBinding, ...]:
         """Select distinct target and order implementations through the public SDK."""
         return tuple(
@@ -156,7 +206,7 @@ class TestSharedDecisions:
                 instance_id=name,
                 account_id="shared",
                 entity=str(cls.dimension.instrument_id),
-                policy=policy,
+                candidate=cls._candidate(name, policy),
                 context=PortfolioContext(
                     portfolio_id="cash-spot",
                     strategy_id=name,
@@ -182,24 +232,26 @@ class TestSharedDecisions:
 
     @classmethod
     def _inputs(cls, at: datetime) -> tuple[SharedStrategyInput, ...]:
-        """Supply one exact then-available feature to each selected policy."""
-        vector = FeatureVector(
+        """Supply one exact then-available signal to each selected candidate."""
+        inputs = DecisionInputs(
             entity=str(cls.dimension.instrument_id),
             decision_at=at,
-            event_at=at,
-            information_start=at,
-            available_at=at,
-            expires_at=at + timedelta(seconds=1),
-            definition="signal",
-            fields=(cls.field,),
-            values=(ExactRatio(numerator="1", denominator="1"),),
-            reasons=("authored",),
-            input_identity="reference-source",
+            observations=(
+                NamedObservation(
+                    input=cls.signal,
+                    entity=str(cls.dimension.instrument_id),
+                    event_at=at,
+                    available_at=at,
+                    value=ExactRatio(numerator="1", denominator="1"),
+                    reason="authored",
+                    lineage="reference-source",
+                ),
+            ),
         )
         return tuple(
             SharedStrategyInput(
                 instance_id=name,
-                context=DecisionContext(features=vector, prediction=None),
+                inputs=inputs,
                 quote=AccountQuote(price=cls._price(), at=at),
             )
             for name in ("target", "orders")
@@ -291,14 +343,15 @@ class TestSharedDecisions:
         journal = AccountJournal(path, config)
         saved = journal.checkpoint("orders")
         assert saved is not None
-        assert DomainCodec().decode_json(saved, SharedDecisionCheckpoint).policy.state == b"2"
+        continuation = DomainCodec().decode_json(saved, SharedCandidateCheckpoint)
+        assert continuation.step.checkpoint.policy.state == b"2"
         old_retry = run_shared_paper(
             config, bindings=bindings, journal_path=path, events=(decision,)
         )
         assert old_retry.decisions == result.decisions
         assert old_retry.net_orders == continued.net_orders
         assert journal.checkpoint("orders") == saved
-        with pytest.raises(ValueError, match="checkpoint"):
+        with pytest.raises(ValueError, match="another candidate binding"):
             SharedDecisionRuntime(
                 journal, (replace_binding(bindings[0], maximum_fee=self._money("2")), bindings[1])
             )
@@ -327,7 +380,8 @@ class TestSharedDecisions:
         journal = AccountJournal(path, config)
         before = journal.checkpoint("orders")
         assert before is not None
-        assert DomainCodec().decode_json(before, SharedDecisionCheckpoint).policy.state == b"1"
+        continuation = DomainCodec().decode_json(before, SharedCandidateCheckpoint)
+        assert continuation.step.checkpoint.policy.state == b"1"
         assert (
             run_shared_paper(
                 config, bindings=bindings, journal_path=path, events=(decision,)
@@ -337,9 +391,63 @@ class TestSharedDecisions:
         changed = replace(decision, crossing="internal_at_quote")
         with pytest.raises(ValueError, match="retry"):
             run_shared_paper(config, bindings=bindings, journal_path=path, events=(changed,))
-        with pytest.raises(ValueError, match="future quote"):
-            replace(
-                decision.inputs[0],
-                quote=AccountQuote(price=self._price(), at=at + timedelta(seconds=1)),
-            )
+        late_quote = AccountQuote(price=self._price(), at=at + timedelta(seconds=1))
+        late = replace(
+            decision,
+            identity="late-quote",
+            inputs=(replace(decision.inputs[0], quote=late_quote),),
+        )
+        with pytest.raises(ValueError, match="precede their coordination"):
+            run_shared_paper(config, bindings=bindings, journal_path=path, events=(late,))
         assert journal.checkpoint("orders") == before
+
+    def test_warmup_commits_state_without_intent_and_reset_restart_starts_fresh(
+        self, tmp_path: Path
+    ) -> None:
+        """A warming step reserves nothing; a reset candidate warms again after restart."""
+        config = self._config()
+        target, orders = self._bindings()
+        warming = replace_binding(
+            orders,
+            candidate=self._candidate(
+                "orders",
+                _AccumulatingOrder(self._quantity("2"), self._price()),
+                warmup=1,
+                on_restart="reset",
+            ),
+        )
+        bindings = (target, warming)
+        path = tmp_path / "account.sqlite3"
+        instants = tuple(self.at + timedelta(seconds=second) for second in (1, 2, 3))
+        decisions = tuple(
+            SharedPaperDecision(
+                identity=f"orders-{index}",
+                at=at + timedelta(microseconds=1),
+                inputs=tuple(item for item in self._inputs(at) if item.instance_id == "orders"),
+            )
+            for index, at in enumerate(instants)
+        )
+        quotes = tuple(AccountQuote(price=self._price(), at=at) for at in instants)
+        opened = run_shared_paper(
+            config,
+            bindings=bindings,
+            journal_path=path,
+            events=(self._opening(), quotes[0], decisions[0], quotes[1], decisions[1]),
+        )
+        warmed, decided = opened.decisions
+        assert (warmed.status, warmed.reason) == ("committed", "no_intent")
+        assert not warmed.children and not warmed.net_orders
+        assert [child.instance_id for child in decided.children] == ["orders"]
+        restarted = run_shared_paper(
+            config, bindings=bindings, journal_path=path, events=(quotes[2], decisions[2])
+        )
+        assert (restarted.decisions[0].status, restarted.decisions[0].reason) == (
+            "committed",
+            "no_intent",
+        )
+        saved = AccountJournal(path, config).checkpoint("orders")
+        assert saved is not None
+        continuation = DomainCodec().decode_json(saved, SharedCandidateCheckpoint)
+        assert continuation.step.status == "warming"
+        assert continuation.step.decision is None
+        assert continuation.step.checkpoint.observations == 1

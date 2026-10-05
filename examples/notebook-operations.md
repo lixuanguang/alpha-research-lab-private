@@ -1,7 +1,7 @@
 # Notebook setup and retained results
 
 Start with the [research guide](README.md) and [study protocol](study-protocol.md).
-Updated 2026-09-24. This page owns execution of the new research worksheets.
+Updated 2026-10-04. This page owns execution of the new research worksheets.
 The [market-data guide](../src/market_data/README.md) owns source acquisition and
 selection; the [saved L2 workflow](../docs/research/l2-book-backtest.md) owns the
 existing simulation command.
@@ -46,6 +46,31 @@ worksheet runs; it is not empirical acceptance.
 An interactive kernel can run the new worksheets from any directory because
 they do not resolve local data paths. Source acquisition and simulation use the
 installed commands in their owning package guides.
+
+## Read a retained study result
+
+A worksheet reads a study from its attempt store through the installed readers,
+never from the study's working files. `StudyResult.read` verifies every retained
+artifact digest before it decodes anything:
+
+```python
+from pathlib import Path
+
+from research.experiments import AttemptStore
+from research.studies import StudyResult
+
+store = AttemptStore(Path("/path/to/attempts"))
+history = store.read(attempt_id)  # status, request, specification, events
+result = StudyResult.read(store, attempt_id)
+for fold in result.folds:
+    print(fold.name, fold.economics.net_return, len(fold.decisions))
+report = store.artifact(attempt_id, "study-report")  # the retained report bytes
+```
+
+`history.status` is `completed` only for a finished study, so check it first. A
+failed attempt keeps its record and should be retained, not skipped. Copy each
+summary into the worksheet with its attempt ID and fold name so the row can be
+traced back.
 
 ## Retain the research, clear the maintained notebook
 

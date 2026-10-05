@@ -49,7 +49,7 @@ from research.experiments import (
     CandidateArtifact,
     CandidateBundle,
     CandidateComponent,
-    CandidateManifest,
+    CandidateDefinition,
     CandidateMetricContract,
     CandidateStateContract,
 )
@@ -76,6 +76,7 @@ from runtime import (
     CandidateComponents,
     CandidateFeatureFeed,
     CandidateLoader,
+    CandidateRuntime,
     CandidateSession,
     LoadedCandidate,
     PaperCandidateRuntime,
@@ -166,6 +167,7 @@ class _ReferencePolicy:
         self._output = output
         self.wrong_output = False
         self.wrong_tif = False
+        self.abstain = False
 
     @property
     def identity(self) -> str:
@@ -195,6 +197,8 @@ class _ReferencePolicy:
         """Advance only the staged state supplied by the session."""
         context.__post_init__()
         self.validate_state(state)
+        if self.abstain:
+            return DecisionTransition(intent=None, state=str(int(state) + 1).encode("ascii"))
         intent: DecisionIntent
         if self.wrong_output:
             intent = ExposureIntent(
@@ -312,10 +316,6 @@ class TestCandidateSession:
         return tuple(
             CandidateArtifact(name=name, sha256=hashlib.sha256(name.encode()).hexdigest())
             for name in (
-                "dataset",
-                "experiment",
-                "attempt",
-                "report",
                 "schema",
                 "feature-parameters",
                 "policy-parameters",
@@ -325,17 +325,17 @@ class TestCandidateSession:
         )
 
     @classmethod
-    def _manifest(
+    def _definition(
         cls,
         *,
         output: Literal["target", "order"] = "target",
-        on_gap: Literal["pause", "reset"] = "pause",
+        on_gap: Literal["pause", "reset", "continue"] = "pause",
         warmup: int = 0,
         on_restart: Literal["restore", "reset"] = "restore",
         incremental: bool = True,
         freshness_us: int = 1_000_000,
-    ) -> CandidateManifest:
-        """Build a complete engineering manifest with no empirical authority."""
+    ) -> CandidateDefinition:
+        """Build a complete executable definition with no research provenance."""
         artifacts = {item.name: item for item in cls._artifacts()}
         components = tuple(
             CandidateComponent(
@@ -347,21 +347,17 @@ class TestCandidateSession:
             )
             for role in ("feature", "policy", "metric", "chart")
         )
-        return CandidateManifest(
+        return CandidateDefinition(
             name="runtime-reference",
             version="1",
-            qualification="engineering",
             code_sha256=_CODE,
             environment_sha256=_CODE,
-            dataset=artifacts["dataset"],
-            experiment=artifacts["experiment"],
-            attempt=artifacts["attempt"],
-            report=artifacts["report"],
+            runtime_code_sha256=CandidateRuntime.code_sha256(),
+            runtime_environment_sha256=CandidateRuntime.environment_sha256(),
             feature_schema=artifacts["schema"],
             feature_store=None,
             transform=None,
             estimator=None,
-            assessment=None,
             components=components,
             inputs=(_INPUT,),
             requirements=cls._requirements(output, freshness_us=freshness_us),
@@ -398,7 +394,6 @@ class TestCandidateSession:
                 ),
             ),
             artifacts=tuple(artifacts.values()),
-            limitations=("Synthetic software session; no venue evidence.",),
         )
 
     @staticmethod
@@ -415,7 +410,7 @@ class TestCandidateSession:
         cls,
         policy: _ReferencePolicy,
         *,
-        on_gap: Literal["pause", "reset"] = "pause",
+        on_gap: Literal["pause", "reset", "continue"] = "pause",
         warmup: int = 0,
         on_restart: Literal["restore", "reset"] = "restore",
         incremental: bool = True,
@@ -427,7 +422,7 @@ class TestCandidateSession:
         starts_at: datetime = _AT,
     ) -> LoadedCandidate:
         """Compose the actual session objects and resolved fixture signatures."""
-        manifest = cls._manifest(
+        executable = cls._definition(
             output=policy.output,
             on_gap=on_gap,
             warmup=warmup,
@@ -440,14 +435,14 @@ class TestCandidateSession:
         )
         deployment = CandidateDeployment(
             name="runtime-reference",
-            candidate_identity=manifest.identity,
+            candidate_identity=executable.identity,
             instance="instance-one",
             entity=_ENTITY,
             mode=mode,
             input_mode=input_mode,
             source_identity=source_identity,
             starts_at=starts_at,
-            selections=cls._bindings(manifest.requirements),
+            selections=cls._bindings(executable.requirements),
             universes=UniverseSelection(
                 collection=(),
                 research=(_INSTRUMENT,),
@@ -475,7 +470,7 @@ class TestCandidateSession:
                 operations=(f"intent:{policy.output}",) if r.name == "execution" else (),
                 order_types=("gtc",) if policy.output == "order" and r.name == "execution" else (),
             )
-            for r in manifest.requirements
+            for r in executable.requirements
         )
         schema = cls._schema(incremental=incremental, ttl_us=ttl_us)
         kernel = RunningMeanFeature(schema) if incremental else ProjectionFeature(schema)
@@ -490,10 +485,10 @@ class TestCandidateSession:
             else None
         )
         return LoadedCandidate(
-            manifest=manifest,
+            definition=executable,
             deployment=deployment,
             capabilities=CapabilityRegistry(profiles).resolve(
-                manifest.requirements, deployment.selections, mode=mode
+                executable.requirements, deployment.selections, mode=mode
             ),
             feature=kernel,
             policy=policy,
@@ -505,6 +500,17 @@ class TestCandidateSession:
             metrics=(),
             charts=(),
         )
+
+    def test_abstaining_step_decides_with_no_intent_and_advances_state(self) -> None:
+        """An abstention is a decided step with no intent; the policy state still advances."""
+        policy = _ReferencePolicy(output="order")
+        session = CandidateSession(self._loaded(policy))
+        assert session.evaluate_inputs(self._inputs(_AT, 2)).status == "decided"
+        policy.abstain = True
+        abstained = session.evaluate_inputs(self._inputs(_AT + timedelta(seconds=1), 4))
+        assert abstained.status == "decided" and abstained.decision is not None
+        assert abstained.decision.intent is None
+        assert abstained.checkpoint.policy.state == b"2"
 
     def test_failed_policy_transition_rolls_back_feature_and_decision_state(self) -> None:
         """A failed second intent cannot change the mean or policy continuation."""
@@ -626,7 +632,7 @@ class TestCandidateSession:
             )
         snapshot = store.materialize(definition, "version-one", _AT, (_ENTITY,))
         store.activate(definition, snapshot.version)
-        return store, definition, snapshot.identity
+        return store, definition, VersionedFeatureStore.stream_identity(definition, "version-one")
 
     def test_offline_pinned_store_value_and_missing_pause(self, tmp_path: Path) -> None:
         """Consume actual PIT bytes and pause when the pinned materialization lacks a field."""
@@ -683,16 +689,15 @@ class TestCandidateSession:
             )
         )
         checkpoint = changed.checkpoint()
-        with pytest.raises(ValueError, match="materialization differs from pinned deployment"):
+        with pytest.raises(ValueError, match="differs from its pinned feature stream"):
             feed.evaluate(changed, _AT)
         assert changed.checkpoint() == checkpoint
 
-    def test_online_future_and_expired_pause_before_serving_io(self, tmp_path: Path) -> None:
-        """The pinned store itself rejects a future snapshot and expired value."""
-        store, _, identity = self._store(tmp_path, has_feature=True, ttl_us=1_000_000)
+    def test_online_pending_and_expired_pause_before_serving_io(self, tmp_path: Path) -> None:
+        """Online serving names an instant without a snapshot pending and an expired value."""
+        store, definition, identity = self._store(tmp_path, has_feature=True, ttl_us=1_000_000)
         worker = _NoCallWorker()
-        bridge = FeastServingBridge(worker)
-        future = self._loaded(
+        loaded = self._loaded(
             _ReferencePolicy(),
             incremental=False,
             ttl_us=1_000_000,
@@ -702,44 +707,30 @@ class TestCandidateSession:
             feature_version="version-one",
             starts_at=_AT - timedelta(seconds=1),
         )
-        feed = CandidateFeatureFeed(store, bridge=bridge, serving_root=tmp_path)
-        future_step = feed.evaluate(
-            CandidateSession(future),
-            _AT - timedelta(seconds=1),
-        )
-        assert future_step.status == "paused" and future_step.reason == "future"
-        expired = self._loaded(
-            _ReferencePolicy(),
-            incremental=False,
-            ttl_us=1_000_000,
-            freshness_us=10_000_000,
-            input_mode="online_features",
-            source_identity=identity,
-            feature_version="version-one",
-        )
-        expired_step = feed.evaluate(CandidateSession(expired), _AT + timedelta(seconds=2))
-        assert expired_step.status == "paused" and expired_step.reason == "expired"
+        feed = CandidateFeatureFeed(store, bridge=FeastServingBridge(worker), serving_root=tmp_path)
+        for at in (_AT - timedelta(seconds=1), _AT + timedelta(seconds=1)):
+            step = feed.evaluate(CandidateSession(loaded), at)
+            assert step.status == "paused" and step.reason == "feature-pending"
+        store.materialize(definition, "version-one", _AT + timedelta(seconds=2), (_ENTITY,))
+        expired = feed.evaluate(CandidateSession(loaded), _AT + timedelta(seconds=2))
+        assert expired.status == "paused" and expired.reason == "expired"
         assert worker.calls == 0
 
-    def test_online_materialization_age_pauses_even_when_vector_ttl_is_long(
-        self, tmp_path: Path
-    ) -> None:
-        """The source freshness contract also bounds an otherwise ready online vector."""
+    def test_offline_cutoff_without_its_snapshot_is_refused(self, tmp_path: Path) -> None:
+        """Offline replay never substitutes an earlier snapshot for the cutoff's own."""
         store, _, identity = self._store(tmp_path, has_feature=True, ttl_us=60_000_000)
-        worker = _NoCallWorker()
         loaded = self._loaded(
             _ReferencePolicy(),
             incremental=False,
             ttl_us=60_000_000,
-            input_mode="online_features",
+            input_mode="offline_features",
             source_identity=identity,
             feature_version="version-one",
         )
-        stale_step = CandidateFeatureFeed(
-            store, bridge=FeastServingBridge(worker), serving_root=tmp_path
-        ).evaluate(CandidateSession(loaded), _AT + timedelta(seconds=2))
-        assert stale_step.status == "paused" and stale_step.reason == "stale"
-        assert worker.calls == 0
+        with pytest.raises(ValueError, match="cutoff has no snapshot"):
+            CandidateFeatureFeed(store).evaluate(
+                CandidateSession(loaded), _AT + timedelta(seconds=2)
+            )
 
 
 class _LifecycleHistory(WireRecord, frozen=True):
@@ -904,30 +895,36 @@ class TestPaperCandidateRuntime:
             field=NumericField(name="imbalance", units="dimensionless"),
             max_age_us=1_000_000,
         )
-        source_identity = LiveBookDecisionSource(request, book_input, history_capacity=8).identity
+        source_identity = LiveBookDecisionSource(
+            request, (book_input,), history_capacity=8
+        ).identity
         loaded = TestCandidateSession._loaded(_LifecyclePolicy(), source_identity=source_identity)
         requirement: CapabilityRequirement = replace(
-            loaded.manifest.requirements[0],
+            loaded.definition.requirements[0],
             name="book",
             channel=capture.channel,
             clock="receipt",
             fields=(CapabilityField(name="imbalance", units="dimensionless"),),
         )
         requirements: list[CapabilityRequirement] = [requirement]
-        requirements.extend(loaded.manifest.requirements[1:])
+        requirements.extend(loaded.definition.requirements[1:])
         selected_requirements: tuple[CapabilityRequirement, ...] = tuple(requirements)
-        manifest = replace(
-            loaded.manifest,
+        executable = replace(
+            loaded.definition,
             inputs=(book_input,),
             requirements=selected_requirements,
         )
         deployment = replace(
             loaded.deployment,
             mode="runtime",
-            candidate_identity=manifest.identity,
+            candidate_identity=executable.identity,
             source_identity=source_identity,
         )
-        return replace_dataclass(loaded, manifest=manifest, deployment=deployment), request, config
+        return (
+            replace_dataclass(loaded, definition=executable, deployment=deployment),
+            request,
+            config,
+        )
 
     def test_paper_observer_rejects_misbound_registry_reference(self, tmp_path: Path) -> None:
         """Matching source IDs cannot conceal a different product or native listing."""
@@ -941,12 +938,14 @@ class TestPaperCandidateRuntime:
         )
         source = LiveBookDecisionSource(
             request,
-            InputRequirement(
-                name="book",
-                family="book",
-                clock="receipt",
-                field=NumericField(name="imbalance", units="dimensionless"),
-                max_age_us=1_000_000,
+            (
+                InputRequirement(
+                    name="book",
+                    family="book",
+                    clock="receipt",
+                    field=NumericField(name="imbalance", units="dimensionless"),
+                    max_age_us=1_000_000,
+                ),
             ),
             history_capacity=8,
         )
@@ -982,7 +981,7 @@ class TestPaperCandidateRuntime:
         """A backward wall clock exits visibly before a cadence decision."""
         loaded, request, _ = self._live_fixture(tmp_path)
         runtime = self._runtime(tmp_path / "clock.sqlite3")
-        source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=8)
+        source = LiveBookDecisionSource(request, loaded.definition.inputs, history_capacity=8)
         selected = BookSelection.from_capture(
             request.config,
             source_id=request.identity,
@@ -1007,7 +1006,7 @@ class TestPaperCandidateRuntime:
         """Unsafe nested books cannot enter the dedicated runtime's durable input journal."""
         loaded, request, _ = self._live_fixture(tmp_path)
         runtime = self._runtime(tmp_path / "untrusted.sqlite3")
-        source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=8)
+        source = LiveBookDecisionSource(request, loaded.definition.inputs, history_capacity=8)
         selected = BookSelection.from_capture(
             request.config,
             source_id=request.identity,
@@ -1049,7 +1048,7 @@ class TestPaperCandidateRuntime:
 
     def test_paper_shadow_parity_and_restart(self, tmp_path: Path) -> None:
         """Keep decisions identical while only paper posts a single exact modeled fill."""
-        intents: list[DecisionIntent] = []
+        intents: list[DecisionIntent | None] = []
         for mode in ("paper", "shadow"):
             runtime = self._runtime(tmp_path / f"{mode}.sqlite3", mode=mode)
             runtime.open(owner="first", at=_AT)
@@ -1517,7 +1516,7 @@ class TestPaperCandidateRuntime:
                 ),
                 fee_rate=Decimal(0),
             )
-            source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=8)
+            source = LiveBookDecisionSource(request, loaded.definition.inputs, history_capacity=8)
             restored = PaperCandidateRuntime(loaded, config, journal, source=source)
             restored.open(owner="inspector", at=datetime.now(UTC) + timedelta(seconds=1))
             assert restored.checkpoint().blocked == "live-paper-failure:ValueError"
@@ -1590,7 +1589,7 @@ class TestPaperCandidateRuntime:
             ),
             fee_rate=Decimal(0),
         )
-        source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=8)
+        source = LiveBookDecisionSource(request, loaded.definition.inputs, history_capacity=8)
         runtime = PaperCandidateRuntime(loaded, config, journal, source=source)
         runtime.open(owner="operator", at=datetime.now(UTC))
         blocked = runtime.checkpoint()

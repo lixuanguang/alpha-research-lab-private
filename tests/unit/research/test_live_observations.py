@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from fractions import Fraction
 from functools import partial
 from pathlib import Path
 from typing import Literal, cast
@@ -70,12 +71,12 @@ class _CountedBookDecodes:
 class _CountedProjections:
     """Count exact book projections while preserving the production calculation."""
 
-    def __init__(self, project: Callable[[BookObservation], ExactRatio | None]) -> None:
+    def __init__(self, project: Callable[[BookObservation], dict[str, ExactRatio] | None]) -> None:
         """Bind the original projection with none counted."""
         self._project = project
         self.projections = 0
 
-    def __call__(self, row: BookObservation) -> ExactRatio | None:
+    def __call__(self, row: BookObservation) -> dict[str, ExactRatio] | None:
         """Count one projection and compute it as before."""
         self.projections += 1
         return self._project(row)
@@ -109,7 +110,7 @@ class _LiveScenario:
         )
         self.replay = CaptureReplay(config, book_factory=BookAdapters.create)
         self.source = LiveBookDecisionSource(
-            self.request, self.requirement, history_capacity=history_capacity
+            self.request, (self.requirement,), history_capacity=history_capacity
         )
         self.records: list[CaptureRecord] = []
 
@@ -197,8 +198,8 @@ class TestLiveBookDecisionSource:
     ) -> None:
         """Every delivered book stays causal without repeating depth arithmetic eagerly."""
         scenario = _LiveScenario("okx", "event")
-        counted = _CountedProjections(LiveBookDecisionSource._book_value)
-        monkeypatch.setattr(LiveBookDecisionSource, "_book_value", staticmethod(counted))
+        counted = _CountedProjections(LiveBookDecisionSource._book_values)
+        monkeypatch.setattr(LiveBookDecisionSource, "_book_values", staticmethod(counted))
         entity = str(scenario.request.config.instrument_id)
         scenario.push("session", 999_000_000)
         scenario.push("frame", 999_500_000, raw=_OKX_ACK)
@@ -327,7 +328,7 @@ class TestLiveBookDecisionSource:
         assert scenario.source.latest_book is not None
         replay = CaptureReplay(scenario.request.config, book_factory=BookAdapters.create)
         restored = LiveBookDecisionSource(
-            scenario.request, scenario.requirement, history_capacity=16
+            scenario.request, (scenario.requirement,), history_capacity=16
         )
         for position, record in enumerate(scenario.records):
             outcome = replay.apply(record)
@@ -339,9 +340,46 @@ class TestLiveBookDecisionSource:
         with pytest.raises(ValueError, match="unsupported live book"):
             LiveBookDecisionSource(
                 scenario.request,
-                replace(scenario.requirement, clock="event"),
+                (replace(scenario.requirement, clock="event"),),
                 history_capacity=16,
             )
+
+    def test_touch_fields_share_one_book_and_refuse_mismatched_contracts(self) -> None:
+        """Ask, bid and touch sizes come from the same book as imbalance, in declared order."""
+        scenario = _LiveScenario("okx", "receipt")
+        fields = (
+            NumericField(name="ask", units="quote/base"),
+            NumericField(name="bid", units="quote/base"),
+            NumericField(name="ask_size", units="base"),
+            NumericField(name="bid_size", units="base"),
+            NumericField(name="imbalance", units="dimensionless"),
+        )
+        requirements = tuple(replace(scenario.requirement, field=field) for field in fields)
+        source = LiveBookDecisionSource(scenario.request, requirements, history_capacity=16)
+        scenario.source = source
+        entity = str(scenario.request.config.instrument_id)
+        scenario.push("session", 999_000_000)
+        scenario.push("frame", 999_500_000, raw=_OKX_ACK)
+        scenario.push("frame", 1_000_000_001, raw=_OKX_SNAPSHOT)
+        decided = source.read(entity, _EPOCH + timedelta(microseconds=1_000_001))
+        assert tuple(row.input for row in decided.observations) == requirements
+        quote = source.current_quote(entity, _EPOCH + timedelta(microseconds=1_000_001))
+        assert quote is not None and quote.bid is not None and quote.ask is not None
+        values = {row.input.field.name: row.value for row in decided.observations}
+        assert values["ask"] == ExactRatio.from_fraction(Fraction(quote.ask.price))
+        assert values["bid"] == ExactRatio.from_fraction(Fraction(quote.bid.price))
+        assert values["ask_size"] == ExactRatio.from_fraction(Fraction(quote.ask.quantity))
+        assert values["bid_size"] == ExactRatio.from_fraction(Fraction(quote.bid.quantity))
+        assert values["imbalance"] == ExactRatio(numerator="1", denominator="3")
+        assert len({row.lineage for row in decided.observations}) == 1
+        for invalid in (
+            (replace(requirements[0], field=NumericField(name="ask", units="base")),),
+            (requirements[0], replace(requirements[1], max_age_us=1)),
+            (requirements[0], requirements[0]),
+            (replace(requirements[0], field=NumericField(name="spread", units="quote/base")),),
+        ):
+            with pytest.raises(ValueError, match="unsupported live book"):
+                LiveBookDecisionSource(scenario.request, invalid, history_capacity=16)
 
     def test_bitfinex_sequenced_controls_carry_only_proved_old_market(self) -> None:
         """Native heartbeats preserve L3 value and age without becoming market rows."""
@@ -474,7 +512,9 @@ class TestLiveBookDecisionSource:
         delayed_quote = scenario.source.current_quote(entity, delivery_at)
         assert delayed_quote is not None and delayed_quote.available_ns == 2_000_000_000
         new_request = replace(scenario.request, recording_id="c" * 36)
-        restarted = LiveBookDecisionSource(new_request, scenario.requirement, history_capacity=16)
+        restarted = LiveBookDecisionSource(
+            new_request, (scenario.requirement,), history_capacity=16
+        )
         assert restarted.identity == scenario.source.identity
         assert (
             restarted.read(entity, _EPOCH + timedelta(milliseconds=900)).observations[0].reason
@@ -482,7 +522,7 @@ class TestLiveBookDecisionSource:
         )
         changed = LiveBookDecisionSource(
             replace(new_request, config=replace(new_request.config, idle_seconds=14)),
-            scenario.requirement,
+            (scenario.requirement,),
             history_capacity=16,
         )
         assert changed.identity != restarted.identity
@@ -493,7 +533,9 @@ class TestLiveBookDecisionSource:
             restarted.accept(original, row, available_at=delivery_at)
         assert restarted.read(entity, delivery_at).observations[0].lineage != observed.lineage
         with pytest.raises(ValueError, match="availability precedes receipt"):
-            other = LiveBookDecisionSource(new_request, scenario.requirement, history_capacity=16)
+            other = LiveBookDecisionSource(
+                new_request, (scenario.requirement,), history_capacity=16
+            )
             record = CaptureRecord(kind="session", epoch=0, received_ns=2_000_000_000)
             replay = CaptureReplay(new_request.config, book_factory=BookAdapters.create)
             outcome = replay.apply(record)

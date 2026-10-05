@@ -134,7 +134,7 @@ class PaperCaptureObserver:
         gaps and use the candidate's declared pause/reset policy. A wall-clock
         regression fails visibly; this method never repairs source timestamps.
         """
-        cadence = timedelta(microseconds=self.runtime.loaded.manifest.cadence_us)
+        cadence = timedelta(microseconds=self.runtime.loaded.definition.cadence_us)
         starts = self.runtime.loaded.deployment.starts_at
         previous_now = datetime.now(UTC)
         at = starts

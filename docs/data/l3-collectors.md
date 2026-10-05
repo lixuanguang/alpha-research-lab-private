@@ -555,8 +555,10 @@ deleting any reconstruction evidence. Selecting a collection staging ceiling
 does not change a research acceptance profile. No compression or
 reconstruction-record discard is implemented.
 
-Pass the ordered segment directories to the existing `DatasetPublication`.
-`BookInput.read` binds the exact predecessor descriptors, and `SourceAdapters`
+Pass the ordered segment directories to `DatasetPublication.publish_captures` or
+`alpha-dataset capture-publish`; a trades chain publishes as one `public-trades`
+snapshot covering every segment.
+`CaptureInput.read` binds the exact predecessor descriptors, and `SourceAdapters`
 replays original predecessors before projecting a suffix with no new snapshot.
 Raw identities, clocks and suffix positions stay attributable. Publication copies
 the predecessor objects for portable reopening. This preserves ingestion

@@ -15,7 +15,7 @@ from strategies import DecisionPolicy
 if TYPE_CHECKING:
     # project library imports
     from research.models import EstimatorAdapter
-    from research.studies import ChartDefinition, MetricDefinition
+    from research.reports import ChartDefinition, MetricDefinition
 
 
 @dataclass(frozen=True)

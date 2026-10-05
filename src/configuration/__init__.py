@@ -47,11 +47,15 @@ from configuration.paper_activation import (
     PaperStrategyIdentity,
 )
 from configuration.paper_services import (
+    PackagedCandidate,
+    PaperFeaturePublisher,
+    PaperFeatureServing,
     PaperServiceAccount,
     PaperServiceConfiguration,
     PaperServiceInstance,
     PaperServiceSource,
     PaperSourceChain,
+    ReferenceCandidate,
 )
 from configuration.public_data import DataCapability, PublicDataJob, UniverseSelection
 from configuration.venue_execution import (
@@ -102,10 +106,13 @@ __all__ = [
     "InstrumentFeeRate",
     "OKXHistoryConfig",
     "OpeningAccount",
+    "PackagedCandidate",
     "PaperAuthorization",
     "PaperConfiguration",
     "PaperDeployment",
     "PaperExecutionScenario",
+    "PaperFeaturePublisher",
+    "PaperFeatureServing",
     "PaperServiceAccount",
     "PaperServiceConfiguration",
     "PaperServiceInstance",
@@ -114,6 +121,7 @@ __all__ = [
     "PaperSourceChain",
     "PaperStrategyIdentity",
     "PublicDataJob",
+    "ReferenceCandidate",
     "ResolvedManifest",
     "SecretFile",
     "SecretValue",

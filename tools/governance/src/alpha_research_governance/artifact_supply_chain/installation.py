@@ -52,8 +52,10 @@ class InstallationReceipt(ImmutableModel):
 class LocalInstallation:
     """Own the quiescence lock, immutable environments and one atomic active pointer.
 
-    Installation never starts a service. Runs through this owner hold the same
-    exclusive fence as installation. Rollback restores prior code/configuration
+    Installation never starts a service. Installation holds the target's fence
+    exclusively and each run holds it shared, so concurrent runs share a target while
+    no installation can select a release under one. Each installed application owns
+    its own single-instance fences. Rollback restores prior code/configuration
     while retaining current state; unsupported schema migrations fail closed.
     """
 
@@ -138,7 +140,7 @@ class LocalInstallation:
         No inherited credential, Python-path or installer environment is forwarded.
         """
         with self._fence() as fence:
-            fcntl.flock(fence.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fence.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
             receipt = self.current()
             if receipt is None:
                 raise ValueError("no operating release is installed")
@@ -161,6 +163,7 @@ class LocalInstallation:
                 configuration,
                 self.root / "state/accounts.sqlite3",
                 release_identity=receipt.release,
+                candidates=bundle / "candidates",
             )
             return self._run(
                 [str(executable), *invocation],
@@ -170,11 +173,20 @@ class LocalInstallation:
 
     @classmethod
     def _outer_seconds(cls, runtime: ReleaseRuntime, configuration: Path) -> int:
-        """Bound an installed run by its signed account service life plus 60 seconds.
+        """Bound an installed run by its signed service life plus 60 seconds.
 
-        Only the account contract declares a life; every other run keeps 180 seconds.
-        An undeclared life is 120 seconds, so its outer bound is also 180 seconds.
+        The account contract declares a life, and paper services a supervisor duration;
+        every other run keeps 180 seconds. An undeclared account life is 120 seconds,
+        so its outer bound is also 180 seconds.
         """
+        if runtime.application == "paper-services":
+            services: object = json.loads(ReleaseRegistry.read_regular(configuration, 8_388_608))
+            if not isinstance(services, dict):
+                raise ValueError("signed paper services configuration is not an object")
+            duration: object = cast(dict[str, object], services).get("duration_seconds", 90)
+            if type(duration) is not int or not 1 <= duration <= 90_000:
+                raise ValueError("signed paper services duration is not a finite declared bound")
+            return duration + 60
         if not cls._account_runtime(runtime):
             return 180
         declared: object = json.loads(ReleaseRegistry.read_regular(configuration, 8_388_608))
@@ -436,7 +448,16 @@ class LocalInstallation:
             return
         executable = destination / "venv/bin" / self._command(runtime)
         arguments = [str(executable), "--help"]
-        if runtime.application == "execution":
+        if runtime.application == "paper-services":
+            arguments = [
+                str(executable),
+                "deployment-check",
+                "--config",
+                str(destination / "bundle/configuration/config.json"),
+                "--candidates",
+                str(destination / "bundle/candidates"),
+            ]
+        elif runtime.application == "execution":
             arguments = [
                 str(executable),
                 "inspect",
@@ -574,6 +595,29 @@ class LocalInstallation:
         return "alpha-collect" if runtime.application == "collector" else "alpha-execute"
 
     @staticmethod
+    def _service_arguments(
+        arguments: tuple[str, ...], configuration: Path, candidates: Path
+    ) -> list[str]:
+        """Bind paper service commands to the signed configuration and candidates."""
+        action = arguments[0]
+        if action not in {
+            "deployment",
+            "deployment-check",
+            "deployment-control",
+            "feature-publisher",
+        }:
+            raise ValueError("unsupported installed application command")
+        for argument in arguments[1:]:
+            option = argument.partition("=")[0]
+            if option.startswith("--") and (
+                "--config".startswith(option) or "--candidates".startswith(option)
+            ):
+                raise ValueError("installed run cannot override signed configuration")
+        if action == "deployment-control":
+            return list(arguments)
+        return [*arguments, "--config", str(configuration), "--candidates", str(candidates)]
+
+    @staticmethod
     def _bound_arguments(
         runtime: ReleaseRuntime,
         arguments: tuple[str, ...],
@@ -581,11 +625,14 @@ class LocalInstallation:
         journal: Path,
         *,
         release_identity: str,
+        candidates: Path,
     ) -> list[str]:
         """Select only installed commands and bind config consumers to signed bytes."""
         if not arguments:
             raise ValueError("installed run requires an application command")
         action = arguments[0]
+        if runtime.application == "paper-services":
+            return LocalInstallation._service_arguments(arguments, configuration, candidates)
         if LocalInstallation._account_runtime(runtime):
             if action != "account":
                 raise ValueError("unsupported installed application command")

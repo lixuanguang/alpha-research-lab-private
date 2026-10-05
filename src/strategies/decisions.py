@@ -52,19 +52,24 @@ class DecisionContext(WireRecord, frozen=True):
 
 
 class DecisionTransition(WireRecord, frozen=True):
-    """Return typed intent and immutable successor policy state without side effects."""
+    """Return typed intent and immutable successor policy state without side effects.
 
-    intent: DecisionIntent
+    An intent of None abstains: the policy wants no working orders at this
+    decision, and its state still advances.
+    """
+
+    intent: DecisionIntent | None
     state: bytes
 
     def __post_init__(self) -> None:
         """Refuse unknown output contracts and mutable state."""
         if (
-            type(self.intent) not in (TargetIntent, ExposureIntent, OrderIntent, QuoteIntent)
-            or type(self.state) is not bytes
-        ):
+            self.intent is not None
+            and type(self.intent) not in (TargetIntent, ExposureIntent, OrderIntent, QuoteIntent)
+        ) or type(self.state) is not bytes:
             raise ValueError("invalid decision transition")
-        self.intent.__post_init__()
+        if self.intent is not None:
+            self.intent.__post_init__()
 
 
 class DecisionPolicy(Protocol):
@@ -98,7 +103,10 @@ class DecisionPolicy(Protocol):
 
 
 class DecisionRecord(WireRecord, frozen=True):
-    """Retain decision ownership, exact feature/model identity and output for future consumers."""
+    """Retain decision ownership, exact feature/model identity and output for future consumers.
+
+    An intent of None records an abstention: no working orders at this decision.
+    """
 
     instance: str
     entity: str
@@ -106,7 +114,7 @@ class DecisionRecord(WireRecord, frozen=True):
     policy: str
     feature_identity: str
     model_identity: str | None
-    intent: DecisionIntent
+    intent: DecisionIntent | None
 
     def __post_init__(self) -> None:
         """Validate immutable decision lineage and typed economics."""
@@ -118,6 +126,8 @@ class DecisionRecord(WireRecord, frozen=True):
             type(self.model_identity) is not str or not self.model_identity
         ):
             raise ValueError("invalid decision model identity")
+        if self.intent is None:
+            return
         if type(self.intent) not in (TargetIntent, ExposureIntent, OrderIntent, QuoteIntent):
             raise ValueError("unsupported decision intent")
         self.intent.__post_init__()

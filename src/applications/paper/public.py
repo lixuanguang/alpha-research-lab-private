@@ -34,7 +34,6 @@ from market_data.collection import CaptureRunner, CaptureRunResult, CaptureTrans
 from market_data.contracts import CaptureRequest
 from research.observations import InputRequirement, LiveBookDecisionSource
 from runtime import (
-    SharedBookInputs,
     SharedDecisionRuntime,
     SharedPaperCaptureObserver,
     SharedStrategyBinding,
@@ -60,8 +59,6 @@ async def run_live_shared_paper(
     account_id: str,
     bindings: tuple[SharedStrategyBinding, ...],
     scenario: PaperExecutionScenario,
-    requirement: InputRequirement,
-    inputs: SharedBookInputs,
     request: CaptureRequest,
     journal_path: Path,
     output: Path,
@@ -71,11 +68,12 @@ async def run_live_shared_paper(
     alert_socket: str | None = None,
     paper_account: PaperAccount | None = None,
 ) -> SharedPublicPaperResult:
-    """Run selected policies over a finite native feed without private access.
+    """Run selected candidates over a finite native feed without private access.
 
-    One selected account/instrument may have one or several strategy instances.
-    Every eligible book first matches older admitted orders, then evaluates a
-    policy cohort through independent portfolio/risk checks. Complete independent
+    One selected account/instrument may have one or several candidate instances.
+    The source projects every field the candidates read. Each candidate decides at
+    its grid instants through independent portfolio/risk checks, and the book that
+    crosses an instant then matches admitted orders. Complete independent
     opening/recovery observations must be supplied when readiness requires them;
     this workflow never derives reconciliation facts from its own ledger.
 
@@ -99,7 +97,13 @@ async def run_live_shared_paper(
         )
     ):
         raise ValueError("public paper requires selected paper account and native venue bindings")
-    source = LiveBookDecisionSource(request, requirement, history_capacity=history_capacity)
+    requirements: tuple[InputRequirement, ...] = ()
+    for binding in bindings:
+        requirements += tuple(
+            item for item in binding.candidate.definition.inputs if item not in requirements
+        )
+    source = LiveBookDecisionSource(request, requirements, history_capacity=history_capacity)
+    max_age_us = requirements[0].max_age_us
     books = BookRegistry(
         BookRegistryConfiguration(
             selections=(
@@ -107,9 +111,7 @@ async def run_live_shared_paper(
                     request.config,
                     source_id=request.identity,
                     capability=BookAdapters.capability(request.config),
-                    max_age_ns=min(
-                        requirement.max_age_us * 1000, request.config.idle_seconds * 1_000_000_000
-                    ),
+                    max_age_ns=min(max_age_us * 1000, request.config.idle_seconds * 1_000_000_000),
                     allow_degraded=True,
                 ),
             ),
@@ -138,19 +140,24 @@ async def run_live_shared_paper(
         if (
             deployment.scenario != scenario
             or deployment.input_identity
-            != hashlib.sha256(
-                DomainCodec().encode_json((request.config, requirement, inputs.identity))
-            ).hexdigest()
+            != hashlib.sha256(DomainCodec().encode_json((request.config, requirements))).hexdigest()
             or {
-                (item.instance_id, item.policy_identity, item.model_identity, item.feature_identity)
+                (
+                    item.instance_id,
+                    item.candidate_identity,
+                    item.policy_identity,
+                    item.model_identity,
+                    item.feature_identity,
+                )
                 for item in deployment.strategies
             }
             != {
                 (
                     item.instance_id,
-                    item.policy.identity,
+                    item.candidate.definition.identity,
+                    item.candidate.policy.identity,
                     item.context.model_revision,
-                    inputs.identity,
+                    item.candidate.feature.schema.identity,
                 )
                 for item in bindings
             }
@@ -166,7 +173,6 @@ async def run_live_shared_paper(
         runtime=runtime,
         account_id=account_id,
         scenario=scenario,
-        inputs=inputs,
         delivery_path=output / "deliveries.jsonl",
     )
     codec = DomainCodec()
@@ -181,11 +187,16 @@ async def run_live_shared_paper(
             "execution_scenario": scenario,
             "capture_request": request,
             "book_registry": books.config,
-            "requirement": requirement,
-            "input_binding": inputs.identity,
+            "requirements": requirements,
             "paper_mark_policy": "last_eligible_bid",
             "strategies": tuple(
-                (binding.instance_id, binding.policy.identity, binding.context, binding.maximum_fee)
+                (
+                    binding.instance_id,
+                    binding.candidate.definition.identity,
+                    binding.candidate.deployment.identity,
+                    binding.context,
+                    binding.maximum_fee,
+                )
                 for binding in bindings
             ),
             "opening_observations": observations,
@@ -226,7 +237,7 @@ async def run_live_shared_paper(
         report = PaperAccountReporter().build(
             account.ledger,
             cutoff=datetime.now(UTC),
-            max_mark_age=timedelta(microseconds=requirement.max_age_us),
+            max_mark_age=timedelta(microseconds=max_age_us),
             marks=marks,
             fills=tuple(
                 AttributedPaperFill(

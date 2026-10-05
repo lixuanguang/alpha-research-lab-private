@@ -85,9 +85,9 @@ class _FeatureCandidateAcceptance:
         decision_second: int,
     ) -> dict[str, object]:
         """Pin a real snapshot and compare source, offline and optional Feast intents."""
-        assert manifest.feature_store is not None and source_step.feature is not None
+        assert manifest.definition.feature_store is not None and source_step.feature is not None
         definition = DomainCodec().decode_json(
-            bundle.artifact(manifest.feature_store), FeatureStoreDefinition
+            bundle.artifact(manifest.definition.feature_store), FeatureStoreDefinition
         )
         vector = source_step.feature
         self.store.register(definition)
@@ -112,10 +112,10 @@ class _FeatureCandidateAcceptance:
             source_deployment,
             name=f"{name}-offline",
             input_mode="offline_features",
-            source_identity=snapshot.identity,
+            source_identity=VersionedFeatureStore.stream_identity(definition, version),
             feature_version=version,
         )
-        registry = _CandidateAcceptance._registry(manifest.requirements)
+        registry = _CandidateAcceptance._registry(manifest.definition.requirements)
         loader = CandidateLoader(components, registry)
         offline_session = CandidateSession(loader.load(bundle, offline))
         offline_step = CandidateFeatureFeed(self.store).evaluate(
@@ -139,7 +139,7 @@ class _FeatureCandidateAcceptance:
             name=f"{name}-online",
             mode="runtime",
             input_mode="online_features",
-            source_identity=snapshot.identity,
+            source_identity=VersionedFeatureStore.stream_identity(definition, version),
             feature_version=version,
         )
         online_session = CandidateSession(loader.load(bundle, online))

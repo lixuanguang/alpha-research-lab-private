@@ -1,8 +1,9 @@
-"""Verify exact reference book policies and isolated bounded decision calls."""
+"""Verify exact reference formulas, built-in candidates and isolated bounded steps."""
 
 from __future__ import annotations
 
 # standard library imports
+import dataclasses
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -11,14 +12,23 @@ from fractions import Fraction
 from typing import Literal, cast
 
 # third party library imports
+import msgspec
 import pytest
 
 # project library imports
+from configuration import ReferenceCandidate
 from financial_units import Currency, Dimension, ExactRatio, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from research.features import FeatureVector
-from research.observations import NumericField
-from runtime import PolicyProcessFailure, ProcessDecisionPolicy
+from research.observations import DecisionInputs, NamedObservation, NumericField
+from runtime import (
+    CandidateProcessFailure,
+    CandidateSession,
+    LoadedCandidate,
+    LocalCandidateExecutor,
+    ProcessCandidateExecutor,
+    ReferenceCandidates,
+)
 from strategies import (
     DecisionContext,
     DecisionSession,
@@ -42,8 +52,8 @@ class _BlockingClip(ReferenceClipPolicy):
         return super().decide(context, state)
 
 
-class TestPolicyWorker:
-    """Exercise the public policy interface without account or order capability."""
+class TestReferenceCandidates:
+    """Exercise reference formulas and built-in candidates without account capability."""
 
     at = datetime(2026, 9, 27, tzinfo=UTC)
     currency = Currency.from_code("USDT")
@@ -217,42 +227,113 @@ class TestPolicyWorker:
         with pytest.raises(ValueError, match="positive visible size"):
             self._policy("liquidity").decide(self._context(ask_size="0"), b"0")
 
-    def test_spawned_policy_returns_typed_transition_and_keeps_parent_state(self) -> None:
-        """One child decision matches the pure formula and leaves state with its caller."""
+    @classmethod
+    def _candidate(
+        cls, formula: Literal["fixed_clip", "liquidity_clip", "target_clip"] = "fixed_clip"
+    ) -> LoadedCandidate:
+        """Load one installed reference formula as a runtime candidate."""
+        return ReferenceCandidates(venue="okx", freshness_us=5_000_000, clock="receipt").load(
+            ReferenceCandidate(formula=formula, cadence_us=1_000_000, starts_at=cls.at),
+            instance="clip-a",
+            entity=str(cls.dimension.instrument_id),
+            quantity=cls._quantity("2"),
+            lot=cls._quantity("1"),
+            currency=cls.currency,
+            tick=cls._price("0.01"),
+            source_identity="native-touch",
+        )
+
+    @classmethod
+    def _inputs(
+        cls, loaded: LoadedCandidate, at: datetime, *, ask: str = "101", bid: str = "100"
+    ) -> DecisionInputs:
+        """Supply the native touch fields the reference candidate reads at one instant."""
+        values = {"ask": ask, "bid": bid, "ask_size": "2"}
+        return DecisionInputs(
+            entity=str(cls.dimension.instrument_id),
+            decision_at=at,
+            observations=tuple(
+                NamedObservation(
+                    input=item,
+                    entity=str(cls.dimension.instrument_id),
+                    event_at=at,
+                    available_at=at,
+                    value=ExactRatio.from_fraction(Fraction(values[item.field.name])),
+                    reason="observed",
+                    lineage="native-touch",
+                )
+                for item in loaded.definition.inputs
+            ),
+        )
+
+    def test_reference_candidate_reproduces_its_formula_on_the_grid(self) -> None:
+        """A packaged formula decides exactly as the pure policy and keeps state across gaps."""
+        loaded = self._candidate()
         policy = self._policy()
-        worker = ProcessDecisionPolicy(policy)
+        assert loaded.definition.state.on_gap == "continue"
+        assert loaded.definition.output == "order"
+        executor = LocalCandidateExecutor(loaded)
+        first = executor.step(self._inputs(loaded, self.at), None)
+        assert first.decision is not None
+        assert first.decision.intent == policy.decide(self._context(), b"0").intent
+        # Skipping one instant keeps the clip counter: the next order rests below the bid.
+        later = self.at + timedelta(seconds=2)
+        second = executor.step(self._inputs(loaded, later), first.checkpoint)
+        assert second.decision is not None
+        assert second.decision.intent == policy.decide(self._context(), b"1").intent
+        with pytest.raises(ValueError, match="cadence"):
+            executor.step(self._inputs(loaded, later + timedelta(milliseconds=1)), None)
+        assert loaded.identity != self._candidate("liquidity_clip").identity
+        with pytest.raises(ValueError, match="explicit reset"):
+            CandidateSession(
+                dataclasses.replace(
+                    loaded,
+                    definition=msgspec.structs.replace(
+                        loaded.definition,
+                        state=msgspec.structs.replace(loaded.definition.state, on_restart="reset"),
+                    ),
+                ),
+                first.checkpoint,
+            )
+
+    def test_spawned_candidate_returns_typed_step_and_keeps_parent_state(self) -> None:
+        """One child step matches the in-process step and leaves state with its caller."""
+        loaded = self._candidate()
+        local = LocalCandidateExecutor(loaded)
+        worker = ProcessCandidateExecutor(loaded)
         try:
             assert worker.pid is not None and worker.pid > 0
             assert worker.is_alive
-            assert worker.identity == policy.identity
-            assert worker.output == policy.output
-            worker.admit(ReferenceClipPolicy.fields, None)
-            first = worker.decide(self._context(), worker.initial_state())
-            assert first == policy.decide(self._context(), b"0")
-            assert worker.decide(self._context(), first.state) == policy.decide(
-                self._context(), b"1"
+            first = worker.step(self._inputs(loaded, self.at), None)
+            assert first == local.step(self._inputs(loaded, self.at), None)
+            later = self.at + timedelta(seconds=1)
+            assert worker.step(self._inputs(loaded, later), first.checkpoint) == local.step(
+                self._inputs(loaded, later), first.checkpoint
             )
+            with pytest.raises(ValueError, match="candidate rejected input"):
+                worker.step(self._inputs(loaded, later, ask="99", bid="100"), first.checkpoint)
         finally:
             worker.close()
         assert not worker.is_alive
         assert worker.pid is not None
-        worker.validate_state(b"2")
-        with pytest.raises(PolicyProcessFailure) as failure:
-            worker.decide(self._context(), b"2")
+        with pytest.raises(CandidateProcessFailure) as failure:
+            worker.step(self._inputs(loaded, self.at), None)
         assert failure.value.pid == worker.pid
 
-    def test_blocked_decision_times_out_while_child_heartbeat_advances(self) -> None:
+    def test_blocked_step_times_out_while_child_heartbeat_advances(self) -> None:
         """A blocked formula cannot exceed its deadline or stop independent liveness."""
-        worker = ProcessDecisionPolicy(
-            _BlockingClip(
+        loaded = self._candidate()
+        blocking = dataclasses.replace(
+            loaded,
+            policy=_BlockingClip(
                 self._quantity("2"),
                 self.currency,
                 self._quantity("1"),
                 tick=self._price("0.01"),
                 implementation="a" * 64,
             ),
-            timeout_seconds=1,
         )
+        worker = ProcessCandidateExecutor(blocking, timeout_seconds=1)
         try:
             deadline = time.monotonic() + 3
             while worker.health.snapshot()[HealthMetric.HEARTBEAT] == 0:
@@ -260,11 +341,11 @@ class TestPolicyWorker:
                 time.sleep(0.02)
             before = worker.health.snapshot()[HealthMetric.HEARTBEAT]
             with ThreadPoolExecutor(max_workers=1) as pool:
-                pending = pool.submit(worker.decide, self._context(), b"0")
+                pending = pool.submit(worker.step, self._inputs(loaded, self.at), None)
                 time.sleep(0.3)
                 after = worker.health.snapshot()[HealthMetric.HEARTBEAT]
                 assert after > before
-                with pytest.raises(PolicyProcessFailure, match="timed out"):
+                with pytest.raises(CandidateProcessFailure, match="timed out"):
                     pending.result(timeout=2)
             assert not worker.is_alive
         finally:

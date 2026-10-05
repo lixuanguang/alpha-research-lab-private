@@ -118,26 +118,37 @@ dataset lineage, definition identity, and explicit `ready`, `partial`, `missing`
 or `expired` quality. The served path also reports `future`, `stale` and
 `unmaterialized`. `require_ready()` admits only a complete fresh vector.
 
-`materialize(definition, version, at, entities)` stages one immutable named
-snapshot without changing the active version. The application projects it with
+A version is a **stream**: an append-only sequence of complete snapshots at
+strictly increasing cutoffs. `materialize(definition, version, at, entities)`
+appends one immutable snapshot to that version; an exact retry of the latest
+snapshot is accepted and an earlier cutoff is refused. `prepare` computes the same
+snapshot without writing it. A publisher prepares the snapshot, projects it with
 `FeastServingSnapshot.from_materialization`, writes and reads a separate local
-Feast 0.66 generation through `FeastServingBridge`, verifies every entity's
-exact values, then calls `activate_if_current` with the active version observed
-before preparation. A competing worker's newer publication makes the older
-activation fail; an exact retry is idempotent. Failed or partial publication
-leaves the previous active pointer intact. `get_materialization` reopens a pinned
-version after restart; explicit `activate` rolls back to an older complete
-version. `retrieve_online` reads only the active snapshot and can apply
-an explicit maximum materialization age; a missing or future value is never
-silently recomputed. The local store's `backup`/`restore` preserves SQLite
+Feast 0.66 generation through `FeastServingBridge`, verifies every entity's exact
+values, and only then appends it with `expected_identity`. A reader therefore
+never finds a snapshot without its generation, and a value revised after
+preparation refuses the append. A new version is published with
+`activate_if_current`, given the active version observed before preparation; a
+competing worker's newer publication makes the older activation fail, and an
+exact retry is idempotent. Failed or partial publication leaves the previous
+snapshot and active pointer intact. `get_materialization(definition, version, at)`
+reopens a version's latest snapshot at or before a cutoff, and
+`exact_materialization` its snapshot exactly at a cutoff or None, which is what a
+served candidate reads; `stream_identity` names the stream a deployment pins. Explicit `activate` rolls back to another
+version. `retrieve_online` reads the active version's latest snapshot at or before
+the cutoff, reports `future` before its first snapshot, and can apply an explicit
+maximum materialization age; a missing or future value is never silently
+recomputed. The local store's `backup`/`restore` preserves SQLite
 history; `WorkspaceBackup` retains both that history and the Feast generations.
 
-`applications.explore.materialize_features` is the executable source →
+`research.features.FeatureMaterializer` is the executable source →
 `FeatureSession` → store → Feast composition. It requires a matching source
-identity and schema, an incremental instance, and ordered decisions; it resumes
-a checkpointed incremental stream and activates only after Feast parity. The
-currently composed path runs unfitted kernels; fitted vectors use the explicit
-definition/output-signature and append boundary. `run_served_decision` verifies
+identity and schema, the definition's instance for an incremental kernel, and
+ordered decisions; it resumes a checkpointed stream and activates only after Feast
+parity. Calling it again with the same version and later decisions extends that
+version's stream; the paper feature publisher does so from live recordings. A
+fitted definition is materialized with the study's `FittedTransform` and retained
+`TransformVersion`, applied without refitting. `run_served_decision` verifies
 the pinned Feast generation before passing a ready vector to the same
 `DecisionSession` used in research. It returns a visible pause with unchanged
 decision state on missing, expired or unavailable serving; it emits intents and
@@ -188,6 +199,11 @@ late and expired observations stay explicit; no zero fill is introduced.
 
 The [separate local worker](../../../configs/development/research-worker/README.md)
 keeps Feast's pandas-below-3 dependency out of the core pandas 3.0.5 runtime.
+The worker answers one response line per request line until its input ends.
+`FeastOfflineWorker` runs one process per request. `FeastWorkerSession` keeps one
+process across requests, so long-running services pay the worker's start (about two
+seconds) once. A failed, timed-out or ended worker raises `FeatureAccessError`, and
+the session starts a fresh one on the next request.
 The offline Feast path requires an eligibility-filtered immutable source
 and pins actual registry/source state. A normal event-time join alone is insufficient
 for delayed availability or revisions. The generalized local online path above

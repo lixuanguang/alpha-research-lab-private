@@ -20,7 +20,8 @@ from applications.execute.workflow import main
 
 if TYPE_CHECKING:
     # project library imports
-    from applications.execute.service_inputs import ServiceBookInputs
+    from applications.execute.feature_publisher import FeaturePublisher
+    from applications.execute.service_candidates import PaperServiceCandidates
     from applications.execute.services import (
         PaperServiceControl,
         PaperServiceOwners,
@@ -45,17 +46,23 @@ def __getattr__(name: str) -> object:
             "run_paper_services": services.run_paper_services,
         }
         return exports[name]
+    if name in {"FeaturePublisher"}:
+        # project library imports
+        from applications.execute import feature_publisher
+
+        exports = {"FeaturePublisher": feature_publisher.FeaturePublisher}
+        return exports[name]
+    if name in {"PaperServiceCandidates"}:
+        # project library imports
+        from applications.execute import service_candidates
+
+        exports = {"PaperServiceCandidates": service_candidates.PaperServiceCandidates}
+        return exports[name]
     if name in {"DecodedBookObservation"}:
         # project library imports
         from applications.execute import source_service
 
         exports = {"DecodedBookObservation": source_service.DecodedBookObservation}
-        return exports[name]
-    if name in {"ServiceBookInputs"}:
-        # project library imports
-        from applications.execute import service_inputs
-
-        exports = {"ServiceBookInputs": service_inputs.ServiceBookInputs}
         return exports[name]
     raise AttributeError(name)
 
@@ -65,14 +72,15 @@ __all__ = [
     "AccountExecutionRequest",
     "AccountExecutionResult",
     "DecodedBookObservation",
+    "FeaturePublisher",
     "MonitoringApplication",
     "MonitoringConfiguration",
     "PaperExecutionApplication",
     "PaperExecutionRequest",
     "PaperExecutionResult",
+    "PaperServiceCandidates",
     "PaperServiceControl",
     "PaperServiceOwners",
-    "ServiceBookInputs",
     "VenueApplicationResult",
     "VenueExecutionApplication",
     "main",

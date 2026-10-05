@@ -30,10 +30,11 @@ entry points are:
 
 | Command | Current purpose |
 | --- | --- |
-| `make format-check` / `make format` | Check or apply Ruff formatting to `src`, `tests`, governance tooling, owned stubs and `examples` |
+| `make format-check` / `make format` | Check or apply Ruff formatting to `src`, `tests`, governance tooling, owned stubs, `examples` and `extensions` |
 | `make lint` | Ruff lint and import checks over the same Python scope |
 | `make typecheck` | Strict mypy over the same scope, followed by native `stubtest` |
 | `make engineering-standards-check` | Local import, explicit-`Any`, docstring, suppression, tool-configuration, class-ownership and [format-compatibility wording](#format-changes-replace-in-place) checks |
+| `alpha-governance-engineering-standards import-audit PATH` | The private, deep and unexported import rules and the `sys.path` rule, applied to code outside the repository against the installed owners' `__all__` |
 | `make security` | Bandit over runtime, governance and example source |
 | `make check` | Complete source checks and installed-wheel smoke validation |
 
@@ -54,8 +55,8 @@ merge. Use the repository workflow for implementation and acceptance; automated
 success does not replace domain review or grant release or activation authority.
 
 The checker scans every `.py` and `.pyi` file recursively under exactly:
-`src`, `tests`, `tools/governance/src`, `tools/typing/stubs` and `examples`,
-including files that Git does not track. It also scans every UTF-8 text file under `src` for
+`src`, `tests`, `tools/governance/src`, `tools/typing/stubs`, `examples` and
+`extensions` (optional until an extension exists), including files that Git does not track. It also scans every UTF-8 text file under `src` for
 [format-compatibility wording](#format-changes-replace-in-place), and under `src`,
 `tools`, `tests` and `configs` (outside hidden directories) for revision-suffixed names. A missing root,
 unreadable source, malformed configuration, or finding fails closed. It has no

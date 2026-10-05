@@ -38,6 +38,7 @@ class ExecuteArguments(argparse.Namespace):
     owners: Path
     root: Path
     socket: Path
+    candidates: Path | None
 
 
 def main() -> None:
@@ -49,6 +50,14 @@ def main() -> None:
     services_parser.add_argument("--owners", type=Path, required=True)
     services_parser.add_argument("--root", type=Path, required=True)
     services_parser.add_argument("--socket", type=Path, required=True)
+    services_parser.add_argument("--candidates", type=Path)
+    check_parser = actions.add_parser("deployment-check")
+    check_parser.add_argument("--config", type=Path, required=True)
+    check_parser.add_argument("--candidates", type=Path)
+    publisher_parser = actions.add_parser("feature-publisher")
+    publisher_parser.add_argument("--config", type=Path, required=True)
+    publisher_parser.add_argument("--candidates", type=Path, required=True)
+    publisher_parser.add_argument("--root", type=Path, required=True)
     service_control = actions.add_parser("deployment-control")
     service_control.add_argument("--socket", type=Path, required=True)
     service_control.add_argument("--request", type=Path, required=True)
@@ -110,8 +119,32 @@ def main() -> None:
             selected = codec.decode_json(arguments.config.read_bytes(), PaperServiceConfiguration)
             owners = codec.decode_json(arguments.owners.read_bytes(), PaperServiceOwners).owners
             result = run_paper_services(
-                selected, owners, root=arguments.root, control_socket=arguments.socket
+                selected,
+                owners,
+                root=arguments.root,
+                control_socket=arguments.socket,
+                candidates=arguments.candidates,
             )
+        elif arguments.action == "deployment-check":
+            # project library imports
+            from applications.execute.service_candidates import PaperServiceCandidates
+            from configuration import PaperServiceConfiguration
+
+            selected = DomainCodec().decode_json(
+                arguments.config.read_bytes(), PaperServiceConfiguration
+            )
+            result = PaperServiceCandidates(selected, arguments.candidates).report()
+        elif arguments.action == "feature-publisher":
+            # project library imports
+            from applications.execute.feature_publisher import FeaturePublisher
+            from configuration import PaperServiceConfiguration
+
+            if arguments.candidates is None:
+                raise ValueError("feature publisher requires the release candidates")
+            selected = DomainCodec().decode_json(
+                arguments.config.read_bytes(), PaperServiceConfiguration
+            )
+            result = FeaturePublisher(selected, arguments.candidates, arguments.root).run()
         elif arguments.action == "deployment-control":
             # project library imports
             from applications.execute.services import control_paper_services

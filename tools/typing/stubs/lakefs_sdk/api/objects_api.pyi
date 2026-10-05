@@ -36,3 +36,25 @@ class ObjectsApi:
             Downloaded object bytes.
         """
         ...
+    def upload_object(
+        self,
+        repository: str,
+        branch: str,
+        path: str,
+        *,
+        content: str,
+        _request_timeout: int,
+    ) -> object:
+        """Upload one local file's complete bytes to a branch.
+
+        Args:
+            repository: Repository name.
+            branch: Writable branch.
+            path: Object path relative to the branch.
+            content: Local file path; the SDK opens and reads it.
+            _request_timeout: Socket timeout seconds.
+
+        Returns:
+            The server's object statistics.
+        """
+        ...

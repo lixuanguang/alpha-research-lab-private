@@ -157,6 +157,10 @@ class FeastServingWorkerCommand:
 
     _MAX_ROWS = 4_096
 
+    def __init__(self) -> None:
+        """Load the SDK as the worker starts, so a session's first request is warm."""
+        importlib.import_module("feast")
+
     def run(self, payload: bytes) -> bytes:
         """Dispatch one bounded serving request through the installed Feast SDK.
 

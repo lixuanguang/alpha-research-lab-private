@@ -30,7 +30,7 @@ from msgspec.structs import force_setattr, replace
 # project library imports
 from accounting import AccountLedger, AccountPosting, AccountState, Fill, PaperAccountReport
 from applications.collect import collect
-from applications.execute.service_inputs import ServiceBookInputs
+from applications.execute.service_candidates import PaperServiceCandidates
 from applications.execute.service_monitor import (
     DiagnosticReceipt,
     PaperServiceDiagnostics,
@@ -55,6 +55,7 @@ from configuration import (
     PaperServiceInstance,
     PaperServiceSource,
     PaperSourceChain,
+    ReferenceCandidate,
 )
 from configuration.accounts import InstrumentFeeRate
 from execution import (
@@ -70,6 +71,7 @@ from execution import (
     SocketPaperAccount,
 )
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
+from market_data.adapters.sources import BookAdapters
 from market_data.adapters.transport import VenueTransport
 from market_data.books import BookAsOfIndex
 from market_data.contracts import (
@@ -80,14 +82,17 @@ from market_data.contracts import (
     FeedSocket,
     Level,
     Order,
+    RecordingRequest,
 )
 from market_data.storage import CaptureRecording
 from reference_data.instruments import InstrumentId
+from research.observations import InputRequirement, LiveTradeDecisionSource, NumericField
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
+    CandidateProcessFailure,
     InstalledIdentity,
-    PolicyProcessFailure,
-    ProcessDecisionPolicy,
+    PaperInputs,
+    ProcessCandidateExecutor,
     SharedPaperCaptureObserver,
 )
 from serialization import DomainCodec
@@ -112,13 +117,14 @@ class _Constant[T]:
 class _ScriptedBookSocket:
     """Deliver one finite OKX public book script, then drop the connection."""
 
-    def __init__(self, frames: tuple[bytes, ...]) -> None:
-        """Bind the exact native frames of one connection."""
+    def __init__(self, frames: tuple[bytes, ...], channel: str = "books") -> None:
+        """Bind the exact native frames of one connection and its subscribed channel."""
         self.frames = iter(frames)
+        self.channel = channel
 
     async def send(self, message: str) -> None:
-        """Accept the selected public book subscription."""
-        assert '"books"' in message
+        """Accept the selected public subscription."""
+        assert f'"{self.channel}"' in message
 
     async def recv(self) -> bytes:
         """Return the next frame, or end the connection with a network error."""
@@ -159,6 +165,62 @@ class _SpawnedBookTransport:
     def snapshot(self) -> bytes:
         """The OKX book feed carries its own snapshot."""
         raise AssertionError("OKX capture does not fetch a REST snapshot")
+
+
+class _SpawnedTradesTransport:
+    """Serve one acknowledged OKX trades session from a spawned source child."""
+
+    _ack = b'{"event":"subscribe","arg":{"channel":"trades","instId":"BTC-USDT"}}'
+    _push = (
+        b'{"arg":{"channel":"trades","instId":"BTC-USDT"},"data":[{"instId":"BTC-USDT",'
+        b'"tradeId":"5","ts":"1790164800100","px":"100","sz":"0.5","side":"buy","count":"1"}]}'
+    )
+
+    async def open(self, timeout: float) -> FeedSocket:
+        """Serve the same acknowledged trade on every connection."""
+        return _ScriptedBookSocket((self._ack, self._push), channel="trades")
+
+    def snapshot(self) -> bytes:
+        """The trades feed has no REST snapshot."""
+        raise AssertionError("OKX trades capture does not fetch a snapshot")
+
+
+class _TradeReadingCandidates(PaperServiceCandidates):
+    """Resolve the configured candidates as if one also read the source's trade flow."""
+
+    flow = InputRequirement(
+        name="trades",
+        family="trade",
+        clock="event",
+        field=NumericField(name="signed_flow", units="BTC"),
+        max_age_us=10_000_000,
+    )
+
+    def feeds(self, source: PaperServiceSource) -> PaperInputs:
+        """Add the trade field to the configured book fields."""
+        return PaperInputs(
+            (*self.requirements(source), self.flow), has_trades=source.trades is not None
+        )
+
+
+class _TradeObserver(SharedPaperCaptureObserver):
+    """Hold only a retained live trade source, as a trade-reading service observer does."""
+
+    def __init__(self, request: RecordingRequest, delivery_path: Path) -> None:
+        """Bind a trade source for the feed's own recording without an account."""
+        self.trades = LiveTradeDecisionSource(
+            request,
+            (_TradeReadingCandidates.flow,),
+            tapes=BookAdapters.trades,
+            history_capacity=10,
+        )
+        self.trades_delivered = 0
+        self.trades_path = delivery_path.with_name(delivery_path.stem + ".trades.jsonl")
+        self._trade_bytes, self._maximum_trade_bytes = 0, request.recording_max_bytes * 4
+        self._codec = DomainCodec()
+        self._clock = None
+        self.index = None
+        self.measurements = None
 
 
 class _IndexedObserver(SharedPaperCaptureObserver):
@@ -300,7 +362,21 @@ class _ClosingObserver(SharedPaperCaptureObserver):
         self.last_market = None
 
 
-class _ClosingWorker(ProcessDecisionPolicy):
+class _ScriptedClock:
+    """Return scripted monotonic seconds in order, then repeat the last value."""
+
+    def __init__(self, values: tuple[float, ...]) -> None:
+        """Keep the script and start at its first value."""
+        self.values, self.index = values, 0
+
+    def __call__(self) -> float:
+        """Read the next scripted value."""
+        value = self.values[min(self.index, len(self.values) - 1)]
+        self.index += 1
+        return value
+
+
+class _ClosingWorker(ProcessCandidateExecutor):
     """Record a policy process fence after source evidence failure."""
 
     def __init__(self, events: list[str]) -> None:
@@ -338,7 +414,7 @@ class _ClosingAccount(SocketPaperAccount):
         return AccountExecutionResult(accounts=(), orders=())
 
 
-class _ChangingWorker(ProcessDecisionPolicy):
+class _ChangingWorker(ProcessCandidateExecutor):
     """Die after the first liveness scan to expose the observer failure branch."""
 
     def __init__(self) -> None:
@@ -363,7 +439,7 @@ class _ChangingWorker(ProcessDecisionPolicy):
         self.closed = True
 
 
-class _StableWorker(ProcessDecisionPolicy):
+class _StableWorker(ProcessCandidateExecutor):
     """Expose only the stable status signals of a selected policy process."""
 
     def __init__(self) -> None:
@@ -389,7 +465,7 @@ class _UncertainObserver(SharedPaperCaptureObserver):
 
     def __init__(self, *, policy_failure: bool = False) -> None:
         """Keep the selected input cohort visible to the supervisor."""
-        self.inputs = ServiceBookInputs(("first",), 30_000_000, 0)
+        self.active = ("first",)
         self.calls = 0
         self.policy_failure = policy_failure
 
@@ -399,7 +475,7 @@ class _UncertainObserver(SharedPaperCaptureObserver):
         """Fail after receipt without claiming whether the account committed."""
         self.calls += 1
         if self.policy_failure:
-            raise PolicyProcessFailure(123, "decision policy process unavailable")
+            raise CandidateProcessFailure(123, "decision policy process unavailable")
         raise TimeoutError("account response uncertain")
 
 
@@ -489,7 +565,7 @@ class _ObservationGate(SharedPaperCaptureObserver):
         self.entered, self.finished = threading.Event(), threading.Event()
         self.positions: list[int] = []
         self.callback_threads: list[int] = []
-        self.inputs = ServiceBookInputs((), 30_000_000, 0)
+        self.active = ()
         self.last_market = None
         self.measurements = None
         self.index = None
@@ -645,13 +721,15 @@ class _DelayedDiagnostics(PaperServiceDiagnostics):
         root: Path,
         deadline: float,
         stopped: Event,
+        runs: Path,
+        candidates: Path | None,
     ) -> None:
         """Wait for an explicit test release before using the production reporting loop."""
         (root / "diagnostic-ready").touch()
         while not (root / "allow-reports").exists():
             if stopped.wait(0.01) or time.monotonic() >= deadline:
                 return
-        super()._serve(configuration, owners, root, deadline, stopped)
+        super()._serve(configuration, owners, root, deadline, stopped, runs, candidates)
 
 
 class _StalledDiagnostics(PaperServiceDiagnostics):
@@ -665,6 +743,8 @@ class _StalledDiagnostics(PaperServiceDiagnostics):
         root: Path,
         deadline: float,
         stopped: Event,
+        runs: Path,
+        candidates: Path | None,
     ) -> None:
         """Expose startup, then ignore the stop signal until the finite deadline."""
         (root / "diagnostic-ready").touch()
@@ -682,6 +762,8 @@ class _CrashAfterStopDiagnostics(PaperServiceDiagnostics):
         root: Path,
         deadline: float,
         stopped: Event,
+        runs: Path,
+        candidates: Path | None,
     ) -> None:
         """Expose startup, observe stop, and fail while retaining the last report."""
         (root / "diagnostic-ready").touch()
@@ -802,7 +884,11 @@ class TestPaperServices:
                     instance_id="first",
                     account_id="shared",
                     source="book",
-                    policy="fixed_clip",
+                    candidate=ReferenceCandidate(
+                        formula="fixed_clip",
+                        cadence_us=3_000_000,
+                        starts_at=datetime(2026, 1, 1, tzinfo=UTC),
+                    ),
                     quantity=quantity,
                     lot=quantity,
                     maximum_fee=Money(value=Decimal("1"), currency=currency),
@@ -865,7 +951,7 @@ class TestPaperServices:
                     instance_id="other",
                     account_id="isolated",
                     source=first.source,
-                    policy=first.policy,
+                    candidate=first.candidate,
                     quantity=first.quantity,
                     lot=first.lot,
                     maximum_fee=first.maximum_fee,
@@ -1170,19 +1256,109 @@ class TestPaperServices:
         assert accounting["capture_segments"] == len(recording.cursor().segments)
         child.receiver.close()
 
-    def test_an_undeclared_chain_keeps_one_finite_recording(
+    def test_trade_reading_source_starts_a_trades_child_sharing_its_observers(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Stage-1 sources encode as before and still capture one journal per recording."""
+        """The trades feed records under its own key and feeds the book child's observers."""
         monkeypatch.setattr(
             InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
         )
         config = self._config(self._socket_path())
-        assert b'"chain"' not in DomainCodec().encode_json(config.sources[0])
+        source = config.sources[0]
+        definition = replace(
+            source,
+            capture=replace(source.capture, max_messages=1),
+            trades=replace(source.capture, channel="trades", depth=0, max_orders=1, max_messages=1),
+            chain=PaperSourceChain(max_messages=4, max_bytes=64 * 1024**2, max_segments=8),
+        )
+        config = replace(config, sources=(definition,))
+        services = _SupervisorHarness(config, self._owner(), tmp_path, self._socket_path())
+        services.resolved = _TradeReadingCandidates(config, None)
+        services.transports[definition.name] = _SpawnedBookTransport()
+        services.transports[services.feed_key(definition.name, "trades")] = (
+            _SpawnedTradesTransport()
+        )
+        services._start_source(definition)
+        book, trades = services._children(definition.name)
+        # The harness records refreshes; the trades child sees the book child's observers.
+        book.observers["shared"] = _TradeObserver(trades.request, tmp_path / "trades-paper.jsonl")
+        try:
+            assert (book.feed, trades.feed) == ("book", "trades")
+            assert trades.observers is book.observers
+            assert trades.request.config == definition.trades
+            deliveries: list[ReceivedSourceDelivery] = []
+            while True:
+                try:
+                    payload = trades.receiver.recv_bytes()
+                except EOFError:
+                    break
+                deliveries.append(services.codec.decode_json(payload, ReceivedSourceDelivery))
+            trades.process.join(30)
+            assert trades.process.exitcode == 0
+            for delivery in deliveries:
+                for observer in trades.observers.values():
+                    services._deliver("trades", observer, delivery, None)
+            trades.pipe_drained, trades.received_count = True, len(deliveries)
+        finally:
+            for child in (book, trades):
+                if child.process.is_alive():
+                    child.process.kill()
+                child.process.join()
+        key = services.feed_key(definition.name, "trades")
+        services._account_source_delivery(key, trades)
+        accounting = cast(dict[str, object], services.delivery_accounting[key])
+        assert accounting["status"] == "complete"
+        assert accounting["durable_records"] == len(deliveries)
+        (observer,) = book.observers.values()
+        assert observer.trades_delivered == len(deliveries)
+        # Both children read one observer; the account's report is marked once.
+        adverse = definition.scenario.adverse
+        observer.last_market = PaperMarket(
+            identity="book-1",
+            at=datetime.now(UTC),
+            bid=Price(value=Decimal("11"), currency=adverse.currency, per=adverse.per),
+            ask=Price(value=Decimal("12"), currency=adverse.currency, per=adverse.per),
+            bid_quantity=Quantity(value=Decimal("1"), dimension=adverse.per),
+            ask_quantity=Quantity(value=Decimal("1"), dimension=adverse.per),
+        )
+        assert services.latest_markets() == {"shared": (observer.last_market,)}
+        assert observer.trades_path is not None and len(
+            observer.trades_path.read_bytes().splitlines()
+        ) == len(deliveries)
+        services._close_source(trades)
+        services._close_source(book)
+        unprovisioned = _TradeReadingCandidates(replace(config, sources=(source,)), None)
+        with pytest.raises(ValueError, match="no provisioned feed: trades"):
+            unprovisioned.feeds(source)
+
+    def test_source_trades_must_be_the_same_instruments_trades_feed(self) -> None:
+        """A trades feed for another route, a book as trades or trades as the book fail."""
+        source = self._config(self._socket_path()).sources[0]
+        trades = replace(source.capture, channel="trades", depth=0, max_orders=1)
+        assert replace(source, trades=trades).trades == trades
+        for invalid in (
+            replace(trades, symbol="ETH-USDT", base_currency="ETH"),
+            replace(trades, instrument_id=InstrumentId(uuid4())),
+            source.capture,
+        ):
+            with pytest.raises(ValueError, match="same instrument's trades feed"):
+                replace(source, trades=invalid)
+        with pytest.raises(ValueError, match="must be a book feed"):
+            replace(source, capture=trades)
+
+    def test_an_undeclared_chain_keeps_one_finite_recording(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A source without a chain captures one journal per recording."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._config(self._socket_path())
+        assert b'"chain":null' in DomainCodec().encode_json(config.sources[0])
         services = _SupervisorHarness(
             config, self._owner(), Path("/private/tmp"), self._socket_path()
         )
-        request = services._capture_request(config.sources[0])
+        request = services._capture_request(config.sources[0], config.sources[0].capture)
         assert type(request) is CaptureRequest
         assert (request.config, request.implementation_identity, request.segment) == (
             config.sources[0].capture,
@@ -1213,12 +1389,12 @@ class TestPaperServices:
     def test_diagnostic_telemetry_follows_its_declared_cadence(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Undeclared cadence submits every pass; a declared one waits its interval."""
+        """The default one-second cadence and a declared one each wait their interval."""
         monkeypatch.setattr(
             InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
         )
         config = self._config(self._socket_path())
-        assert b"telemetry_seconds" not in DomainCodec().encode_json(config)
+        assert b'"telemetry_seconds":1' in DomainCodec().encode_json(config)
         assert config.telemetry_interval == 1
         for invalid in (0, 301):
             with pytest.raises(ValueError, match="bounded paper service selection"):
@@ -1245,10 +1421,12 @@ class TestPaperServices:
             services.accounts.clear()
             diagnostics = _Diagnostics()
             services.diagnostics = cast(PaperServiceDiagnostics, diagnostics)
+            # Three passes at 0, 0.5 and 1.2 seconds of monotonic time.
+            monkeypatch.setattr(time, "monotonic", _ScriptedClock((0.0, 0.0, 0.5, 1.2, 1.2)))
             for _ in range(3):
                 services._sample()
             counts.append(diagnostics.submitted)
-        assert counts == [3, 1]
+        assert counts == [2, 1]
 
     def test_declared_telemetry_retries_every_pass_until_a_report_is_retained(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1678,7 +1856,7 @@ class TestPaperServices:
         released, blocked = threading.Event(), threading.Event()
         released.set()
         error = (
-            PolicyProcessFailure(123, "decision policy unavailable")
+            CandidateProcessFailure(123, "decision policy unavailable")
             if policy_failure
             else TimeoutError("account response uncertain")
         )
@@ -2404,7 +2582,11 @@ class TestPaperServices:
         services.accounts[owner.account_id] = account
         services.workers["first"] = _StableWorker()
         diagnostics = _DelayedDiagnostics(
-            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+            config,
+            (owner,),
+            root=tmp_path / "monitoring",
+            deadline=time.monotonic() + 10,
+            runs=tmp_path / "runs",
         )
         services.diagnostics = diagnostics
         diagnostics.start()
@@ -2431,7 +2613,11 @@ class TestPaperServices:
         """Three waiting requests become one report with two explicitly coalesced batches."""
         config, owner = self._config(self._socket_path()), self._owner()
         diagnostics = _DelayedDiagnostics(
-            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+            config,
+            (owner,),
+            root=tmp_path / "monitoring",
+            deadline=time.monotonic() + 10,
+            runs=tmp_path / "runs",
         )
         diagnostics.start()
         try:
@@ -2465,7 +2651,11 @@ class TestPaperServices:
         """A stuck report is terminated and its PID remains visible after bounded cleanup."""
         config, owner = self._config(self._socket_path()), self._owner()
         diagnostics = _StalledDiagnostics(
-            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+            config,
+            (owner,),
+            root=tmp_path / "monitoring",
+            deadline=time.monotonic() + 10,
+            runs=tmp_path / "runs",
         )
         diagnostics.start()
         try:
@@ -2536,7 +2726,11 @@ class TestPaperServices:
         )
         services.accounts[owner.account_id] = _ClosingAccount(events)
         diagnostics = _StalledDiagnostics(
-            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+            config,
+            (owner,),
+            root=tmp_path / "monitoring",
+            deadline=time.monotonic() + 10,
+            runs=tmp_path / "runs",
         )
         services.diagnostics = diagnostics
         diagnostics.start()
@@ -2565,7 +2759,11 @@ class TestPaperServices:
         """A final retention failure remains visible after stop and is never counted as a fence."""
         config, owner = self._config(self._socket_path()), self._owner()
         diagnostics = _CrashAfterStopDiagnostics(
-            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+            config,
+            (owner,),
+            root=tmp_path / "monitoring",
+            deadline=time.monotonic() + 10,
+            runs=tmp_path / "runs",
         )
         diagnostics.start()
         try:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import asyncio
+import time
 from datetime import UTC, datetime
 from decimal import Decimal
 from multiprocessing.reduction import ForkingPickler
@@ -14,6 +15,7 @@ from unittest.mock import patch
 import pytest
 from capacity_inputs import CapacityNativeFixture, CapacityVariant, CapacityWorkload
 from capacity_source_cases import CapacitySourceCases
+from paper_services import PaperServiceWorkload
 
 # project library imports
 from configuration import PaperAuthorization, PaperDeployment, PaperServiceConfiguration
@@ -56,7 +58,6 @@ class TestCapacityInputs:
             and source.capture.max_bytes == 33_554_432
             and source.capture.max_frame_bytes == 8_000_000
             and source.capture.queue_capacity == 2048
-            and source.market_interval_us == 3_000_000
             for source in service.sources
         )
         assert all(
@@ -175,45 +176,59 @@ class TestCapacityInputs:
         assert min(recovered_book.asks) == Decimal("104")
         assert recovered.identity != CapacityNativeFixture(source).identity
 
-    def test_bitfinex_selected_books_preserve_first_touch_oracle(self) -> None:
-        """Select at three seconds across an atomic R0 reprice and price the one fill."""
+    def test_bitfinex_grid_books_preserve_first_touch_oracle(self) -> None:
+        """Decide on the aligned three-second grid across an atomic R0 reprice; price one fill.
+
+        The fixture starts one second after a decision instant, so instants fall at
+        2 s, 5 s, 8 s, ... of the authored schedule.
+        """
         workload = CapacityWorkload(
             opening_at=datetime(2026, 9, 27, 12, tzinfo=UTC),
             socket_root=Path("/private/tmp/capacity-bitfinex-economics"),
         )
-        source = next(
-            item
-            for item in workload.service_configuration().sources
-            if item.capture.venue == "bitfinex"
-        )
+        service = workload.service_configuration()
+        source = next(item for item in service.sources if item.capture.venue == "bitfinex")
+        assert {PaperServiceWorkload.reference(item).cadence_us for item in service.instances} == {
+            3_000_000
+        }
         fixture = CapacityNativeFixture(source)
+        cadence = fixture.grid_cadence_ns / 1_000_000_000
+        phase = fixture.grid_phase_ns / 1_000_000_000
         book = BookAdapters.create(source.capture)
-        selected: list[tuple[Decimal, Decimal]] = []
-        last_selected_us: int | None = None
+        decided: list[Decimal] = []
+        matched: list[tuple[Decimal, Decimal]] = []
+        pending: Decimal | None = None
+        crossed: float | None = None
         for slot in range(200):
             fixture.index = slot + 1
             outcome = book.apply(fixture._native_frame(1_700_000_000_000))
             if outcome not in ("snapshot", "update"):
                 continue
-            elapsed_us = round(fixture.elapsed_seconds(slot) * 1_000_000)
-            if last_selected_us is None or elapsed_us - last_selected_us >= 3_000_000:
+            elapsed = fixture.elapsed_seconds(slot)
+            instant = ((elapsed + phase) // cadence) * cadence - phase
+            if instant == elapsed:
+                instant -= cadence
+            if crossed is None or instant > crossed:
+                if crossed is not None and pending is not None:
+                    decided.append(pending)
                 ask = min(book.asks)
-                selected.append((ask, book.asks[ask].size))
-                last_selected_us = elapsed_us
+                matched.append((ask, book.asks[ask].size))
+                crossed = instant
+            pending = min(book.asks)
 
-        assert selected[:3] == [
+        assert decided[:2] == [Decimal("100"), Decimal("104")]
+        assert matched[:3] == [
             (Decimal("100"), Decimal("4")),
             (Decimal("100"), Decimal("4")),
             (Decimal("104"), Decimal("4")),
         ]
-        assert all(ask >= Decimal("104") for ask, _ in selected[2:])
-        assert source.market_interval_us == 3_000_000
+        assert all(ask >= Decimal("104") for ask, _ in matched[2:])
         assert source.scenario.take_fraction == Decimal("0.5")
-        first_fill = selected[1][1] * source.scenario.take_fraction
+        first_fill = matched[1][1] * source.scenario.take_fraction
         assert first_fill == Decimal("2")
-        opening_limit = selected[0][0] + Decimal("2")
-        assert all(ask > opening_limit for ask, _ in selected[2:])
-        effective = selected[1][0] + source.scenario.adverse.value
+        opening_limit = decided[0] * Decimal("1.02")
+        assert all(ask > opening_limit for ask, _ in matched[2:])
+        effective = matched[1][0] + source.scenario.adverse.value
         fee = (first_fill * effective * source.scenario.fee_rate).quantize(Decimal("0.01"))
         expected_cash = Decimal("100000") - first_fill * effective - fee
         for account_id in ("bitfinex-shared", "bitfinex-isolated"):
@@ -221,6 +236,20 @@ class TestCapacityInputs:
             assert cash.value == expected_cash == Decimal("99798.80")
             assert fees.value == fee == Decimal("0.20")
             assert positions[0].value == first_fill
+
+    def test_fixture_starts_one_phase_after_a_decision_instant(self) -> None:
+        """Whatever the wall clock, the authored schedule begins one second after an instant."""
+        origin = PaperServiceWorkload.grid_origin.timestamp()
+        for offset in (0.0, 0.4, 1.0, 1.7, 2.999):
+            wall = origin + 3 * 1_000 + offset
+            with (
+                patch.object(time, "time_ns", return_value=int(wall * 1_000_000_000)),
+                patch.object(time, "monotonic_ns", return_value=5_000_000_000),
+            ):
+                anchor = CapacityNativeFixture._aligned_anchor_ns()
+            delay = (anchor - 5_000_000_000) / 1_000_000_000
+            assert 0 <= delay < 3
+            assert round((wall + delay - origin) % 3, 6) == 1.0
 
     @staticmethod
     async def _read_oversize(fixture: CapacityNativeFixture) -> bytes:
@@ -325,7 +354,8 @@ class TestCapacityInputs:
             replacement.index = index + 1
             book.apply(replacement._native_frame(1_700_000_000_000))
         assert book.ready and min(book.asks) == Decimal("104")
-        marker.write_text(f"{identity}\n{int(anchor) - 21_000_000_000}\n")
+        # The aligned anchor lies under three seconds ahead; 24 s back keeps slot 500 overdue.
+        marker.write_text(f"{identity}\n{int(anchor) - 24_000_000_000}\n")
         overdue = CapacityNativeFixture(source, epoch_path=marker)
         assert asyncio.run(self._read_overdue(overdue))
         assert overdue.started_at is not None and overdue.started_at < initial.started_at

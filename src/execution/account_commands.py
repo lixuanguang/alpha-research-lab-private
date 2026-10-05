@@ -52,6 +52,7 @@ type AccountResponseProjection = Literal[
     "quarantine",
     "traces",
     "market_membership",
+    "reconciliation",
     "facts",
     "residuals",
     "reductions",
@@ -135,6 +136,7 @@ class AccountExecutionRequest(WireRecord, frozen=True):
             "quarantine",
             "traces",
             "market_membership",
+            "reconciliation",
             "facts",
             "residuals",
             "reductions",
@@ -163,6 +165,10 @@ class AccountExecutionRequest(WireRecord, frozen=True):
                 raise ValueError("market membership requires only an account and market query")
         elif self.query_market is not None:
             raise ValueError("market query requires the membership projection")
+        if self.projection == "reconciliation" and (
+            type(self.account_id) is not str or not self.account_id
+        ):
+            raise ValueError("reconciliation projection requires an account")
         fields = {
             "admit": self.decision,
             "event": self.event,
@@ -373,6 +379,9 @@ class AccountExecutionResult(WireRecord, frozen=True):
     reduction_result: PaperReductionResult | None = None
     claimed_owner: PaperOwner | None = None
     market_seen: bool | None = None
+    # The account's knowledge clock, answered only by the reconciliation projection:
+    # an observation stamped at it is never earlier than the account's own facts.
+    known_at: datetime | None = None
 
     def __post_init__(self) -> None:
         """Keep result authority closed and validate its retained financial records."""
@@ -380,6 +389,8 @@ class AccountExecutionResult(WireRecord, frozen=True):
             raise ValueError("account application cannot submit")
         if self.market_seen is not None and type(self.market_seen) is not bool:
             raise ValueError("market membership result must be Boolean")
+        if self.known_at is not None:
+            self._require_utc(self.known_at, field_name="account knowledge")
         for account in self.accounts:
             account.__post_init__()
         for order in self.orders:

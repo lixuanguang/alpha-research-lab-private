@@ -1,6 +1,7 @@
 """Expose retained research studies, reports and external integration capabilities."""
 
 # project library imports
+from research.models import EvaluationRecord
 from research.studies.book_reports import BookReport
 from research.studies.captured_market import CapturedStudyMarket
 from research.studies.comparison import ComparisonEvaluator, ComparisonStudy, ParameterComparison
@@ -17,18 +18,10 @@ from research.studies.diagnostics import (
     PriceConvention,
     QuantileRule,
 )
-from research.studies.evaluation import EvaluationRecord, TrialEvaluation
+from research.studies.evaluation import TrialEvaluation
 from research.studies.extensions import (
-    ChartDefinition,
-    ChartSpec,
-    FoldSummary,
     LedgerCurveChart,
-    LedgerPoint,
-    MetricDefinition,
-    MetricValue,
     NetReturnMetric,
-    ReportContext,
-    ReportObservation,
     StudyReport,
     StudyReportBuilder,
     StudyReportReader,
@@ -70,8 +63,6 @@ __all__ = [
     "BenchmarkPeriod",
     "BookReport",
     "CapturedStudyMarket",
-    "ChartDefinition",
-    "ChartSpec",
     "ClearMLDestination",
     "ClearMLPublication",
     "ComparisonEvaluator",
@@ -86,11 +77,7 @@ __all__ = [
     "EconomicReport",
     "EvaluationRecord",
     "FactorDirection",
-    "FoldSummary",
     "LedgerCurveChart",
-    "LedgerPoint",
-    "MetricDefinition",
-    "MetricValue",
     "NetReturnMetric",
     "ParameterComparison",
     "PipelineRun",
@@ -102,10 +89,8 @@ __all__ = [
     "QuantStatsReport",
     "QuantileRule",
     "ReportChartAdapter",
-    "ReportContext",
     "ReportMetricAdapter",
     "ReportMonitoringBridge",
-    "ReportObservation",
     "ReportPolicy",
     "ResearchInputs",
     "ResearchPipeline",

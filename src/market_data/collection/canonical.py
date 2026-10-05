@@ -11,7 +11,7 @@ from pathlib import Path
 from configuration import CaptureConfig
 from market_data.books import BookProjection, CaptureReplay, NativeBook
 from market_data.contracts import BookObservation, CaptureRecord
-from market_data.datasets import BookHistory, BookInput, DatasetReaders
+from market_data.datasets import BookHistory, CaptureInput, DatasetReaders
 from market_data.storage import RawStore
 
 
@@ -77,7 +77,7 @@ class BookCapture(CaptureReplay):
             ValueError: Admission fails or a boundary differs; first-divergence.json retains
                 the original position and both observations beside the saved raw input.
         """
-        selected = BookInput.read(root, max_records=self._limit)
+        selected = CaptureInput.read(root, max_records=self._limit)
         expected = BookHistory(input=selected, observations=tuple(self._observations))
         payload = self._codec.encode_json(expected)
         if len(payload) > self.config.max_bytes:

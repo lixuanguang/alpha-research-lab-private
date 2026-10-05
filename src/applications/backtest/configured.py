@@ -151,6 +151,8 @@ def run_configured(
                     ),
                 )
             if version is not None:
+                if "features" not in version.components:
+                    raise ValueError("a versioned backtest requires derived feature bytes")
                 if selected.feature is None or (
                     raw.parent / "features/diagnostics.json"
                 ).read_bytes() != codec.encode_json(inputs.features):

@@ -281,8 +281,8 @@ class TestCapacityReads:
                         book=row,
                         available_at=base + timedelta(milliseconds=position + 1),
                     ),
-                    inputs=(),
-                    coordinated_at=None,
+                    decisions=(),
+                    matched=False,
                 )
             )
         return reader, selected, base
@@ -404,8 +404,8 @@ class TestCapacityReads:
                         book=row,
                         available_at=base + timedelta(milliseconds=position + 1),
                     ),
-                    inputs=(),
-                    coordinated_at=None,
+                    decisions=(),
+                    matched=False,
                 )
             )
         assert reader.poll() == len(records)
@@ -498,13 +498,13 @@ class TestCapacityReads:
         ("before", "after"),
         (
             (b'"size":"4"', b'"size":"NaN"'),
-            (b'"coordinated_at":null', b'"coordinated_at":"2026-09-27T12:00:00Z"'),
+            (b'"matched":false', b'"matched":"false"'),
         ),
     )
     def test_index_decode_keeps_native_and_envelope_validation(
         self, tmp_path: Path, before: bytes, after: bytes
     ) -> None:
-        """Narrow indexing still rejects malformed full depth and coordination clocks."""
+        """Narrow indexing still rejects malformed full depth and envelope fields."""
         index, source, _ = self._index(tmp_path)
         payload = source.delivery_path.read_bytes()
         assert before in payload

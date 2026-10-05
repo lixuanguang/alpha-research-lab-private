@@ -48,7 +48,10 @@ It accepts a `DecisionStudy` value or a path to the same strict versioned JSON.
 optional transform/model/outcome reader, execution/cost models and metric/chart
 implementations. Every configured identity must match; missing selections fail
 without substituting a built-in implementation. This is an installed callable
-API; no new command or dynamic Python import from configuration is introduced.
+API; the study runs whatever components the caller supplies, and configuration
+never imports code. Operating services load extension components only from signed
+installed distributions, as the [runtime guide](../../runtime/README.md#research-extensions)
+describes.
 
 `StudyFold` freezes training/evaluation schedules, an authored `TemporalSplit`
 with an empty sample inventory, and a label-evaluation cutoff. The application
@@ -117,7 +120,8 @@ artifact digest. Results retain original configuration, actual inputs, resolved
 splits, fitted bytes, predictions, decisions, feature/policy state, order outcomes
 and exact ledgers. Reports retain versioned exact metrics, units, missingness,
 selected charts and safe self-contained HTML/SVG. `MetricDefinition` and
-`ChartDefinition` consume a typed `ReportContext` of fold ledgers, sampled marks
+`ChartDefinition` (with the report contracts below, imported from `research.reports`,
+which the paper services also ship) consume a typed `ReportContext` of fold ledgers, sampled marks
 and predictive diagnostics. Their identities and returned definitions must
 match the selections. `NetReturnMetric` and `LedgerCurveChart` are explicit
 reference choices. Initial/terminal NAV points do not describe intraperiod
@@ -137,6 +141,12 @@ exclusions, rejected/pruned trials and publication retries preserve original
 attempts and consume their budget slots. Resumption requires identical code,
 configuration and environment.
 
+QRs start from the maintained [study example](../../../examples/qr_study.py) that
+the [QR quickstart](../../../examples/qr-quickstart.md#4-write-and-run-a-study)
+walks through: walk-forward folds, a frozen holdout, a fitted transform, an exact
+estimator, a forward label, rule and learned policies, all from an installed
+extension, over published captures.
+
 The runnable [installed extension consumer](../../../tests/integration/consumers/research/decision_study.py)
 authors fresh feature, estimator, strategy, metric and chart implementations,
 exercises typed/JSON inputs, walk-forward fitting, exact losing/no-trade cases,
@@ -146,8 +156,12 @@ uses `SavedDecisionSource` and `CapturedStudyMarket` to reopen retained
 OKX/Bitfinex trades, references and native books. Its invocation and evidence
 belong to the [MR03 acceptance record](../../../docs/roadmap/README.md#mr03-delivery-and-acceptance).
 
-`CapturedStudyMarket` reuses `BookInput.admit`, `DatasetReaders` and `RawStore`
-verification. It requires the original capture's research universe, preserving
+`CapturedStudyMarket` reads one native partition of a published book snapshot
+(snapshot identity and request identity). It verifies the snapshot against its
+retained raw input once, when built, and each `read(window)` streams only that
+window, so memory is bounded by one window. An optional `max_levels` keeps only the
+best levels per side; that bound is a declared modeling assumption and part of the
+market identity. It requires the original capture's research universe, preserving
 the separate collection, research, strategy and trading declarations. A study's
 instance/entity is an offline selection, not account authorization.
 The explicit `receipt-as-matching` scenario models matching at the original

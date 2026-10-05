@@ -22,7 +22,7 @@ from test_book_replay import _View
 from configuration import CaptureConfig
 from market_data.adapters.sources import SourceAdapters
 from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest
-from market_data.datasets import BookHistory, BookInput, BookSnapshot, DatasetPublication
+from market_data.datasets import BookHistory, BookSnapshot, CaptureInput, DatasetPublication
 from market_data.query import BookMarketRow, BookQuery, BookQueryReader
 from market_data.replay import BookReplay
 from market_data.storage import CaptureJournal, RawStore
@@ -36,17 +36,19 @@ class TestStreamedBookQueries:
     """Compare native streaming with in-memory admission and independent exact book values."""
 
     @staticmethod
-    def _snapshot(tmp_path: Path) -> tuple[BookSnapshot, BookInput, bytes]:
+    def _snapshot(tmp_path: Path) -> tuple[BookSnapshot, CaptureInput, bytes]:
         """Publish one original capture with a gap and retain independently admitted bytes."""
         capture = _Inputs._capture(tmp_path / "capture", gap=True)
         raw, snapshots = RawStore(tmp_path / "raw"), tmp_path / "snapshots"
         (tmp_path / "raw").mkdir()
         snapshots.mkdir()
         readers = SourceAdapters()
-        identity = DatasetPublication(readers, "a" * 64).publish_books(
-            (capture,), raw, snapshots, max_records=32, max_bytes=_LIMIT
+        identity = (
+            DatasetPublication(readers, "a" * 64)
+            .publish_captures((capture,), raw, snapshots, max_records=32, max_bytes=_LIMIT)
+            .book
         )
-        selected = BookInput.read(capture, max_records=32)
+        selected = CaptureInput.read(capture, max_records=32)
         admitted = selected.admit(raw, readers=readers, max_bytes=_LIMIT).require_canonical()
         session = BookSnapshot.read(
             snapshots, raw, readers=readers, identity=identity, max_bytes=_LIMIT
@@ -258,10 +260,14 @@ class TestVerifiedBookReadCost:
         (root / "raw").mkdir()
         snapshots.mkdir()
         readers = SourceAdapters()
-        identity = DatasetPublication(readers, "a" * 64).publish_books(
-            (root / "capture",), raw, snapshots, max_records=updates + 8, max_bytes=cls._limit
+        identity = (
+            DatasetPublication(readers, "a" * 64)
+            .publish_captures(
+                (root / "capture",), raw, snapshots, max_records=updates + 8, max_bytes=cls._limit
+            )
+            .book
         )
-        selected = BookInput.read(root / "capture", max_records=updates + 8)
+        selected = CaptureInput.read(root / "capture", max_records=updates + 8)
         session = BookSnapshot.read(
             snapshots, raw, readers=readers, identity=identity, max_bytes=cls._limit
         )

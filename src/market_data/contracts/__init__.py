@@ -9,6 +9,7 @@ from market_data.contracts.book_observations import BookObservation
 from market_data.contracts.capture_records import CaptureCursor, CaptureRecord
 from market_data.contracts.capture_requests import CaptureRequest, RecordingRequest
 from market_data.contracts.capture_segments import CaptureRunRequest, CaptureSegment
+from market_data.contracts.captured_trades import CapturedTrades, CaptureTradeOrigin, TradeBoundary
 from market_data.contracts.consolidated_quotes import (
     BookLookup,
     ConsolidatedBookQuote,
@@ -67,6 +68,8 @@ __all__ = [
     "CaptureRunRequest",
     "CaptureSegment",
     "CaptureSlice",
+    "CaptureTradeOrigin",
+    "CapturedTrades",
     "ConsolidatedBookQuote",
     "ConsolidatedQuoteSide",
     "DecodeContext",
@@ -102,6 +105,7 @@ __all__ = [
     "Symbol",
     "TaggedEvent",
     "Trade",
+    "TradeBoundary",
     "TradePage",
     "TransientFetchError",
 ]

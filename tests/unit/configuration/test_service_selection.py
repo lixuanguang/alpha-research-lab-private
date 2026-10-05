@@ -21,6 +21,7 @@ from configuration import (
     PaperServiceConfiguration,
     PaperServiceInstance,
     PaperServiceSource,
+    ReferenceCandidate,
 )
 from configuration.accounts import InstrumentFeeRate
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
@@ -102,7 +103,11 @@ class TestServiceSelection:
                     instance_id=name,
                     account_id="shared",
                     source="book",
-                    policy="fixed_clip" if name == "first" else "liquidity_clip",
+                    candidate=ReferenceCandidate(
+                        formula="fixed_clip" if name == "first" else "liquidity_clip",
+                        cadence_us=3_000_000,
+                        starts_at=datetime(2026, 9, 25, tzinfo=UTC),
+                    ),
                     quantity=quantity,
                     lot=quantity,
                     maximum_fee=Money(value=Decimal("1"), currency=currency),
@@ -145,7 +150,10 @@ class TestServiceSelection:
             replace(
                 before,
                 instances=(
-                    replace(before.instances[0], policy="liquidity_clip"),
+                    replace(
+                        before.instances[0],
+                        candidate=replace(before.instances[0].candidate, formula="liquidity_clip"),
+                    ),
                     before.instances[1],
                 ),
                 revision=2,
@@ -153,7 +161,7 @@ class TestServiceSelection:
             ),
             replace(
                 before,
-                sources=(replace(before.sources[0], market_interval_us=1_000_000),),
+                sources=(replace(before.sources[0], freshness_us=20_000_000),),
                 revision=2,
                 previous_sha256=before.identity,
             ),
@@ -161,15 +169,27 @@ class TestServiceSelection:
             with pytest.raises(ValueError, match="immutable"):
                 successor.require_successor(before)
 
-    def test_market_interval_is_positive_and_within_freshness_and_capture_idle(self) -> None:
-        """An account may admit less often than ingestion but never beyond freshness."""
-        source = self.configuration().sources[0]
-        assert source.market_interval_us == 3_000_000
+    def test_candidate_cadence_is_positive_and_within_freshness_and_capture_idle(self) -> None:
+        """A candidate may decide less often than ingestion but never beyond freshness."""
+        before = self.configuration()
+        first = before.instances[0]
+        source = before.sources[0]
         bound = min(source.freshness_us, source.capture.idle_seconds * 1_000_000)
-        for interval in (0, -1, bound + 1):
-            with pytest.raises(ValueError, match="incompatible"):
-                replace(source, market_interval_us=interval)
-        assert replace(source, market_interval_us=bound).market_interval_us == bound
+        for cadence in (0, -1):
+            with pytest.raises(ValueError, match="invalid reference candidate"):
+                replace(first.candidate, cadence_us=cadence)
+        with pytest.raises(ValueError, match="exceeds"):
+            replace(
+                before,
+                instances=(
+                    replace(first, candidate=replace(first.candidate, cadence_us=bound + 1)),
+                    before.instances[1],
+                ),
+            )
+        with pytest.raises(TypeError, match="timezone-aware"):
+            replace(first.candidate, starts_at=datetime(2026, 9, 25))
+        within = replace(first, candidate=replace(first.candidate, cadence_us=bound))
+        assert replace(before, instances=(within, before.instances[1])).instances[0] == within
 
     def test_unprovisioned_instance_currency_and_instrument_rejected(self) -> None:
         """Selection never implies a new budget, source identity or currency conversion."""

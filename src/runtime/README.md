@@ -130,13 +130,23 @@ the exact checkpoint schema; explicit reset starts a new session. The applicatio
 owns durable retention. `PaperCandidateRuntime` below connects these same sessions
 to the MR07 durable order journal.
 
-`CandidateFeatureFeed(store, bridge=..., serving_root=...).evaluate(session, at)`
-consumes the packaged `FeatureStoreDefinition` and a deployment-pinned immutable
-materialization. Offline reads match the authoritative PIT value at that cutoff;
-online reads also verify the actual isolated Feast generation and active version.
-Fitted store vectors are never transformed twice. Missing, stale, expired or lost
-serving values pause with unchanged state. A version change pauses and requires
-an explicit new binding. No fallback recomputes a different definition.
+`ServedFeatures(store, bridge=..., serving_root=...).serve(candidate, at)` reads a
+feature-served candidate's deployment-pinned stream (the deployment's
+`source_identity` is the store's `stream_identity` for its packaged
+`FeatureStoreDefinition` and `feature_version`). Both modes serve only the
+snapshot exactly at the cutoff, so a decision at t reads what research reads at t.
+Offline serving also matches the authoritative PIT value and refuses a cutoff
+without its snapshot. Online serving requires the pinned version to be active and
+verifies the snapshot's isolated Feast generation. It returns a `ServedFeature`
+(vector, stream, version, snapshot cutoff and identity) or the pause reason:
+`feature-pending` (no snapshot at the cutoff yet, including before the stream's
+first publication), `expired`, `missing`, `future`,
+`feature-version-changed` or `feature-service-unavailable`. `verify` reopens a
+retained served feature's exact snapshot, requires it to be the cutoff's own, and
+refuses a different value. `CandidateFeatureFeed` applies it to a
+dedicated session. Fitted store vectors are never transformed twice; a pause leaves
+state unchanged; a version change needs an explicit new binding; no fallback
+recomputes a different definition.
 
 The complete input schedule, fitted availability, current field signatures and
 unsupported product/channel/order combinations fail before data work. Actual
@@ -149,35 +159,80 @@ matching currently precedes loading; independent deployable environments and
 trusted compatibility admission are provided by MR06 for its independent operating
 closures; the broader research release restriction remains open.
 
+## Research extensions
+
+A research extension is a project in `extensions/<name>/` with its own
+`pyproject.toml` and `src/` package. It declares only external dependencies and
+registers exactly one provider class under the `alpha_research.candidate_components`
+entry-point group. The provider's `factories()` returns `ExtensionFactories`: feature,
+policy, transform, estimator, metric and chart constructors by registered key.
+`InstalledExtensions` finds the named installed distribution, verifies every file
+against its `RECORD`, and uses the `RECORD` digest as the implementation identity of
+every component it provides. A candidate definition therefore pins exact extension
+code, and a changed install is refused. Components must construct without the
+research reporting stack: a metric or chart imports study records inside `evaluate`.
+The maintained [engineering extension](../../extensions/engineering-candidates/)
+is the reference workload and template.
+
+`InstalledExtensions.artifact(name)` returns the extension's installed `RECORD` as a
+`StudyArtifact`, whose fingerprint is the extension identity; a study that retains
+it pins the exact code a candidate will name. `CandidatePackager.publish` packages a
+completed study: one `ComponentSelection` (registered key and JSON parameters) per
+component the study used, each rebuilt through the installed extension and refused
+if its identity differs from the study's. It also refuses a study that did not
+retain the extension, derives requirements with `CandidateRequirements` (the rule
+`AuthoredCandidates` uses), copies provenance from the attempt store, and reads the
+published bundle back before returning its manifest.
+
+`PaperCapabilities` declares what the supervised paper environment offers one native
+book source: the five book fields, its freshness and receipt clock, reference data,
+calendar, valuation, account and every paper intent family and order type. When the
+source records public trades it adds a `trade` channel profile with the four trade
+fields in the feed's own currencies and the feed's idle time as freshness. Packaged
+candidates resolve their requirements against it rather than against their own
+declarations.
+
 ## Shared decision runtime
 
 Owner: `runtime`; account admission, tagged orders and portfolio coordination
 belong to [`execution`](../execution/README.md). Application composition belongs
-to [`applications.paper`](../applications/paper/README.md). This local
-paper/shadow increment reuses the public `strategies.DecisionPolicy` and
-`DecisionSession` contracts for a selected set of account instances. It does not
-load candidates or grant execution authority.
+to [`applications.paper`](../applications/paper/README.md). Shared accounts run
+the same candidate engine as dedicated paper and replay: every selected instance
+binds a `LoadedCandidate`, and each step runs its feature, fitted transform,
+estimator and policy together in one `CandidateSession`. Nothing here grants
+execution authority.
 
-`SharedStrategyBinding` pins an instance, account, entity, policy,
-`PortfolioContext` and maximum fee. Construction checks that the configured
-instance owns the account and entity and that the fee uses the account's
-valuation currency. `SharedStrategyInput` supplies that instance's causal
-`DecisionContext` and an `AccountQuote`; the quote must be no later than the
-decision, and the journal independently verifies it was observed for risk use.
-The application supplies an explicit batch identity, a UTC coordination time
-later than each decision, and a crossing policy.
+`SharedStrategyBinding` pins an instance, account, entity, loaded candidate,
+`PortfolioContext` and maximum fee. The candidate's runtime placement must name
+the same instance and entity. Construction checks that the configured instance
+owns the account and entity and that the fee uses the account's valuation
+currency. `SharedStrategyInput` supplies that instance's causal `DecisionInputs`
+and an `AccountQuote`; the quote must be no later than the inputs' cutoff, and
+the journal independently verifies it was observed for risk use. The application
+supplies an explicit batch identity, a UTC coordination time later than each
+decision, and a crossing policy.
 
-`SharedDecisionRuntime.evaluate()` orders inputs by instance ID and evaluates
-each policy in its own `DecisionSession`. Session identity binds the selected
-account configuration, instance, entity, policy, portfolio context and fee
-reserve. Target/exposure and order/quote decisions both pass through the same
-independent account admission. Policy continuations use the
-`shared-decision` checkpoint and are committed with their portfolio batch.
-Each request carries the digest of the previously saved instance checkpoint;
-the account transaction checks that precondition before committing, so a stale
-concurrent decision cannot overwrite a newer policy state. Exact batch retries
-reopen their saved result, while changed input bytes or an incompatible restored
-binding fail closed.
+`SharedDecisionRuntime.evaluate()` orders inputs by instance ID and runs each
+candidate step through its executor: `LocalCandidateExecutor` in process, or a
+`ProcessCandidateExecutor` supplied by the application. A decided step reaches
+the same independent account admission for targets, exposures, orders and quotes.
+A warming or abstaining step commits its continuation as an `OrderDecision`
+without an intent, which reserves nothing and reports `no_intent`. In a paper
+account every admitted decision, with or without an intent, first requests
+cancellation of its instance's working orders at the decision time, which paper
+matching honours after the scenario's cancel delay, as research replaces its plan.
+A rejected decision is rolled back whole, cancel requests included. A paused step commits nothing,
+and a cohort that only pauses returns no batch. The continuation is the
+`shared-candidate-decision` record: the full `CandidateCheckpoint` (feature
+state, warm-up count, policy state), the step's feature vector, prediction and
+decision, and the retry identities. The journal stores it as opaque bytes, so the
+independently installed execution distribution never decodes research types.
+Each request carries the digest of the previously saved continuation; the account
+transaction checks that precondition before committing, so a stale concurrent
+decision cannot overwrite newer state. Exact batch retries reopen their saved
+result, while changed input bytes or a continuation of another binding fail
+closed. A candidate whose restart rule is `reset` starts fresh at its first step
+in each new runtime; `restore` resumes the journal's continuation.
 
 The shared runtime stages decisions only. It does not observe markets, reconcile
 accounts or synthesize order events; those facts remain explicit inputs to the
@@ -194,12 +249,49 @@ the [MR14 record](../../docs/roadmap/multi-instance-paper.md) owns its qualifica
 ## Paper candidate supervision
 
 `SharedPaperCaptureObserver` connects the shared decision runtime above to native
-public books through `LiveBookDecisionSource` and `BookRegistry`. It persists
-`SharedBookDelivery` envelopes before account effects and matches older orders
-before coordinating new inputs. `SharedBookInputs` is the pure feature/model
-binding; each vector must retain the exact native input identity and delivery
-cutoff. Policy state and retries remain journal-owned. Native invalidation blocks
-new independent admission while preserving pending exposure. See the
+public books through `LiveBookDecisionSource` and `BookRegistry`. The source
+projects every book field the bound candidates read (`imbalance`, `ask`, `bid`,
+`ask_size`, `bid_size`) from one canonical book under one name, clock and
+freshness. Each candidate decides at its own UTC grid instants,
+`starts_at + k * cadence`, as research studies and dedicated paper do. When the
+first eligible book after an instant arrives, the due candidates decide at that
+instant from the latest eligible market at or before it, whose quote the journal
+observes. The batch coordinates at the instant plus one microsecond, so the
+account's knowledge stays before the crossing book, and that book then matches
+orders. New orders therefore first meet the next book. Books between instants
+update monitoring only. An instant without a fresh market or complete inputs is
+skipped, and the candidate's gap rule (`pause`, `reset` or `continue`) governs it.
+`SharedBookDelivery` (`shared-candidate-delivery`) is persisted before effects
+with each decided instant's inputs, quote and coordination clock, and whether the
+book matched. Replay recomputes the grid and refuses a retained delivery whose
+matching or decided inputs differ. Native invalidation blocks new independent
+admission while preserving pending exposure.
+
+Shared accounts also run feature-served candidates. `SharedStrategyInput` carries
+either source `inputs` or a `served` feature, and both executors accept either. The
+observer serves such a candidate at each instant through `ServedFeatures`. While
+the instant's snapshot is `feature-pending` the instant stays open and is retried
+on each later eligible book. It decides once the snapshot is published, coordinated
+one microsecond after the preceding delivery and quoted at the latest market known
+then; the account dates that decision when both its inputs and its quote were
+known. It is skipped as `feature-not-published` when the delivery that opens the
+candidate's next instant still cannot decide it. Any other pause reason skips the
+instant like missing inputs; reasons are kept in `feature_pauses`. The delivery log
+retains the served vector and snapshot, and a replay reopens that snapshot, refuses
+a different value and recomputes each coordination clock. `AuthoredCandidates.load(served=...,
+feature_version=...)` builds such a candidate; `PaperCapabilities(features=...)`
+resolves its inputs against profiles derived from the registered store definition.
+
+`PaperInputs` maps each declared input to a feed the source provisions: book fields
+to the book, trade fields to the source's public trades feed when it records one.
+Reference and non-book inputs reach paper candidates only through the feature
+store, so a source-fed candidate declaring one is refused before any process
+starts. With a trades feed the observer also holds a `LiveTradeDecisionSource`;
+`observe_trades` retains each trade boundary with its delivery time in a sibling
+`.trades.jsonl` log before applying it, and each decided instant reads both sources.
+A replay delivers both logs into fresh sources in delivery-time order, trades first
+at equal times, through `deliver_trades` and `deliver`. Mixed grids on one observer
+read the sources in ascending instants, because a live source freezes its cutoffs. See the
 [automatic paper application](../applications/paper/README.md#automatic-public-input-accounts)
 for retention, last-bid cost reports and explicit recovery boundaries.
 
@@ -218,22 +310,19 @@ frozen decision at an equal cutoff. Controls carry the same market payload with
 its original age. This avoids cyclic-GC scans over every historical level and
 decimal without discarding native fields, revisions or causal boundaries.
 
-For supervised services, `PaperServiceSource.market_interval_us` selects the
-economic cadence. The first eligible, two-sided native book is selected; later
-books cause paper matching and active strategy evaluation only when their actual
-delivery clock is at least that interval after the last selected book. Every
-native record is still retained, reconstructed and validated in source order.
-An intermediate eligible book updates the freshest monitoring mark, but creates
-no modeled fill or strategy checkpoint; invalid source input faults immediately.
-A valid book that is momentarily one-sided or crossed between per-order messages,
+Every native record is retained, reconstructed and validated in source order. A
+valid book that is momentarily one-sided or crossed between per-order messages,
 and the heartbeats or controls that follow it, has no eligible market. It faults
 the account only if no eligible market arrives within the smaller of source
-freshness and capture idle time, measured on retained delivery clocks.
-The interval is positive, defaults to 3,000,000 microseconds and cannot exceed
-either source freshness or capture idle time. The exact source configuration and
-`SharedBookInputs` identity both bind it. `SharedBookDelivery.market_effects=false`
-retains an unselected book for exact replay. This is a selected-
-book paper model, not a measured feed or throughput capacity claim.
+freshness and capture idle time, measured on retained delivery clocks. This is a
+grid-selected paper model, not a measured feed or throughput capacity claim.
+
+`ReferenceCandidates` packages the installed `fixed_clip`, `liquidity_clip` and
+`target_clip` formulas over the native touch (ask, bid, ask size) as complete
+candidate definitions without research provenance; they carry state across
+missed instants. `AuthoredCandidates` does the same for any supplied feature
+kernel and policy, for authored workloads and tests. Admitting a
+provenance-free candidate is the calling application's decision.
 
 `PaperConfiguration.execution` selects a required versioned scenario. The dedicated
 journal pins its bytes and atomically commits each quote, modeled events and
@@ -376,15 +465,16 @@ latest retained journal; restoring a historical copy over an active state is
 unsupported. The [activation record](../../docs/roadmap/paper-activation.md)
 separates this local boundary from future deployed-service disaster recovery.
 
-## Supervised policy processes
+## Supervised candidate processes
 
-`ProcessDecisionPolicy` implements the existing decision-policy protocol while
-running `decide(context, state)` in a spawned process. The parent retains the
-original `SharedDecisionRuntime` cohort and checkpoint transaction. Policy
-processes receive only causal contexts and portable state; they have no account
+`ProcessCandidateExecutor` runs each candidate step (feature, transform,
+estimator and policy) in a spawned process. The parent retains the
+`SharedDecisionRuntime` cohort and the continuation transaction. The child
+receives only causal inputs and the committed checkpoint; it has no account
 client or ability to transfer another instance's ownership. A two-second response
-budget bounds a stalled policy, and the parent fences it before selective controls.
-Process heartbeat remains distinct from decision completion.
+budget bounds a stalled candidate, which raises `CandidateProcessFailure`, and the
+parent fences it before selective controls. Process heartbeat remains distinct
+from step completion.
 
 The [paper service application](../applications/paper/README.md#supervised-local-deployments)
 owns source and instance selection, process lifetime and operator controls. It

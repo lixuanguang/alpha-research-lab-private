@@ -30,6 +30,7 @@ from research.experiments import (
     CandidateArtifact,
     CandidateBundle,
     CandidateComponent,
+    CandidateDefinition,
     CandidateManifest,
     CandidateMetricContract,
     CandidateStateContract,
@@ -40,6 +41,7 @@ from research.studies import DecisionStudy, StudyResult
 from runtime import (
     CandidateCheckpoint,
     CandidateComponents,
+    CandidateRuntime,
     CandidateStep,
     ImplementationIdentity,
 )
@@ -310,21 +312,18 @@ class _CandidateAcceptance:
                 ),
             )
         )
-        manifest = CandidateManifest(
+        provenance = ("attempt", "dataset", "experiment", "factory-implementation", "study-report")
+        executable = CandidateDefinition(
             name="installed-learned-target" if learned else "installed-rule-order",
             version="1",
-            qualification="engineering",
             code_sha256=ImplementationIdentity.sha256(),
             environment_sha256=history.start.spec.environment_sha256,
-            dataset=refs["dataset"],
-            experiment=refs["experiment"],
-            attempt=refs["attempt"],
-            report=refs["study-report"],
+            runtime_code_sha256=CandidateRuntime.code_sha256(),
+            runtime_environment_sha256=CandidateRuntime.environment_sha256(),
             feature_schema=refs["feature-schema"],
             feature_store=refs["feature-store"],
             transform=refs.get("transform"),
             estimator=refs.get("estimator"),
-            assessment=None,
             components=tuple(components),
             inputs=feature.inputs,
             requirements=(
@@ -364,7 +363,17 @@ class _CandidateAcceptance:
                     applies_to=("research", "runtime"),
                 ),
             ),
-            artifacts=tuple(refs.values()),
+            artifacts=tuple(ref for name, ref in refs.items() if name not in provenance),
+        )
+        manifest = CandidateManifest(
+            definition=executable,
+            qualification="engineering",
+            dataset=refs["dataset"],
+            experiment=refs["experiment"],
+            attempt=refs["attempt"],
+            report=refs["study-report"],
+            assessment=None,
+            artifacts=tuple(ref for name, ref in refs.items() if name in provenance),
             limitations=("Synthetic fixture; no venue or empirical strategy qualification.",),
         )
         CandidateBundle(root).publish(manifest, payloads)
@@ -381,19 +390,20 @@ class _CandidateAcceptance:
         starts_at: datetime,
     ) -> CandidateDeployment:
         """Keep placements distinct and trading authorization empty."""
-        entity = InstrumentId.from_canonical_text(manifest.entities[0])
+        executable = manifest.definition
+        entity = InstrumentId.from_canonical_text(executable.entities[0])
         return CandidateDeployment(
-            name=f"{manifest.name}-{mode}-{instance}",
-            candidate_identity=manifest.identity,
+            name=f"{executable.name}-{mode}-{instance}",
+            candidate_identity=executable.identity,
             instance=instance,
-            entity=manifest.entities[0],
+            entity=executable.entities[0],
             mode=mode,
             input_mode="source",
             source_identity=source_identity,
             starts_at=starts_at,
             selections=tuple(
                 CapabilitySelection(name=requirement.name, profile=f"fixture-{requirement.name}")
-                for requirement in manifest.requirements
+                for requirement in executable.requirements
             ),
             universes=UniverseSelection(
                 collection=(entity,),
@@ -411,7 +421,7 @@ class _CandidateAcceptance:
         for name, second in (("rule", 20), ("learned", 40)):
             bundle = CandidateBundle(output / name)
             manifest = bundle.read()
-            registry = _CandidateAcceptance._registry(manifest.requirements)
+            registry = _CandidateAcceptance._registry(manifest.definition.requirements)
             steps: list[CandidateStep] = []
             for mode in ("replay", "runtime"):
                 deployment = codec.decode_json(

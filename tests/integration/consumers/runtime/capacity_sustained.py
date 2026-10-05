@@ -13,10 +13,10 @@ from typing import ClassVar, Literal
 # third party library imports
 import msgspec
 from capacity_inputs import CapacityNativeFixture, CapacityVariant, CapacityWorkload
+from paper_services import PaperServiceWorkload
 
 # project library imports
 from accounting import AccountLedger
-from applications.execute import ServiceBookInputs
 from configuration import (
     BookRegistryConfiguration,
     BookSelection,
@@ -33,7 +33,6 @@ from market_data.contracts import CaptureRecord, CaptureRequest
 from portfolio import PortfolioContext
 from research.observations import LiveBookDecisionSource
 from runtime import SharedDecisionRuntime, SharedPaperCaptureObserver, SharedStrategyBinding
-from strategies import ReferencePolicies
 
 
 class SustainedNativeFixture(CapacityNativeFixture):
@@ -285,7 +284,12 @@ class SustainedWorkload(CapacityWorkload):
             opening, steady = replayed["opening_orders"], replayed["steady_orders"]
             if type(opening) is not int or type(steady) is not int:
                 raise ValueError("sustained projection lacks order counts")
-            selected = window_minutes * 60 * 1_000_000 // source.market_interval_us
+            cadence_us = min(
+                PaperServiceWorkload.reference(item).cadence_us
+                for item in service.instances
+                if item.account_id == account.account_id
+            )
+            selected = window_minutes * 60 * 1_000_000 // cadence_us
             # The opening happens once per recording; only steady orders scale with time.
             steady_window = math.ceil(steady * window_minutes / minutes)
             accounts[account.account_id] = {
@@ -335,7 +339,11 @@ class SustainedWorkload(CapacityWorkload):
                 for source in service.sources
             ),
             "strategies": tuple(
-                (instance.instance_id, instance.policy, instance.source)
+                (
+                    instance.instance_id,
+                    PaperServiceWorkload.reference(instance).formula,
+                    instance.source,
+                )
                 for instance in service.instances
             ),
             "account_service_seconds": self.service_life_seconds,
@@ -380,13 +388,15 @@ class SustainedWorkload(CapacityWorkload):
                 instance_id=instance.instance_id,
                 account_id=account_id,
                 entity=str(source.scenario.instrument_id),
-                policy=ReferencePolicies.create(
-                    instance.policy,
-                    instance.quantity,
-                    source.scenario.adverse.currency,
-                    instance.lot,
+                candidate=venue.candidates(source).load(
+                    PaperServiceWorkload.reference(instance),
+                    instance=instance.instance_id,
+                    entity=str(source.scenario.instrument_id),
+                    quantity=instance.quantity,
+                    lot=instance.lot,
+                    currency=source.scenario.adverse.currency,
                     tick=service.instance_limits(instance).tick,
-                    implementation="0" * 64,
+                    source_identity=venue.input_identity(source),
                 ),
                 context=PortfolioContext(
                     portfolio_id="reference",
@@ -409,14 +419,11 @@ class SustainedWorkload(CapacityWorkload):
             recording_id="00000000-0000-4000-8000-000000000a2a",
             implementation_identity="0" * 64,
         )
-        inputs = ServiceBookInputs(
-            tuple(item.instance_id for item in instances),
-            source.freshness_us,
-            source.market_interval_us,
-        )
         clock = _ProjectionClock(opening)
         observer = SharedPaperCaptureObserver(
-            source=LiveBookDecisionSource(request, inputs.requirement, history_capacity=1000),
+            source=LiveBookDecisionSource(
+                request, venue.candidates(source).inputs, history_capacity=1000
+            ),
             books=BookRegistry(
                 BookRegistryConfiguration(
                     selections=(
@@ -436,10 +443,8 @@ class SustainedWorkload(CapacityWorkload):
             runtime=SharedDecisionRuntime(journal, bindings),
             account_id=account_id,
             scenario=source.scenario,
-            inputs=inputs,
             delivery_path=scratch / "deliveries.jsonl",
             clock=clock,
-            market_interval_us=source.market_interval_us,
         )
         fixture = SustainedNativeFixture(source)
         replay = CaptureReplay(source.capture, book_factory=BookAdapters.create)

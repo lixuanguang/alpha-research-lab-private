@@ -1,4 +1,4 @@
-"""Select existing native public-book subscriptions for a capture connection."""
+"""Select native public book or trades subscriptions for a capture connection."""
 
 from __future__ import annotations
 
@@ -25,6 +25,13 @@ class VenueSubscriptions:
     def __call__(self, config: CaptureConfig) -> tuple[dict[str, object], ...]:
         """Construct the selected venue's fresh per-connection subscribe messages."""
         config.__post_init__()
+        if config.channel == "trades":
+            if config.venue == "bitfinex":
+                return (
+                    {"event": "conf", "flags": 65536},
+                    {"event": "subscribe", "channel": "trades", "symbol": config.symbol},
+                )
+            return ({"op": "subscribe", "args": [{"channel": "trades", "instId": config.symbol}]},)
         if config.venue == "bitfinex":
             return (
                 {"event": "conf", "flags": 65536},

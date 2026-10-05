@@ -63,16 +63,49 @@ cannot move that clock forward. Live imbalance and captured study depth use
 `BookDepth` for exact L2/L3 aggregation. Canonical observations and saved delivery
 envelopes retain their existing schema and original native order IDs.
 
-`research.exploration.SavedDecisionSource` composes the existing MR01
-`ResearchReader`. Every decision reopens the pinned selection with its own
-knowledge cutoff, within the selection's observation envelope:
+`LiveTradeDecisionSource` binds one OKX or Bitfinex public `trades` feed under one
+name, `trade` family, `event` clock and age. Its fields are the latest trade's
+`price` (quote/base currencies), `quantity` and aggressor-signed `signed_quantity`
+(base currency), and `signed_flow`: the signed quantity of every trade with venue
+time in `(at - age, at]`, known by `at`. These are the same fields and window rule
+`SavedDecisionSource` reads from retained trades, and a unit test checks the two
+agree on the same trades. The source replays each durable record through the
+installed venue `TradeTape` itself and requires the collector's outcome and state
+identity, so both apply identical trades. Coverage starts when the tape
+synchronizes (OKX at its acknowledgement, Bitfinex at its snapshot) and ends at a
+gap, invalid frame or session end. A flow window must lie inside one coverage
+interval, every field needs a boundary within the feed's idle time, and venue and
+local clocks are compared without skew correction, so recorder coverage stays
+unproven. Retention is bounded; dropping an old trade moves coverage past it, so a
+window is never understated.
 
-- Public trade `price` and `quantity` use exchange event time and **local durable
-  availability**, preserving unknown original historical receipt. Latest event
+Captured trades feeds published with `alpha-dataset capture-publish` keep every
+message boundary and its coverage (`TradeTapeCoverage`, shared with this source), so
+`SavedDecisionSource` applies the same synchronization, staleness and flow-window
+rules to them, and orders the latest trade the same way (venue time, knowledge,
+message position, index within the message).
+
+`research.exploration.SavedDecisionSource` composes the existing MR01
+`ResearchReader`. It reads and verifies the pinned selection once, at the
+selection's cutoff, on the first decision, and indexes what it read. Each decision
+is then answered as a read pinned at that decision's own cutoff would answer it,
+lineage included: the last book row known by the cutoff, each trade's effective
+version at the cutoff (every observed version is kept, so later corrections never
+reach earlier cutoffs), captured trade boundaries and reference history. Cost no
+longer grows with decisions times records. Within the selection's observation
+envelope:
+
+- Public trade `price`, `quantity` and `signed_quantity` use exchange event time and
+  **local durable availability**, preserving unknown original historical receipt.
+  `signed_flow` sums aggressor-signed quantity over `(at - age, at]` and is missing
+  when the selection's interval starts after the window. Latest event
   wins; equal event/knowledge times use retained request ordinal and native row
   position. Distinct same-millisecond trades are not mistaken for conflicting revisions.
 - Book `imbalance` accepts L2 bid/ask levels or native visible orders. It calculates
-  `(bid_size - ask_size) / (bid_size + ask_size)` exactly. Missing/crossed sides and
+  `(bid_size - ask_size) / (bid_size + ask_size)` exactly. The touch fields `ask`,
+  `bid` (units `quote/base`), `ask_size` and `bid_size` (units `base`) come from the
+  same book, with native orders aggregated by price, exactly as
+  `LiveBookDecisionSource` projects them. Missing/crossed sides and
   later invalidation controls stay missing. It does not infer queues or fills.
   Receipt projections explicitly use receipt age; event projections require a
   native source timestamp. Bitfinex R0 has no source timestamp and therefore uses

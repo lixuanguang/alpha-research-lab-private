@@ -34,7 +34,6 @@ from applications.explore import (
     StudyComponents,
     StudyJobHandler,
     evaluate_study,
-    materialize_features,
     schedule_study,
 )
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
@@ -45,6 +44,7 @@ from research.features import (
     FeastServingBridge,
     FeastServingSnapshot,
     FeatureEntity,
+    FeatureMaterializer,
     FeatureObservation,
     FeatureSchema,
     FeatureStoreDefinition,
@@ -766,7 +766,7 @@ class _Workload:
         """Measure materialization, every PIT cell, and restart without advancing state twice."""
         store = VersionedFeatureStore.open(self.m.root / "features" / "history.sqlite3")
         started = time.perf_counter()
-        result = materialize_features(
+        result = FeatureMaterializer().materialize(
             store,
             self.definition,
             source=self.source,

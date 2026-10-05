@@ -11,8 +11,8 @@ import msgspec
 
 # project library imports
 from research.experiments import AttemptHistory, AttemptStore
+from research.models import EvaluationRecord
 from research.results import FeatureStudyResult
-from research.studies.evaluation import EvaluationRecord
 from research.studies.results import ResultManifest
 from research.studies.tracking import TrackedModel
 from research.studies.window_diagnostics import (

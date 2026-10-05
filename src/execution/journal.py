@@ -794,22 +794,23 @@ class PaperOrderJournal:
             if type(row[0]) is not str:
                 raise ValueError("paper journal account break is malformed")
             return StepCommit(status="rejected", reason=row[0], orders=())
-        if decision is None:
+        if decision is None or decision.intent is None:
             return StepCommit(status="committed", reason="no_intent", orders=())
+        intent = decision.intent
         ledger = self._ledger(connection)
         # Terminal orders reserve nothing and block nothing, so only open ones are read.
         existing = self._orders(connection, open_only=True)
         if any(order.status == "unknown" for order in existing):
             return StepCommit(status="rejected", reason="order_outcome_unknown", orders=())
         try:
-            legs = self._lifecycle.lower(decision.intent, ledger.balance.holding, reference)
+            legs = self._lifecycle.lower(intent, ledger.balance.holding, reference)
         except ValueError as error:
             return StepCommit(status="rejected", reason=str(error), orders=())
         if not legs:
             return StepCommit(status="committed", reason="target_matched", orders=())
         if maximum_fee.currency != self.limits.tick.currency:
             return StepCommit(status="rejected", reason="incompatible_fee_currency", orders=())
-        if isinstance(decision.intent, (TargetIntent, ExposureIntent)) and existing:
+        if isinstance(intent, (TargetIntent, ExposureIntent)) and existing:
             return StepCommit(status="rejected", reason="pending_target", orders=())
         admitted: list[OrderState] = []
         for leg_name, intent in legs:

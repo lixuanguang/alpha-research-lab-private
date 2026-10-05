@@ -19,7 +19,10 @@ DEFAULT_SOURCE_ROOTS = (
     "tools/governance/src",
     "tools/typing/stubs",
     "examples",
+    "extensions",
 )
+# Research extensions are optional; a repository may have none.
+OPTIONAL_SOURCE_ROOTS = frozenset({"extensions"})
 
 
 class PythonStandardsChecker:
@@ -53,6 +56,8 @@ class PythonStandardsChecker:
         try:
             for source_root in self._source_roots:
                 root = repository_root / source_root
+                if source_root in OPTIONAL_SOURCE_ROOTS and not root.exists():
+                    continue
                 if not root.is_dir():
                     return (
                         "Python standards scanner: missing Python standards source root: "

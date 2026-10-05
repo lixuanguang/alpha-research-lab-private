@@ -102,7 +102,7 @@ class _Case:
         return Price(value=Decimal(value), currency=self.currency, per=self.dimension)
 
     def decision(
-        self, at: int, intent: TargetIntent | ExposureIntent | OrderIntent | QuoteIntent
+        self, at: int, intent: TargetIntent | ExposureIntent | OrderIntent | QuoteIntent | None
     ) -> DecisionRecord:
         """Retain a typed MR02 output without inventing an executable client ID."""
         return DecisionRecord(
@@ -311,6 +311,25 @@ class TestIntentSimulation:
         assert result.orders[0].closed_at == case.at(6)
         assert result.orders[0].reason == "replaced"
         assert result.orders[1].placed_at == case.at(7)
+
+    def test_abstention_cancels_the_resting_plan_and_places_nothing(self) -> None:
+        """An abstaining decision replaces the plan with none, after cancel latency."""
+        case = _Case(cancel_delay_us=2_000_000)
+        first = OrderIntent(
+            side="buy",
+            quantity=case.quantity("1"),
+            limit=case.price("99"),
+            time_in_force="post-only",
+        )
+        result = case.run(
+            (case.decision(2, first), case.decision(4, None)),
+            (case.book(1), case.book(10)),
+        )
+        assert len(result.orders) == 1
+        assert result.orders[0].closed_at == case.at(6)
+        assert result.orders[0].reason == "replaced"
+        assert result.decisions[1].reason == "abstained"
+        assert result.decisions[1].order_identities == ()
 
     def test_in_flight_replacement_keeps_cancel_before_arrival_priority(self) -> None:
         """Cancellation at an older plan's arrival prevents that plan from submitting."""

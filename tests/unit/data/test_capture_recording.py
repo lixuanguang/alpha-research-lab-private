@@ -16,7 +16,12 @@ from msgspec.structs import replace
 from configuration import CaptureConfig, CaptureRunConfig
 from market_data.collection.segments import CaptureSegmentWriter
 from market_data.contracts import CaptureRecord, CaptureRequest, CaptureRunRequest
-from market_data.storage import CaptureJournal, CaptureRecording, CaptureRunJournal
+from market_data.storage import (
+    CaptureJournal,
+    CaptureRecording,
+    CaptureRunJournal,
+    RecordingFollower,
+)
 
 _ROOT = Path(__file__).parents[3]
 _CONFIG = replace(
@@ -185,3 +190,76 @@ class TestCaptureRecording:
             CaptureRecording.read(moved)
         with pytest.raises(ValueError, match="exactly one request file"):
             CaptureRecording.read(tmp_path)
+
+
+class TestRecordingFollower:
+    """Follow a growing recording's durable records exactly, without writing."""
+
+    @pytest.fixture(autouse=True)
+    def _release_runs(self) -> Iterator[None]:
+        """Release each run's ownership lock once its test ends."""
+        yield
+        while _OPEN:
+            _OPEN.pop().close()
+
+    @staticmethod
+    def _journal(root: Path) -> CaptureJournal:
+        """Start one single-journal recording under its key-named directory."""
+        request = CaptureRequest(
+            config=_CONFIG,
+            recording_id="00000000-0000-4000-8000-000000000054",
+            implementation_identity="a" * 64,
+        )
+        journal = CaptureJournal(root / request.recording_id / request.recording_id, request)
+        journal.start()
+        return journal
+
+    def test_single_journal_is_followed_incrementally_up_to_its_cursor(
+        self, tmp_path: Path
+    ) -> None:
+        """Polls return each durable record once, bounded, and never bytes past the cursor."""
+        journal = self._journal(tmp_path)
+        records = CaptureRecordingFixture.records(4)
+        follower = RecordingFollower(CaptureRecording.read(journal.root))
+        assert follower.poll(max_records=10) == ()
+        for record in records[:3]:
+            journal.append(record)
+        assert follower.poll(max_records=2) == records[:2]
+        with (journal.root / "journal.jsonl").open("ab") as unacknowledged:
+            unacknowledged.write(b'{"kind":"frame"')
+        assert follower.poll(max_records=10) == records[2:3]
+        assert follower.poll(max_records=10) == ()
+        with (journal.root / "journal.jsonl").open("r+b") as truncated:
+            truncated.truncate(journal.size)
+        for record in records[3:]:
+            journal.append(record)
+        journal.finish(999)
+        assert follower.poll(max_records=10) == records[3:]
+        assert follower.poll(max_records=10) == () and follower.position == len(records)
+        with pytest.raises(ValueError, match="positive record bound"):
+            follower.poll(max_records=0)
+
+    def test_changed_durable_bytes_are_refused(self, tmp_path: Path) -> None:
+        """A byte changed inside the acknowledged prefix fails the cursor digest."""
+        journal = self._journal(tmp_path)
+        for record in CaptureRecordingFixture.records(2):
+            journal.append(record)
+        path = journal.root / "journal.jsonl"
+        payload = path.read_bytes()
+        path.write_bytes(payload.replace(b"999", b"998", 1))
+        with pytest.raises(ValueError, match="differ from the durable cursor"):
+            RecordingFollower(CaptureRecording.read(journal.root)).poll(max_records=10)
+
+    def test_chain_is_followed_across_segments_while_it_grows(self, tmp_path: Path) -> None:
+        """Sealed segments are read to their end before the next; positions run on."""
+        records = CaptureRecordingFixture.records(7)
+        run, writer = CaptureRecordingFixture.chain(tmp_path, records[:5], finish=False)
+        follower = RecordingFollower(CaptureRecording.read(run.root))
+        assert follower.poll(max_records=100) == records[:5]
+        for record in records[5:]:
+            asyncio.run(writer.append(record))
+        run.sealed(writer.current, writer.first_received_ns or 1)
+        run.finish({"run_identity": run.request.identity})
+        assert follower.poll(max_records=100) == records[5:]
+        assert follower.position == len(records)
+        assert follower.poll(max_records=100) == ()

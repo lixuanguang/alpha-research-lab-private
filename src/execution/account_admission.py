@@ -39,12 +39,12 @@ from execution.account_state import (
     _SavedNetEvent,
 )
 from execution.lifecycle import SpotOrderLifecycle
-from execution.records import OrderEvent, OrderState, StepCommit
+from execution.records import DroppedLeg, OrderEvent, OrderState, StepCommit
 from financial_units import Dimension, Money, Price, Quantity
 from portfolio import PortfolioContext
 from risk import BudgetEngine, BudgetRequest, ExposureCommitment, SpotLimits
 from serialization import DomainCodec
-from strategies import ExposureIntent, OrderIntent, TargetIntent
+from strategies import ExposureIntent, OrderIntent, QuoteIntent, TargetIntent
 
 if TYPE_CHECKING:
     # project library imports
@@ -230,105 +230,173 @@ class AccountAdmission:
             ),
             Quantity(value=Decimal(0), dimension=limits.lot.dimension),
         )
+        if self.config.mode == "paper" and not protective:
+            # Each paper decision replaces its instance's working orders, as research
+            # replaces its plan; an abstention or warming step replaces them with none.
+            self.request_instance_cancels(
+                transaction,
+                request.instance_id,
+                request.decision.at,
+                label=f"replace:{request.decision.identity}",
+            )
+        if request.decision.intent is None:
+            # A continuation advances only the instance's opaque state.
+            return StepCommit(status="committed", reason="no_intent", orders=())
         lifecycle = SpotOrderLifecycle(limits)
+        # Orders being replaced, directly or through their physical parent, do not
+        # hold back a target; any other live order of the instance does.
+        replacing = {
+            allocation.child_order_id
+            for parent in transaction.state.net_orders
+            if not parent.order.is_terminal and parent.order.cancel_requested
+            for allocation in parent.allocations
+        }
         if isinstance(request.decision.intent, (TargetIntent, ExposureIntent)) and any(
-            tagged.instance_id == request.instance_id and not tagged.order.is_terminal
+            tagged.instance_id == request.instance_id
+            and not tagged.order.is_terminal
+            and not tagged.order.cancel_requested
+            and tagged.order.identity not in replacing
             for tagged in transaction.state.orders
         ):
             raise ValueError("pending_target")
         legs = lifecycle.lower(request.decision.intent, holding, request.quote.price)
+        reconciled_at = account.reconciled_at
+        if reconciled_at is None:
+            raise ValueError("account_not_reconciled")
         admitted: list[OrderState] = []
+        dropped: list[DroppedLeg] = []
+        quote = isinstance(request.decision.intent, QuoteIntent)
         for leg_name, intent in legs:
-            reason = lifecycle.order_reason(intent)
-            if reason is not None:
-                raise ValueError(reason)
-            # A risk-reducing sell is never refused over fee sizing; a fee above
-            # its reserve is posted from free cash instead. The paper model's own
-            # half-even rounding bounds paper fees (and shadow, which mirrors paper
-            # admission); a venue's unknown rounding keeps the per-lot bound.
-            rate = self.config.fee_rate(intent.quantity.dimension.instrument_id)
-            reserve = (
-                rate.minimum_reserve
-                if self.config.mode == "venue_test"
-                else rate.paper_minimum_reserve
-            )
-            if not protective and Fraction(request.maximum_fee.value) < reserve(
-                intent.quantity, intent.limit, limits.lot
-            ):
-                raise ValueError("fee_reserve_below_worst_case")
-            commitments = self.commitments(transaction, request.decision.at)
-            reason = BudgetEngine().evaluate(
-                self.config.budgets,
-                BudgetRequest(
-                    account_id=request.account_id,
-                    instance_id=request.instance_id,
-                    intent=intent,
-                    decision_at=request.decision.at,
-                    quote=request.quote.price,
-                    quote_at=request.quote.at,
-                    state_at=account.reconciled_at,
-                    maximum_fee=request.maximum_fee,
-                ),
-                commitments,
-            )
-            if reason is not None:
-                raise ValueError(reason)
-            for tagged in transaction.state.orders:
-                order = tagged.order
-                if (
-                    tagged.account_id == request.account_id
-                    and not order.is_terminal
-                    and order.intent.quantity.dimension == intent.quantity.dimension
-                    and order.intent.side != intent.side
-                    and order.identity not in (crossing_ids or set())
-                    and (
-                        intent.limit.value >= order.intent.limit.value
-                        if intent.side == "buy"
-                        else intent.limit.value <= order.intent.limit.value
-                    )
-                ):
-                    raise ValueError("self_trade_conflict")
-            identity = hashlib.sha256(
-                self.codec.encode_json(
-                    (
-                        "account-child",
-                        request.account_id,
-                        request.instance_id,
-                        request.decision.identity,
+            before_leg = transaction.state
+            try:
+                admitted.append(
+                    self._admit_leg(
+                        transaction,
+                        request,
+                        reconciled_at,
+                        limits,
+                        lifecycle,
                         leg_name,
+                        intent,
+                        context=context,
+                        crossing_ids=crossing_ids,
+                        protective=protective,
                     )
                 )
-            ).hexdigest()
-            if transaction.find_order(identity) is not None:
-                raise ValueError("order_identity_collision")
-            order = OrderState(
-                identity=identity,
-                decision_identity=request.decision.identity,
-                decision_at=request.decision.at,
-                intent=intent,
-                status="intent",
-                filled=Quantity(value=Decimal(0), dimension=intent.quantity.dimension),
-                paid_fee=Money(value=Decimal(0), currency=intent.limit.currency),
-                maximum_fee=request.maximum_fee,
-            )
-            orders: tuple[TaggedOrder, ...] = (
-                *transaction.state.orders,
-                TaggedOrder(
-                    account_id=request.account_id,
-                    instance_id=request.instance_id,
-                    order=order,
-                    context=context,
-                    quote=request.quote if context is not None else None,
-                ),
-            )
-            transaction.state = replace(transaction.state, orders=orders)
-            self.require_funded(transaction, request.account_id)
-            admitted.append(order)
+            except ValueError as error:
+                # Research admits each quote leg on its own; so does paper. A leg the
+                # instance cannot fund is dropped with its reason, never silently.
+                if not quote:
+                    raise
+                transaction.state = before_leg
+                dropped.append(DroppedLeg(leg=leg_name, reason=str(error)))
+        if quote and not admitted:
+            raise ValueError(dropped[0].reason)
         return StepCommit(
             status="committed",
             reason="reserved" if admitted else "target_matched",
             orders=tuple(admitted),
+            dropped=tuple(dropped),
         )
+
+    def _admit_leg(
+        self,
+        transaction: AccountTransaction,
+        request: AccountDecision,
+        reconciled_at: datetime,
+        limits: SpotLimits,
+        lifecycle: SpotOrderLifecycle,
+        leg_name: str,
+        intent: OrderIntent,
+        *,
+        context: PortfolioContext | None,
+        crossing_ids: set[str] | None,
+        protective: bool,
+    ) -> OrderState:
+        """Admit one lowered leg, reserving it, or raise its refusal reason."""
+        reason = lifecycle.order_reason(intent)
+        if reason is not None:
+            raise ValueError(reason)
+        # A risk-reducing sell is never refused over fee sizing; a fee above
+        # its reserve is posted from free cash instead. The paper model's own
+        # half-even rounding bounds paper fees (and shadow, which mirrors paper
+        # admission); a venue's unknown rounding keeps the per-lot bound.
+        rate = self.config.fee_rate(intent.quantity.dimension.instrument_id)
+        reserve = (
+            rate.minimum_reserve if self.config.mode == "venue_test" else rate.paper_minimum_reserve
+        )
+        if not protective and Fraction(request.maximum_fee.value) < reserve(
+            intent.quantity, intent.limit, limits.lot
+        ):
+            raise ValueError("fee_reserve_below_worst_case")
+        commitments = self.commitments(transaction, request.decision.at)
+        reason = BudgetEngine().evaluate(
+            self.config.budgets,
+            BudgetRequest(
+                account_id=request.account_id,
+                instance_id=request.instance_id,
+                intent=intent,
+                decision_at=request.decision.at,
+                quote=request.quote.price,
+                quote_at=request.quote.at,
+                state_at=reconciled_at,
+                maximum_fee=request.maximum_fee,
+            ),
+            commitments,
+        )
+        if reason is not None:
+            raise ValueError(reason)
+        for tagged in transaction.state.orders:
+            order = tagged.order
+            if (
+                tagged.account_id == request.account_id
+                and not order.is_terminal
+                and order.intent.quantity.dimension == intent.quantity.dimension
+                and order.intent.side != intent.side
+                and order.identity not in (crossing_ids or set())
+                and (
+                    intent.limit.value >= order.intent.limit.value
+                    if intent.side == "buy"
+                    else intent.limit.value <= order.intent.limit.value
+                )
+            ):
+                raise ValueError("self_trade_conflict")
+        identity = hashlib.sha256(
+            self.codec.encode_json(
+                (
+                    "account-child",
+                    request.account_id,
+                    request.instance_id,
+                    request.decision.identity,
+                    leg_name,
+                )
+            )
+        ).hexdigest()
+        if transaction.find_order(identity) is not None:
+            raise ValueError("order_identity_collision")
+        order = OrderState(
+            identity=identity,
+            decision_identity=request.decision.identity,
+            decision_at=request.decision.at,
+            intent=intent,
+            status="intent",
+            filled=Quantity(value=Decimal(0), dimension=intent.quantity.dimension),
+            paid_fee=Money(value=Decimal(0), currency=intent.limit.currency),
+            maximum_fee=request.maximum_fee,
+        )
+        orders: tuple[TaggedOrder, ...] = (
+            *transaction.state.orders,
+            TaggedOrder(
+                account_id=request.account_id,
+                instance_id=request.instance_id,
+                order=order,
+                context=context,
+                quote=request.quote if context is not None else None,
+            ),
+        )
+        transaction.state = replace(transaction.state, orders=orders)
+        self.require_funded(transaction, request.account_id)
+        return order
 
     def _require_protective_sell(
         self,
@@ -505,21 +573,9 @@ class AccountAdmission:
                 return saved.matched
         account = transaction.account(observation.snapshot.account_id)
         ledger = AccountLedger(account.ledger)
-        latest = self.account_time(transaction, account)
-        orders = tuple(
-            tagged.order
-            for tagged in transaction.state.orders
-            if tagged.account_id == observation.snapshot.account_id
-            and tagged.context is None
-            and not tagged.order.is_terminal
-        ) + tuple(
-            parent.order
-            for parent in transaction.state.net_orders
-            if parent.account_id == observation.snapshot.account_id and not parent.order.is_terminal
-        )
-        latest = max(latest, *(order.decision_at for order in orders)) if orders else latest
+        orders = self.open_orders(transaction, account.ledger.account_id)
         matched = (
-            observation.at >= latest
+            observation.at >= self.knowledge_at(transaction, account)
             and (account.reconciled_at is None or observation.at >= account.reconciled_at)
             and observation.snapshot == ledger.snapshot()
             and {order.identity: order for order in observation.open_orders}
@@ -919,6 +975,75 @@ class AccountAdmission:
             ).value > limits.maximum.value:
                 raise ValueError("holding_limit")
 
+    def request_instance_cancels(
+        self, transaction: AccountTransaction, instance_id: str, at: datetime, *, label: str
+    ) -> tuple[NetOrder, ...]:
+        """Request cancellation of an instance's live orders, physical parents included.
+
+        A child not yet attached to a physical parent is cancelled at once; any other
+        live order gets a durable cancel request at ``at``, which paper matching
+        honours after the scenario's cancel delay. Returns the affected parents.
+        """
+        affected: list[NetOrder] = []
+        attached = {
+            allocation.child_order_id
+            for parent in transaction.state.net_orders
+            if not parent.order.is_terminal
+            for allocation in parent.allocations
+        }
+        for parent in transaction.state.net_orders:
+            if parent.order.is_terminal or not any(
+                transaction.order(allocation.child_order_id).instance_id == instance_id
+                for allocation in parent.allocations
+            ):
+                continue
+            updated = parent
+            if not parent.order.cancel_requested:
+                request = OrderEvent(
+                    identity=f"{label}:{parent.order.identity}",
+                    order_id=parent.order.identity,
+                    at=at,
+                    kind="cancel_requested",
+                )
+                physical = SpotOrderLifecycle(self.limits(parent.order.intent.limit)).transition(
+                    parent.order, request
+                )
+                updated = replace(parent, order=physical)
+                transaction.save_net_order(updated)
+                net_events = (
+                    *transaction.state.net_events,
+                    _SavedNetEvent(event=request, result=updated, child_fill_ids=()),
+                )
+                transaction.state = replace(transaction.state, net_events=net_events)
+            affected.append(updated)
+        for child in transaction.state.orders:
+            if (
+                child.instance_id == instance_id
+                and not child.order.is_terminal
+                and child.order.identity not in attached
+            ):
+                if child.context is not None:
+                    transaction.save_order(
+                        replace(child, order=replace(child.order, status="cancelled"))
+                    )
+                elif not child.order.cancel_requested:
+                    request = OrderEvent(
+                        identity=f"{label}:{child.order.identity}",
+                        order_id=child.order.identity,
+                        at=at,
+                        kind="cancel_requested",
+                    )
+                    updated_order = SpotOrderLifecycle(
+                        self.limits(child.order.intent.limit)
+                    ).transition(child.order, request)
+                    transaction.save_order(replace(child, order=updated_order))
+                    saved_events: tuple[_SavedEvent, ...] = (
+                        *transaction.state.events,
+                        _SavedEvent(event=request, result=updated_order),
+                    )
+                    transaction.state = replace(transaction.state, events=saved_events)
+        return tuple(affected)
+
     def require_reissue_safe(
         self, transaction: AccountTransaction, account_id: str, at: datetime
     ) -> None:
@@ -1087,6 +1212,28 @@ class AccountAdmission:
             quote,
         )
         transaction.state = replace(transaction.state, quotes=quotes)
+
+    @staticmethod
+    def open_orders(transaction: AccountTransaction, account_id: str) -> tuple[OrderState, ...]:
+        """Return the account's open orders an independent observation must list."""
+        return tuple(
+            tagged.order
+            for tagged in transaction.state.orders
+            if tagged.account_id == account_id
+            and tagged.context is None
+            and not tagged.order.is_terminal
+        ) + tuple(
+            parent.order
+            for parent in transaction.state.net_orders
+            if parent.account_id == account_id and not parent.order.is_terminal
+        )
+
+    def knowledge_at(self, transaction: AccountTransaction, account: AccountView) -> datetime:
+        """Return the earliest instant an observation of this account may be stamped at."""
+        orders = self.open_orders(transaction, account.ledger.account_id)
+        return max(
+            (self.account_time(transaction, account), *(order.decision_at for order in orders))
+        )
 
     def account_time(self, transaction: AccountTransaction, account: AccountView) -> datetime:
         """Return the latest knowledge clock whose state admission would consume."""

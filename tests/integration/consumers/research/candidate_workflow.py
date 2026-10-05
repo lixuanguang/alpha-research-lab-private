@@ -22,13 +22,8 @@ from research.experiments import AttemptStore, CandidateBundle, Fingerprint
 from research.features import FeatureKernel, FeatureSchema, TransformAdapter
 from research.labels import Outcome
 from research.models import EstimatorAdapter
-from research.studies import (
-    ChartDefinition,
-    DecisionStudy,
-    MetricDefinition,
-    PublicationPolicy,
-    StudyArtifact,
-)
+from research.reports import ChartDefinition, MetricDefinition
+from research.studies import DecisionStudy, PublicationPolicy, StudyArtifact
 from runtime import (
     CandidateComponents,
     CandidateLoader,
@@ -333,7 +328,7 @@ def main() -> None:
             source_identity=scenario.source.identity,
             starts_at=starts,
         )
-        registry = _CandidateAcceptance._registry(manifest.requirements)
+        registry = _CandidateAcceptance._registry(manifest.definition.requirements)
         loader = CandidateLoader(components, registry)
         loader.load(CandidateBundle(output / name), replay)
         loaded_runtime = loader.load(CandidateBundle(output / name), runtime)
@@ -397,7 +392,7 @@ def main() -> None:
         )
         _CandidateAcceptance._reject_before_read(
             bundle,
-            replace(replay, starts_at=manifest.available_at - timedelta(microseconds=1)),
+            replace(replay, starts_at=manifest.definition.available_at - timedelta(microseconds=1)),
             components=components,
             registry=registry,
             source=scenario.source,
@@ -444,7 +439,7 @@ def main() -> None:
             "candidate": manifest.identity,
             "deployment": replay.identity,
             "report": manifest.report.sha256,
-            "output": manifest.output,
+            "output": manifest.definition.output,
             "qualification": manifest.qualification,
             "admission_rejections_before_source_reads": 5,
         }
@@ -458,7 +453,7 @@ def main() -> None:
             source_step=first_replay,
             decision_second=30 if learned else 10,
         )
-        paper_proof, paper_checkpoint, paper_step = _PaperCandidateAcceptance.exercise(
+        paper_proof, _, paper_step = _PaperCandidateAcceptance.exercise(
             root=output,
             name=name,
             bundle=bundle,
@@ -475,10 +470,11 @@ def main() -> None:
             paper_config = _PaperCandidateAcceptance._config(name, "paper", scenario)
             exporter = CandidateMonitoringExporter(
                 loaded_runtime,
-                paper_config,
-                paper_checkpoint,
                 scope=f"{name}-paper-candidate",
+                account=paper_config.account,
+                mode="paper",
                 clock_quality="modeled",
+                study=manifest.dataset.sha256,
             )
             pending = scenario.labels.read(paper_step.feature, as_of=paper_step.at)
             observed = scenario.labels.read(

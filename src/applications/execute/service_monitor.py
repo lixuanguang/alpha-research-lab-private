@@ -30,6 +30,7 @@ from accounting import (
     PaperPositionMark,
     PaperScopeReport,
 )
+from applications.execute.candidate_telemetry import CandidateTelemetry
 from configuration import AccountConfiguration, PaperServiceConfiguration, PaperServiceSource
 from execution import (
     AccountExecutionRequest,
@@ -134,8 +135,14 @@ class PaperServiceDiagnostics:
         *,
         root: Path,
         deadline: float,
+        runs: Path,
+        candidates: Path | None = None,
     ) -> None:
-        """Bind immutable account definitions, diagnostic storage and the supervisor deadline."""
+        """Bind account definitions, diagnostic storage and the supervisor deadline.
+
+        ``runs`` is the supervisor run's directory, whose delivery logs carry decided
+        instants; ``candidates`` is the release's signed candidates directory.
+        """
         configuration.__post_init__()
         if (
             not root.is_absolute()
@@ -154,6 +161,7 @@ class PaperServiceDiagnostics:
             root,
             deadline,
         )
+        self.runs, self.candidates = runs, candidates
         self._codec = DomainCodec()
         self._process: BaseProcess | None = None
         self._stop: Event | None = None
@@ -180,7 +188,15 @@ class PaperServiceDiagnostics:
         self._stop = context.Event()
         self._process = context.Process(
             target=self._serve,
-            args=(self.configuration, self.owners, self.root, self.deadline, self._stop),
+            args=(
+                self.configuration,
+                self.owners,
+                self.root,
+                self.deadline,
+                self._stop,
+                self.runs,
+                self.candidates,
+            ),
             name="paper-service-diagnostics",
         )
         self.started_at = datetime.now(UTC)
@@ -319,9 +335,19 @@ class PaperServiceDiagnostics:
         root: Path,
         deadline: float,
         stopped: Event,
+        runs: Path,
+        candidates: Path | None,
     ) -> None:
         """Consume the latest batch with read-only clients and retain actual report receipts."""
         codec, monitor = DomainCodec(), PaperServiceMonitor(root)
+        telemetry = CandidateTelemetry(
+            configuration,
+            owners,
+            candidates=candidates,
+            runs=runs,
+            root=root,
+            started_at=datetime.now(UTC),
+        )
         accounts = {
             definition.account_id: ReadOnlyPaperAccount(
                 config=definition.configuration,
@@ -397,6 +423,13 @@ class PaperServiceDiagnostics:
                 observed_at, phase = result["observed_at"], result.get("phase")
                 if not isinstance(observed_at, datetime):
                     raise ValueError("diagnostic result lacks its actual receipt clock")
+                inspected = result.get("state")
+                if isinstance(inspected, AccountExecutionResult):
+                    failures = telemetry.failures
+                    telemetry.sample(account, inspected, sample.markets, observed_at=observed_at)
+                    if telemetry.failures != failures:
+                        monitor.failures += 1
+                        monitor.last_error = telemetry.last_error
                 outcomes.append(
                     DiagnosticReceipt(
                         account_id=sample.account_id,
@@ -442,7 +475,7 @@ class PaperServiceDiagnostics:
             cls._replace(root / "diagnostic-state.json", codec.encode_json(state))
 
 
-class _InspectedPaperAccount(SocketPaperAccount):
+class InspectedPaperAccount(SocketPaperAccount):
     """Serve monitoring reads from one immutable installed account inspection."""
 
     def __init__(
@@ -633,7 +666,7 @@ class PaperServiceMonitor:
                 None,
             )
             receipt = datetime.now(UTC)
-            inspected = _InspectedPaperAccount(account.config, owner, state)
+            inspected = InspectedPaperAccount(account.config, owner, state)
             events = (
                 PaperMonitoring(owner.release_identity).account(
                     inspected,
@@ -665,6 +698,7 @@ class PaperServiceMonitor:
             TelemetryStore(self.root / "telemetry.sqlite3").append(events)
             return {
                 "observed_at": receipt,
+                "state": state,
                 "report": report,
                 "account": view,
                 "activation": activation,

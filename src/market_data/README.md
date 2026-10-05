@@ -38,7 +38,7 @@ quality or qualify venue order execution.
 | Cutoff/history queries | `AsOfSelector`, `QueryReader` | [Point-in-time semantics](#select-point-events-at-a-cutoff) |
 | Chronological stepping | `Replay`, `ReplayCursor` | [Replay contract](#chronological-event-stepping) |
 | Named trade/book research inputs | `ResearchSelection`, `inspect_eda` | [Selection reference](#discover-and-reopen-research-selections) |
-| Native book publication/replay | `publish_books`, `BookReplay` | `alpha-collect`; [book boundaries](#bounded-saved-books) |
+| Captured book and trade publication, book replay | `publish_captures`, `CaptureInput`, `BookReplay` | `alpha-dataset capture-publish`; [captured inputs](#bounded-saved-books) |
 | Book registry and consolidated BBO | `BookRegistry`, `BookRegistryConfiguration`, `BookAsOfIndex` | [Registry queries](#book-registry-and-consolidated-bbo) |
 | Per-book depth and BBO | `BookDepth`, `BookProjection.quote`, `BookQuote` | [Shared book quotes](#shared-book-quotes) |
 | Reviewed source evidence | `ArchiveCapture`, `SourceQualification`, `QualityPolicy` | [Qualification sections](#witnessed-archive-availability) |
@@ -76,7 +76,7 @@ preserves the open socket and native state; explicit resume retains an
 interruption gap before acquiring a fresh native snapshot. A segment whose
 provisioning died before its first cursor commit holds no acknowledged record;
 resume moves it to `interrupted-segments/` rather than failing, and refuses any
-other segment that lacks a cursor. `BookInput` and
+other segment that lacks a cursor. `CaptureInput` and
 `SourceAdapters` reconstruct suffix segments from their original predecessors,
 while `SavedCaptureRun` independently verifies the completed live trace. The
 [collector guide](../../docs/data/l3-collectors.md#finite-public-collection-with-segment-rollover)
@@ -137,6 +137,15 @@ levels are reconstructed from the original journal rather than persisted into
 old rows. Consequently no saved-state migration is needed. Research projection
 and live paper matching share these APIs without adding research dependencies to
 the collector or market-data dependencies to the portable execution wheel.
+
+A capture may instead select the venue's public `trades` channel (OKX and Bitfinex
+only, with `depth` 0). Its native state is a `TradeTape`: no depth, the trades the
+last message added, and an identity over every applied trade. The common runner
+journals, replays and quality-checks it exactly as a book. OKX `trades` is ready at
+its acknowledgement and has no snapshot, so earlier trades are unknown; Bitfinex
+starts from its recent-trade snapshot and treats the later of an execution (`te`)
+and its confirmation (`tu`) as a duplicate. A trade repeated within the bounded
+recent window applies once.
 
 The declared initial qualification remains OKX `books` L2 and Bitfinex `R0` L3.
 Coinbase lifecycle fixtures retain software coverage only; live Coinbase
@@ -231,6 +240,32 @@ reopens both native source paths separately and uses authored comparable fixture
 for consolidation and selected-venue paper matching. The
 [roadmap](../../docs/roadmap/README.md#mr07b-book-registry-and-consolidated-bbo)
 records actual acceptance and remaining operating/capacity limits.
+
+## Captured public trades
+
+A captured websocket trades feed publishes into the same `public-trades` schema as
+REST acquisitions. Each `PublicTradeObservation` has exactly one origin: a REST
+`receipt` or a `capture` record (`CaptureTradeOrigin`: recording request, message
+position, index within the message, receipt nanoseconds and raw digest). A
+captured trade's knowledge time is its durable receipt rounded up to microseconds.
+Captured trades carry no reference data.
+
+Publication replays the whole segment chain through the venue `TradeTape` the live
+trade source uses, numbering messages from zero across segments, and retains one
+`TradeBoundary` per message: its receipt and the receipt that opened its
+synchronized interval (`TradeTapeCoverage`). Coverage closes at a gap, invalid
+frame, session end or capture end. Reopening replays the raw input again and
+refuses any difference. A trades capture needs declared universes; research access
+requires its research membership.
+
+`PublicTradeReader` returns a captured source's boundaries known by the cutoff and
+its capture idle time. `SavedDecisionSource` then applies the live trade source's
+rules: no field before the first boundary, while unsynchronized, or when the last
+boundary is older than the idle time, and no `signed_flow` unless its whole window
+lies inside one covered interval. The latest trade is ordered by venue time, then
+knowledge, then message position and index, on both paths. At matched cutoffs,
+saved and live trade fields have equal values and equal missing fields; missing
+reasons can differ in wording.
 
 ## Public spot data plane
 
@@ -729,10 +764,23 @@ and [research study protocol](../../examples/study-protocol.md#research-ticket).
 
 ## Bounded saved books
 
-`DatasetPublication.publish_books` accepts completed Bitfinex R0, Coinbase
-Exchange L3 or OKX native capture/archive directories, an existing `RawStore`,
-an existing snapshot directory and explicit `max_records`/`max_bytes`. The
-`book-dataset` format writes a typed source header followed by one exact
+`DatasetPublication.publish_captures` accepts completed Bitfinex R0, Coinbase
+Exchange L3 or OKX native book capture/archive directories and OKX or Bitfinex
+public `trades` capture directories, an existing `RawStore`, an existing snapshot
+directory and explicit `max_records`/`max_bytes`. Every input is a `CaptureInput`
+(original request, raw object, bounded prefix and segment chain). Book inputs
+publish together as one book snapshot; each trades capture chain publishes as its
+own `public-trades` snapshot (see [captured public trades](#captured-public-trades)).
+The same path is the installed command:
+
+```sh
+alpha-dataset capture-publish --captures /absolute/run/segment-a /absolute/run/trades \
+  --store /absolute/run/raw --snapshots /absolute/run/snapshots \
+  --max-records 1000000 --max-bytes 1000000000
+```
+
+It prints the book snapshot identity (or `null`) and each trades snapshot identity.
+The `book-dataset` format writes a typed source header followed by one exact
 `BookObservation` JSON line per original raw position. Publication keeps one
 observation plus the native visible state in memory, then independently replays
 the retained raw input against every staged line before the directory is made
@@ -741,7 +789,7 @@ book dataset schema is refused.
 
 At most 1,000,000 raw positions per input are selectable for streamed publication,
 subject to each source's own record limit and the caller's raw/canonical byte cap.
-The in-memory `BookInput.admit` reference envelope is limited to 10,000
+The in-memory `CaptureInput.admit` reference envelope is limited to 10,000
 positions; the online `BookCapture` parity buffer retains its own 10,000
 position bound. Publication reports use `BookAdmissionReport` with counts and a
 digest, without carrying the whole canonical file in memory. L3 orders keep native
@@ -802,8 +850,10 @@ replay and retains the first divergence on failure.
 
 ## Pinned external dataset versions
 
-`LakeFSStorage` resolves a branch/tag reference to an immutable `DatasetVersion`,
-verifies lengths/digests and materializes a bounded cache for existing readers.
+`LakeFSStorage` creates repositories, publishes `raw/` and `snapshots/` (and optional
+`features/`) as one commit, resolves a branch/tag reference to an immutable
+`DatasetVersion`, verifies lengths/digests in bounded ranges and materializes a
+bounded cache for existing readers.
 It does not convert storage commit clocks into market knowledge, relax admission
 or change snapshot identity. The [local lakeFS guide](../../configs/development/lakefs/README.md)
 owns retention/restore fixtures. Model/report artifacts remain separate.

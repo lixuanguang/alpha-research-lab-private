@@ -11,7 +11,7 @@ import platform
 import subprocess
 import sys
 import zipfile
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,6 +26,7 @@ from alpha_research_governance.dependency_admission.models import (
     WheelOnlyAllowance,
 )
 from alpha_research_governance.dependency_admission.selected_closure import (
+    DependencyEdge,
     SelectedClosureAdmission,
     SelectedClosureFacts,
 )
@@ -201,10 +202,12 @@ class TestSelectedClosureAdmission:
         (tmp_path / "docs/architecture/dependency-admission.toml").write_text(
             "fixture policy\n", encoding="utf-8"
         )
+        # Dates follow the calendar so the fixture policy is always under review.
+        today = date.today()
         policy = DependencyAdmission(
             schema_version=5,
-            as_of_date=date(2026, 9, 20),
-            review_due_on=date(2026, 10, 4),
+            as_of_date=today - timedelta(days=14),
+            review_due_on=today + timedelta(days=14),
             packages=(
                 PythonPackageAdmission(
                     name="pydantic",
@@ -226,8 +229,8 @@ class TestSelectedClosureAdmission:
                     rationale="Unverified source binding retained for isolated development only.",
                     usage="isolated_development_and_ci",
                     source_to_wheel_binding="unverified",
-                    reviewed_on=date(2026, 9, 4),
-                    expires_on=date(2026, 10, 4),
+                    reviewed_on=today - timedelta(days=30),
+                    expires_on=today + timedelta(days=14),
                 ),
             ),
             lock_digests=(
@@ -269,6 +272,79 @@ class TestSelectedClosureAdmission:
             policy=policy,
             wheels=inventory,
         )
+
+    def test_external_extensions_stay_inside_the_locked_closure(self, tmp_path: Path) -> None:
+        """An external extension may require only installed closure packages."""
+        _, _, inventory, _ = self._fixture(tmp_path)
+        wheels = {WheelArchive.inspect(path).name: WheelArchive.inspect(path) for path in inventory}
+        closure_edges = {
+            DependencyEdge(
+                parent="alpha-research-paper-services",
+                parent_extra="",
+                requirement="pydantic==2.13.5",
+                child="pydantic",
+                child_extras=(),
+            )
+        }
+        environment = {"python_full_version": "3.14.0"}
+        extensions = tmp_path / "external"
+        extensions.mkdir()
+        good = WheelArchive.inspect(
+            TestSelectedWheelArchive._wheel(
+                extensions, name="qr-signals", requirements=("pydantic>=2",)
+            )
+        )
+        edges = SelectedClosureAdmission._external_edges(
+            ("qr-signals",),
+            {**wheels, "qr-signals": good},
+            {},
+            closure_edges,
+            "alpha-research-paper-services",
+            environment,
+        )
+        assert {(edge.parent, edge.child) for edge in edges} == {("qr-signals", "pydantic")}
+        for name, requirements in (
+            ("qr-outside", ("numpy==2.0",)),
+            ("qr-version", ("pydantic<2",)),
+            ("alpha-research-shadow", ()),
+        ):
+            wheel = WheelArchive.inspect(
+                TestSelectedWheelArchive._wheel(extensions, name=name, requirements=requirements)
+            )
+            with pytest.raises(DependencyAdmissionError):
+                SelectedClosureAdmission._external_edges(
+                    (name,),
+                    {**wheels, name: wheel},
+                    {},
+                    closure_edges,
+                    "alpha-research-paper-services",
+                    environment,
+                )
+        with pytest.raises(DependencyAdmissionError, match="not an admissible"):
+            SelectedClosureAdmission._external_edges(
+                ("pydantic",),
+                wheels,
+                {"pydantic": {}},
+                closure_edges,
+                "alpha-research-paper-services",
+                environment,
+            )
+
+    def test_only_paper_services_admit_external_extensions(self, tmp_path: Path) -> None:
+        """A collector release refuses any external extension wheel."""
+        root, selected, inventory, policy = self._fixture(tmp_path)
+        (tmp_path / "x").mkdir()
+        extra = TestSelectedWheelArchive._wheel(tmp_path / "x", name="qr-signals")
+        with (
+            patch(
+                "alpha_research_governance.dependency_admission.policy.DependencyRepository.validate",
+                return_value=policy,
+            ),
+            pytest.raises(DependencyAdmissionError, match="only paper services"),
+        ):
+            SelectedClosureAdmission(tmp_path, selected).admit(
+                root, (*inventory, extra), target="darwin_arm64_cp314", extensions=(extra,)
+            )
 
     def test_retained_graph_rejects_changed_wheels_and_edges(self, tmp_path: Path) -> None:
         """Require staged bytes and signed edges to describe the same actual closure."""

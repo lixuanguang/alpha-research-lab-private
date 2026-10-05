@@ -223,7 +223,11 @@ managed queries recheck the current bound owner generation in the same snapshot.
 Reconciliation still requires a complete independently supplied
 `AccountObservation` with physical cash, positions, costs, posting identities and
 cumulative physical open orders. A journal report or its own modeled trace is
-not an independent account observation. Supported live-public-input composition
+not an independent account observation. The `reconciliation` projection (with
+`account_id`) answers one account's view, its open orders and `known_at`, its
+knowledge clock, from one snapshot. An observation must be stamped no earlier than
+that clock to match, and a stamp at it is always safe: the account already refuses
+any market earlier than its own clock, so no market in flight is refused. Supported live-public-input composition
 and its operating limits are documented by the
 [paper application](../applications/paper/README.md).
 

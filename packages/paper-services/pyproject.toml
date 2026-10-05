@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "alpha-research-paper-services"
+version = "0.1.0"
+description = "Independent Alpha Research supervised paper services and candidate runtime"
+requires-python = "==3.14.*"
+classifiers = ["Private :: Do Not Upload"]
+dependencies = ["alpha-research-contracts==0.1.0", "alpha-research-execution==0.1.0"]
+
+[tool.uv]
+required-version = "==0.12.7"
+default-groups = []
+
+[tool.uv.sources]
+alpha-research-contracts = { path = "../contracts", editable = false }
+alpha-research-execution = { path = "../execution", editable = false }
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true
+
+# The execution wheel already ships applications.execute, execution, accounting,
+# portfolio, telemetry and the account-facing runtime modules; contracts ships
+# configuration and the shared records. This wheel adds the candidate runtime.
+[tool.hatch.build.targets.wheel.force-include]
+"../../src/market_data" = "market_data"
+"../../src/research/__init__.py" = "research/__init__.py"
+"../../src/research/py.typed" = "research/py.typed"
+"../../src/research/experiments" = "research/experiments"
+"../../src/research/features" = "research/features"
+"../../src/research/labels" = "research/labels"
+"../../src/research/models" = "research/models"
+"../../src/research/observations" = "research/observations"
+"../../src/research/reports" = "research/reports"
+"../../src/research/results" = "research/results"
+"../../src/runtime/authored_candidates.py" = "runtime/authored_candidates.py"
+"../../src/runtime/candidate_worker.py" = "runtime/candidate_worker.py"
+"../../src/runtime/candidates.py" = "runtime/candidates.py"
+"../../src/runtime/components.py" = "runtime/components.py"
+"../../src/runtime/extensions.py" = "runtime/extensions.py"
+"../../src/runtime/feature_feed.py" = "runtime/feature_feed.py"
+"../../src/runtime/live_inputs.py" = "runtime/live_inputs.py"
+"../../src/runtime/live_paper.py" = "runtime/live_paper.py"
+"../../src/runtime/monitoring.py" = "runtime/monitoring.py"
+"../../src/runtime/paper.py" = "runtime/paper.py"
+"../../src/runtime/paper_capabilities.py" = "runtime/paper_capabilities.py"
+"../../src/runtime/paper_inputs.py" = "runtime/paper_inputs.py"
+"../../src/runtime/portfolio.py" = "runtime/portfolio.py"
+"../../src/runtime/requirements.py" = "runtime/requirements.py"
+"../../src/runtime/shared_paper.py" = "runtime/shared_paper.py"
+"../../src/strategies/books.py" = "strategies/books.py"
+"../../src/strategies/decisions.py" = "strategies/decisions.py"
+"../../src/strategies/reference.py" = "strategies/reference.py"
+"../../src/strategies/rules.py" = "strategies/rules.py"
+"../../src/strategies/state.py" = "strategies/state.py"

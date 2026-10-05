@@ -15,9 +15,9 @@ from research.experiments import AttemptStore, TemporalSplit, TimeWindow
 from research.features import FeatureCheckpoint, FeatureVector, TransformVersion
 from research.labels import Outcome
 from research.models import EstimatorVersion
+from research.reports import ReportObservation
 from research.results import Prediction
 from research.studies.decision_studies import DecisionStudy
-from research.studies.extensions import ReportObservation
 from research.studies.results import ResultManifest
 from serialization import DomainCodec, WireRecord
 from simulation import IntentSimulationResult

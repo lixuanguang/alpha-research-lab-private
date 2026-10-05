@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # standard library imports
-import hashlib
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -14,16 +13,11 @@ from research.features import (
     FeastServingBridge,
     FeastServingSnapshot,
     FeatureAccessError,
-    FeatureKernel,
-    FeatureMaterialization,
-    FeatureSession,
     FeatureStoreDefinition,
     FeatureStoreResult,
-    StoredFeature,
     VersionedFeatureStore,
 )
-from research.observations import DecisionSource
-from serialization import DomainCodec, WireRecord
+from serialization import WireRecord
 from strategies import DecisionContext, DecisionRecord, DecisionSession, DecisionState
 
 
@@ -49,86 +43,6 @@ class ServedDecision(WireRecord, frozen=True, kw_only=True):
             self.decision.__post_init__()
             if self.feature is None or self.feature.status != "ready":
                 raise ValueError("served decision requires a ready feature")
-
-
-def materialize_features(
-    store: VersionedFeatureStore,
-    definition: FeatureStoreDefinition,
-    *,
-    source: DecisionSource,
-    kernel: FeatureKernel,
-    instance: str,
-    entities: tuple[str, ...],
-    decisions: tuple[datetime, ...],
-    source_version: str,
-    source_sha256: str,
-    dataset_version: str,
-    dataset_sha256: str,
-    version: str,
-    bridge: FeastServingBridge,
-    serving_root: Path,
-) -> FeatureMaterialization:
-    """Commit each vector with its successor state, then publish and activate verified Feast.
-
-    The caller supplies admitted immutable source/dataset identities. Every row
-    retains the source's actual input lineage. A retry resumes committed cutoffs;
-    an interrupted Feast publication leaves the preceding active version intact.
-    This path runs unfitted kernels; transformed vectors use the store's explicit
-    fitted-definition append boundary after the existing fitted lifecycle.
-    """
-    if (
-        not entities
-        or len(set(entities)) != len(entities)
-        or not decisions
-        or tuple(sorted(set(decisions))) != decisions
-        or kernel.schema != definition.schema
-        or definition.transform_identity is not None
-        or (definition.schema.mode == "incremental" and definition.instance != instance)
-        or source.requirements != kernel.schema.inputs
-        or source_version != source.identity
-    ):
-        raise ValueError("materialization requires matching source/schema and ordered unique scope")
-    store.register(definition)
-    expected_active = store.active_version(definition)
-    codec = DomainCodec()
-    for entity in entities:
-        checkpoint = store.get_checkpoint(
-            definition,
-            instance,
-            entity,
-            source_version=source_version,
-            source_sha256=source_sha256,
-            dataset_version=dataset_version,
-            dataset_sha256=dataset_sha256,
-        )
-        session = FeatureSession(kernel, instance=instance, entity=entity, checkpoint=checkpoint)
-        for at in decisions:
-            if (
-                checkpoint is not None
-                and checkpoint.last_at is not None
-                and at <= checkpoint.last_at
-            ):
-                continue
-            vector = session.evaluate(source.read(entity, at))
-            row = StoredFeature(
-                definition_identity=definition.identity,
-                vector=vector,
-                source_version=source_version,
-                source_sha256=source_sha256,
-                dataset_version=dataset_version,
-                dataset_sha256=dataset_sha256,
-                revision_identity=hashlib.sha256(
-                    codec.encode_json((vector.identity, source_version, dataset_version))
-                ).hexdigest(),
-            )
-            store.append(definition, row, checkpoint=session.checkpoint())
-    materialization = store.materialize(definition, version, decisions[-1], entities)
-    snapshot = FeastServingSnapshot.from_materialization(materialization)
-    generation = bridge.materialize(snapshot, serving_root)
-    for entity in entities:
-        bridge.retrieve(snapshot, generation, entity, decisions[-1])
-    store.activate_if_current(definition, version, expected_active)
-    return materialization
 
 
 def run_served_decision(
@@ -159,7 +73,11 @@ def run_served_decision(
                 decision=None,
                 checkpoint=session.checkpoint(),
             )
-        materialization = store.get_materialization(definition, result.version)
+        if result.materialized_at is None:
+            raise FeatureAccessError("ready online feature lacks its snapshot cutoff")
+        materialization = store.get_materialization(
+            definition, result.version, result.materialized_at
+        )
         snapshot = FeastServingSnapshot.from_materialization(materialization)
         generation = bridge.open_generation(snapshot, serving_root)
         served = bridge.retrieve(snapshot, generation, entity, at)

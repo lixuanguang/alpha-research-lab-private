@@ -29,10 +29,9 @@ from execution.account_state import (
     SavedPortfolioBatch,
     _InstanceControl,
     _SavedEvent,
-    _SavedNetEvent,
 )
 from execution.lifecycle import SpotOrderLifecycle
-from execution.records import OrderEvent, OrderState, StepCommit
+from execution.records import DroppedLeg, OrderEvent, OrderState, StepCommit
 from financial_units import DecimalGrid, Money, Quantity
 from serialization import DomainCodec
 from strategies import OrderIntent
@@ -61,6 +60,7 @@ class PortfolioCoordinator:
             return saved.result
         before = transaction.state
         children: list[TaggedOrder] = []
+        dropped: dict[str, tuple[DroppedLeg, ...]] = {}
         persist_rejection = False
         try:
             if (
@@ -97,6 +97,7 @@ class PortfolioCoordinator:
                 )
                 if step_commit.status != "committed":
                     raise ValueError(step_commit.reason)
+                dropped[request.decision.identity] = step_commit.dropped
                 children.extend(transaction.order(order.identity) for order in step_commit.orders)
             for account_id in sorted({item.request.account_id for item in batch.decisions}):
                 self.admission.require_reissue_safe(transaction, account_id, batch.at)
@@ -123,6 +124,8 @@ class PortfolioCoordinator:
                 if residuals
                 else "internal_cross"
                 if crossed
+                else "no_intent"
+                if all(item.request.decision.intent is None for item in batch.decisions)
                 else "target_matched",
                 children=committed_children,
                 net_orders=tuple(parents),
@@ -140,6 +143,8 @@ class PortfolioCoordinator:
                             and child.order.decision_identity == item.request.decision.identity
                             for child in children
                         )
+                        else "no_intent"
+                        if item.request.decision.intent is None
                         else "target_matched",
                         orders=tuple(
                             child.order
@@ -147,6 +152,7 @@ class PortfolioCoordinator:
                             if child.instance_id == item.request.instance_id
                             and child.order.decision_identity == item.request.decision.identity
                         ),
+                        dropped=dropped.get(item.request.decision.identity, ()),
                     ),
                 )
                 for item in batch.decisions
@@ -207,65 +213,9 @@ class PortfolioCoordinator:
             stopped_instances=stopped_instances,
             instance_controls=controls,
         )
-        affected: list[NetOrder] = []
-        attached = {
-            allocation.child_order_id
-            for parent in transaction.state.net_orders
-            if not parent.order.is_terminal
-            for allocation in parent.allocations
-        }
-        for parent in transaction.state.net_orders:
-            if parent.order.is_terminal or not any(
-                transaction.order(allocation.child_order_id).instance_id == instance_id
-                for allocation in parent.allocations
-            ):
-                continue
-            updated = parent
-            if not parent.order.cancel_requested:
-                request = OrderEvent(
-                    identity=f"stop:{instance_id}:{parent.order.identity}",
-                    order_id=parent.order.identity,
-                    at=at,
-                    kind="cancel_requested",
-                )
-                physical = SpotOrderLifecycle(
-                    self.admission.limits(parent.order.intent.limit)
-                ).transition(parent.order, request)
-                updated = replace(parent, order=physical)
-                transaction.save_net_order(updated)
-                net_events = (
-                    *transaction.state.net_events,
-                    _SavedNetEvent(event=request, result=updated, child_fill_ids=()),
-                )
-                transaction.state = replace(transaction.state, net_events=net_events)
-            affected.append(updated)
-        for child in transaction.state.orders:
-            if (
-                child.instance_id == instance_id
-                and not child.order.is_terminal
-                and child.order.identity not in attached
-            ):
-                if child.context is not None:
-                    transaction.save_order(
-                        replace(child, order=replace(child.order, status="cancelled"))
-                    )
-                elif not child.order.cancel_requested:
-                    request = OrderEvent(
-                        identity=f"stop:{instance_id}:{child.order.identity}",
-                        order_id=child.order.identity,
-                        at=at,
-                        kind="cancel_requested",
-                    )
-                    updated_order = SpotOrderLifecycle(
-                        self.admission.limits(child.order.intent.limit)
-                    ).transition(child.order, request)
-                    transaction.save_order(replace(child, order=updated_order))
-                    saved_events: tuple[_SavedEvent, ...] = (
-                        *transaction.state.events,
-                        _SavedEvent(event=request, result=updated_order),
-                    )
-                    transaction.state = replace(transaction.state, events=saved_events)
-        return tuple(affected)
+        return self.admission.request_instance_cancels(
+            transaction, instance_id, at, label=f"stop:{instance_id}"
+        )
 
     def restart_instance(
         self, transaction: AccountTransaction, instance_id: str, at: datetime

@@ -13,11 +13,14 @@ uv owns the [lockfile format and generation](https://docs.astral.sh/uv/concepts/
 | [Research project](../../pyproject.toml), [lock](../../uv.lock) | Full research runtime and development checks, including the local governance package |
 | [Collector](../../packages/collector/pyproject.toml), [lock](../../packages/collector/uv.lock) | Independently installed collector and its shared contracts |
 | [Execution](../../packages/execution/pyproject.toml), [lock](../../packages/execution/uv.lock) | Independently installed execution application and its shared contracts |
+| [Paper services](../../packages/paper-services/pyproject.toml), [lock](../../packages/paper-services/uv.lock) | Supervised paper services, the candidate runtime and the research extensions its release installs |
 | [Feast worker](../../configs/development/research-worker/pyproject.toml), [lock](../../configs/development/research-worker/uv.lock) | Isolated Feast service environment with its compatible pandas dependency |
 | [ClearML agent](../../configs/development/clearml/worker/pyproject.toml), [lock](../../configs/development/clearml/worker/uv.lock) | Isolated local agent environment and its reviewed overrides |
 
 The shared [contracts package](../../packages/contracts/pyproject.toml) is resolved
-inside each consuming application's lock. The governance package is resolved by
+inside each consuming application's lock. Research extensions under
+`extensions/` are resolved by the research project and the paper services lock;
+they may declare only external dependencies. The governance package is resolved by
 the research project. Neither needs an additional independently installed
 environment merely to shorten another file.
 
@@ -34,7 +37,7 @@ From the repository root, run:
 make lock-check
 ```
 
-This runs `uv lock --check` for all five projects without writing lockfiles or
+This runs `uv lock --check` for all six projects without writing lockfiles or
 synchronizing environments. A stale or missing lock fails the normal source
 check before linting, tests or wheel installation. `--frozen` only requires an
 existing lock; it does not substitute for checking manifest consistency.

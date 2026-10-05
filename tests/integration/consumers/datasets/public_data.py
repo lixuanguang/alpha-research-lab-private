@@ -92,9 +92,9 @@ def main() -> None:
     )
     (args.output / "publication.json").write_text(published.stdout)
     if args.books:
-        DatasetPublication(readers, ImplementationIdentity.sha256()).publish_books(
+        DatasetPublication(readers, ImplementationIdentity.sha256()).publish_captures(
             tuple(args.books), raw, snapshots, max_records=1000, max_bytes=32_000_000
-        )
+        ).book
     catalog = SnapshotCatalog(snapshots).discover(max_entries=10, max_bytes=32_000_000)
     public = next(m for m in catalog if isinstance(m, PublicTradeManifest))
     cutoff = datetime.now(UTC)

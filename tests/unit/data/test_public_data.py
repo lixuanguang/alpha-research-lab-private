@@ -19,13 +19,16 @@ from pathlib import Path
 import pytest
 from msgspec.structs import force_setattr, replace
 from test_book_datasets import TestBookDatasets as _Books
+from test_captured_market import CapturedMarketFixture as _Market
+from test_captured_trades import CapturedTradesFixture as _Captured
 
 # project library imports
 from configuration import CaptureConfig, PublicDataJob
 from financial_units import Currency, Dimension, ExactRatio, Price, Quantity, QuantityKind
 from market_data.acquisition import PublicAcquisition, PublicIngestion
 from market_data.acquisition.public import PendingResponse
-from market_data.adapters.sources import SourceAdapters
+from market_data.adapters.sources import BookAdapters, SourceAdapters
+from market_data.books import BookProjection, CaptureReplay
 from market_data.contracts import (
     CaptureRecord,
     CaptureRequest,
@@ -35,7 +38,7 @@ from market_data.contracts import (
     RequestBinding,
 )
 from market_data.datasets import (
-    BookInput,
+    CaptureInput,
     DatasetPublication,
     PublicTradeManifest,
     SnapshotCatalog,
@@ -55,7 +58,7 @@ from research.exploration import (
     SavedDecisionSource,
 )
 from research.features import FeatureSchema, FeatureSession, ProjectionFeature
-from research.observations import InputRequirement, NumericField
+from research.observations import InputRequirement, LiveTradeDecisionSource, NumericField
 from risk import SpotLimits
 from serialization import DomainCodec
 
@@ -337,6 +340,140 @@ class TestPublicData:
             0
         ].value == ExactRatio(numerator="1", denominator="5")
 
+    def test_live_trade_tape_matches_saved_trade_projection(self, tmp_path: Path) -> None:
+        """Retained and live trades give equal latest-trade and signed-flow fields."""
+        query, raw = self._published(tmp_path)
+        at, entity = query.known_at, str(query.instruments[0])
+        requirements = tuple(
+            InputRequirement(
+                name="trades",
+                family="trade",
+                clock="event",
+                field=field,
+                max_age_us=3_660_000_000,
+            )
+            for field in (
+                NumericField(name="price", units="USDT/BTC"),
+                NumericField(name="signed_quantity", units="BTC"),
+                NumericField(name="signed_flow", units="BTC"),
+            )
+        )
+        saved = SavedDecisionSource(
+            ResearchReader(tmp_path / "snapshots", raw, readers=SourceAdapters()),
+            ResearchSelection(inputs=(PublicTradeSelection(name="trades", query=query),)),
+            requirements,
+        ).read(entity, at)
+        expected = [
+            ExactRatio.from_fraction(Fraction(value)) for value in ("100.2", "-0.3", "-0.1")
+        ]
+        assert [row.value for row in saved.observations] == expected
+        config = CaptureConfig(
+            venue="okx",
+            symbol="BTC-USDT",
+            instrument_id=query.instruments[0],
+            base_currency="BTC",
+            quote_currency="USDT",
+            channel="trades",
+            depth=0,
+            duration_seconds=3600,
+            max_messages=1000,
+            max_bytes=1_000_000,
+            max_frame_bytes=100_000,
+            queue_capacity=100,
+            max_orders=1,
+            retries=0,
+            idle_seconds=30,
+        )
+        live = LiveTradeDecisionSource(
+            CaptureRequest(
+                config=config,
+                recording_id="00000000-0000-0000-0000-000000000098",
+                implementation_identity="a" * 64,
+            ),
+            requirements,
+            tapes=BookAdapters.trades,
+            history_capacity=100,
+        )
+        replay = CaptureReplay(config, book_factory=BookAdapters.create)
+        push = (
+            b'{"arg":{"channel":"trades","instId":"BTC-USDT"},"data":['
+            b'{"instId":"BTC-USDT","tradeId":"20","ts":"1790164800200","px":"100.2",'
+            b'"sz":"0.3","side":"sell","count":"1"},{"instId":"BTC-USDT","tradeId":"19",'
+            b'"ts":"1790164800100","px":"100.1","sz":"0.2","side":"buy","count":"1"}]}'
+        )
+        records = (
+            CaptureRecord(kind="session", epoch=0, received_ns=self._ns(_START - timedelta(2))),
+            CaptureRecord(
+                kind="frame",
+                epoch=0,
+                received_ns=self._ns(_START - timedelta(seconds=1)),
+                raw=b'{"event":"subscribe","arg":{"channel":"trades","instId":"BTC-USDT"}}',
+            ),
+            CaptureRecord(
+                kind="frame",
+                epoch=0,
+                received_ns=self._ns(_START + timedelta(seconds=1)),
+                raw=push,
+            ),
+            CaptureRecord(
+                kind="frame", epoch=0, received_ns=self._ns(at - timedelta(seconds=1)), raw=b"pong"
+            ),
+        )
+        for position, record in enumerate(records):
+            live.accept(
+                record, BookProjection.capture(position, record, replay.apply(record), replay)
+            )
+        assert [row.value for row in live.read(entity, at).observations] == expected
+
+    def test_one_selection_reads_rest_and_captured_trades(self, tmp_path: Path) -> None:
+        """REST and captured trade snapshots share one schema and one research selection."""
+        rest, raw = self._published(tmp_path)
+        capture = _Captured.capture(tmp_path / "captured", "okx")
+        captured = DatasetPublication(SourceAdapters(), "b" * 64).publish_captures(
+            (capture,), raw, tmp_path / "snapshots", max_records=1000, max_bytes=1_000_000
+        )
+        request = _Captured.request("okx")
+        live = PublicTradeQuery(
+            snapshot_id=captured.single,
+            instruments=(request.config.instrument_id,),
+            start=_START - timedelta(minutes=1),
+            end=_START + timedelta(minutes=1),
+            known_at=rest.known_at,
+            max_bytes=1_000_000,
+        )
+        rest_requirement, live_requirement = (
+            InputRequirement(
+                name=name,
+                family="trade",
+                clock="event",
+                field=NumericField(name="price", units="USDT/BTC"),
+                max_age_us=age,
+            )
+            for name, age in (("rest", 3_660_000_000), ("captured", 10_000_000))
+        )
+        source = SavedDecisionSource(
+            ResearchReader(tmp_path / "snapshots", raw, readers=SourceAdapters()),
+            ResearchSelection(
+                inputs=(
+                    PublicTradeSelection(name="rest", query=rest),
+                    PublicTradeSelection(name="captured", query=live),
+                )
+            ),
+            (rest_requirement, live_requirement),
+        )
+        from_rest = source.read(str(rest.instruments[0]), rest.known_at).observations
+        assert from_rest[0].value == ExactRatio.from_fraction(Fraction("100.2"))
+        assert from_rest[1].value is None
+        at = _START + timedelta(seconds=18)
+        from_capture = source.read(str(request.config.instrument_id), at).observations
+        assert from_capture[0].value is None
+        assert from_capture[1].value == ExactRatio.from_fraction(Fraction(100))
+
+    @staticmethod
+    def _ns(at: datetime) -> int:
+        """Return exact Unix nanoseconds of a UTC instant."""
+        return (at - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(microseconds=1) * 1000
+
     def test_saved_book_features_keep_receipt_clock_and_invalidation(self, tmp_path: Path) -> None:
         """Native L2 depth 3 versus 1 yields exactly 1/2; a later gap removes the value."""
         config = CaptureConfig.read(Path("configs/live/okx-btc-usdt.json"))
@@ -372,12 +509,16 @@ class TestPublicData:
         (tmp_path / "raw").mkdir()
         (tmp_path / "snapshots").mkdir()
         raw = RawStore(tmp_path / "raw")
-        snapshot = DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
-            (tmp_path / "capture",),
-            raw,
-            tmp_path / "snapshots",
-            max_records=16,
-            max_bytes=1_000_000,
+        snapshot = (
+            DatasetPublication(SourceAdapters(), "a" * 64)
+            .publish_captures(
+                (tmp_path / "capture",),
+                raw,
+                tmp_path / "snapshots",
+                max_records=16,
+                max_bytes=1_000_000,
+            )
+            .book
         )
         epoch = datetime(1970, 1, 1, tzinfo=UTC)
         query = BookQuery(
@@ -758,9 +899,10 @@ class TestPublicData:
                 normalization_identity="b" * 64,
             )
 
-    def test_polling_revisions_remain_causal_and_restartable(self, tmp_path: Path) -> None:
-        """A later changed value cannot alter an earlier cutoff or backdate repeated values."""
-        job = replace(self._job(), mode="capture", end=_START + timedelta(seconds=15))
+    @classmethod
+    def _revised(cls, tmp_path: Path) -> tuple[PublicDataJob, Path, RawStore, str]:
+        """Publish a polled snapshot whose second poll revises trade 20's price."""
+        job = replace(cls._job(), mode="capture", end=_START + timedelta(seconds=15))
         raw_path, snapshots = tmp_path / "raw", tmp_path / "snapshots"
         raw_path.mkdir()
         snapshots.mkdir()
@@ -792,6 +934,11 @@ class TestPublicData:
         identity = SnapshotStore(
             snapshots, raw, readers=SourceAdapters(), manifest_type=PublicTradeManifest
         ).publish(manifest, (payload,), max_bytes=1_000_000)
+        return job, snapshots, raw, identity
+
+    def test_polling_revisions_remain_causal_and_restartable(self, tmp_path: Path) -> None:
+        """A later changed value cannot alter an earlier cutoff or backdate repeated values."""
+        job, snapshots, raw, identity = self._revised(tmp_path)
         query = PublicTradeQuery(
             snapshot_id=identity,
             instruments=job.universes.research,
@@ -812,6 +959,102 @@ class TestPublicData:
         assert later.duplicate_observations == 1
         assert next(r.ts_knowledge for r in later.rows if r.trade.trade_id == "19") == _START
         assert reader.read(query) == earlier
+
+    def test_indexed_saved_source_equals_a_fresh_read_at_every_cutoff(self, tmp_path: Path) -> None:
+        """One read indexed once answers each cutoff exactly as a read pinned at it would.
+
+        The selection mixes REST trades with a later price revision, a captured trades
+        feed with a gap and reconnect, and a captured book, so every index path runs.
+        """
+        job, snapshots, raw, rest = self._revised(tmp_path)
+        trades = _Captured.capture(tmp_path / "captured", "okx")
+        book = _Market.capture(tmp_path / "book", updates=400, spacing_ns=25_000_000)
+        published = DatasetPublication(SourceAdapters(), "b" * 64).publish_captures(
+            (book, trades), raw, snapshots, max_records=20_000, max_bytes=256_000_000
+        )
+        book_input = CaptureInput.read(book, max_records=20_000)
+        okx = book_input.request.config.instrument_id
+        captured = _Captured.request("okx").config.instrument_id
+        known = _START + timedelta(seconds=15)
+        around = (_START - timedelta(minutes=1), _START + timedelta(minutes=1))
+        selection = ResearchSelection(
+            inputs=(
+                PublicTradeSelection(
+                    name="rest",
+                    query=PublicTradeQuery(
+                        snapshot_id=rest,
+                        instruments=job.universes.research,
+                        start=job.start,
+                        end=job.end,
+                        known_at=known,
+                        max_bytes=1_000_000,
+                    ),
+                ),
+                PublicTradeSelection(
+                    name="captured",
+                    query=PublicTradeQuery(
+                        snapshot_id=published.trades[0],
+                        instruments=(captured,),
+                        start=around[0],
+                        end=around[1],
+                        known_at=known,
+                        max_bytes=4_000_000,
+                    ),
+                ),
+                BookSelection(
+                    name="book",
+                    query=BookQuery(
+                        snapshot_id=published.book,
+                        request_identity=book_input.request.identity,
+                        instrument=okx,
+                        start=around[0],
+                        end=around[1],
+                        known_at=known,
+                        columns=("bids", "asks"),
+                        batch_size=1000,
+                        max_bytes=256_000_000,
+                    ),
+                ),
+            )
+        )
+        requirements = (
+            *(
+                InputRequirement(
+                    name=name,
+                    family="trade",
+                    clock="event",
+                    field=NumericField(name=field, units=units),
+                    max_age_us=age,
+                )
+                for name, age in (("rest", 3_000_000), ("captured", 10_000_000))
+                for field, units in (("price", "USDT/BTC"), ("signed_flow", "BTC"))
+            ),
+            InputRequirement(
+                name="book",
+                family="book",
+                clock="receipt",
+                field=NumericField(name="imbalance", units="dimensionless"),
+                max_age_us=1_000_000,
+            ),
+        )
+        reader = ResearchReader(snapshots, raw, readers=SourceAdapters())
+        indexed = SavedDecisionSource(reader, selection, requirements)
+        present = 0
+        for step in range(61):
+            at = _START + timedelta(milliseconds=250 * step)
+            pinned = ResearchSelection(
+                inputs=tuple(
+                    replace(item, query=replace(item.query, known_at=at))
+                    for item in selection.inputs
+                    if isinstance(item, (PublicTradeSelection, BookSelection))
+                )
+            )
+            fresh = SavedDecisionSource(reader, pinned, requirements)
+            for entity in (str(okx), str(captured)):
+                expected = fresh.read(entity, at)
+                assert indexed.read(entity, at) == expected, (entity, at)
+                present += sum(row.value is not None for row in expected.observations)
+        assert present > 60
 
     def test_new_compatible_listing_needs_only_configuration(self, tmp_path: Path) -> None:
         """Onboard the authored ETH listing without modifying shared ingestion or source logic."""
@@ -877,10 +1120,14 @@ class TestPublicData:
         (tmp_path / "raw").mkdir()
         (tmp_path / "snapshots").mkdir()
         raw = RawStore(tmp_path / "raw")
-        identity = DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
-            (capture,), raw, tmp_path / "snapshots", max_records=16, max_bytes=1_000_000
+        identity = (
+            DatasetPublication(SourceAdapters(), "a" * 64)
+            .publish_captures(
+                (capture,), raw, tmp_path / "snapshots", max_records=16, max_bytes=1_000_000
+            )
+            .book
         )
-        selected = BookInput.read(capture, max_records=16)
+        selected = CaptureInput.read(capture, max_records=16)
         epoch = datetime(1970, 1, 1, tzinfo=UTC)
         query = BookQuery(
             snapshot_id=identity,

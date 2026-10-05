@@ -10,7 +10,7 @@ from pathlib import Path
 # project library imports
 from configuration import BookRun
 from market_data.adapters.sources import SourceAdapters
-from market_data.datasets import BookInput
+from market_data.datasets import CaptureInput
 from market_data.storage import RawStore
 from research.experiments import AttemptStore, ExperimentSpec, Fingerprint, TimeWindow
 from research.observations import BookFeatures
@@ -47,7 +47,7 @@ def run_books(
     """
     selected, codec, registry = BookRun.read(config), DomainCodec(), BookRules()
     rules = tuple(registry.resolve(instance.rule) for instance in selected.instances)
-    source = BookInput.read(archive, max_records=selected.history.max_records)
+    source = CaptureInput.read(archive, max_records=selected.history.max_records)
     if source.archive is None or source.archive.config != selected.history:
         raise ValueError("saved archive binding differs from resolved history configuration")
     implementation = ImplementationIdentity.sha256()

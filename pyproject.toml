@@ -52,6 +52,7 @@ dev = [
     "pytest-cov==7.1.0",
     "ruff==0.16.5",
 ]
+extensions = ["engineering-candidates==0.1.0"]
 notebooks = [
     "ipykernel==7.4.0",
     "jupyter-client==8.10.0",
@@ -61,7 +62,7 @@ notebooks = [
 
 [tool.uv]
 required-version = "==0.12.7"
-default-groups = ["dev", "notebooks"]
+default-groups = ["dev", "extensions", "notebooks"]
 constraint-dependencies = ["numpy==2.4.6", "plotly==6.3.1"]
 cache-keys = [
     { file = "pyproject.toml" },
@@ -73,6 +74,7 @@ cache-keys = [
 
 [tool.uv.sources]
 alpha-research-governance = { path = "tools/governance", editable = false }
+engineering-candidates = { path = "extensions/engineering-candidates", editable = false }
 
 [tool.hatch.build.targets.sdist.force-include]
 "tools/typing" = "tools/typing"

@@ -14,7 +14,6 @@ from typing import ClassVar, Literal
 
 # project library imports
 from accounting import AccountSnapshot
-from applications.execute import ServiceBookInputs
 from configuration import (
     AccountConfiguration,
     CaptureConfig,
@@ -29,6 +28,7 @@ from configuration import (
     PaperServiceSource,
     PaperSourceBinding,
     PaperStrategyIdentity,
+    ReferenceCandidate,
 )
 from execution import (
     AccountControl,
@@ -43,9 +43,8 @@ from market_data.collection import CaptureTransport
 from market_data.contracts import FeedSocket
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
-from runtime import InstalledIdentity
+from runtime import InstalledIdentity, LoadedCandidate, ReferenceCandidates
 from serialization import DomainCodec
-from strategies import ReferencePolicies
 
 
 class NativeBookFixture:
@@ -163,6 +162,8 @@ class PaperServiceWorkload:
             "fef5f20d-c2d7-4aef-941c-dc4cff41f93d",
         ),
     }
+    # Every reference candidate decides on one fixed three-second UTC grid.
+    grid_origin: ClassVar[datetime] = datetime(2026, 1, 1, tzinfo=UTC)
 
     def __init__(
         self,
@@ -296,7 +297,6 @@ class PaperServiceWorkload:
             capture=capture,
             scenario=scenario,
             freshness_us=30_000_000,
-            market_interval_us=3_000_000,
         )
 
     def service_configuration(self) -> PaperServiceConfiguration:
@@ -324,7 +324,9 @@ class PaperServiceWorkload:
                 instance_id=name,
                 account_id=account_id,
                 source=source,
-                policy=policy,
+                candidate=ReferenceCandidate(
+                    formula=policy, cadence_us=3_000_000, starts_at=self.grid_origin
+                ),
                 quantity=self.quantity("2", dimension),
                 lot=self.quantity("1", dimension),
                 maximum_fee=self.money("2"),
@@ -363,29 +365,44 @@ class PaperServiceWorkload:
             alert_socket=initial.alert_socket,
         )
 
-    def policy_identity(
+    @staticmethod
+    def reference(instance: PaperServiceInstance) -> ReferenceCandidate:
+        """Return the instance's reference candidate; this workload provisions no other."""
+        if not isinstance(instance.candidate, ReferenceCandidate):
+            raise ValueError("paper service workload provisions only reference candidates")
+        return instance.candidate
+
+    def candidate(
         self,
         service: PaperServiceConfiguration,
         instance: PaperServiceInstance,
         source: PaperServiceSource,
-    ) -> str:
-        """Match the installed service's selected policy constructor exactly."""
+    ) -> LoadedCandidate:
+        """Load the instance's reference candidate exactly as the installed service does."""
         if self.implementation is None:
-            raise ValueError("policy identity requires the installed release")
-        return ReferencePolicies.create(
-            instance.policy,
-            instance.quantity,
-            source.scenario.adverse.currency,
-            instance.lot,
+            raise ValueError("candidate identity requires the installed release")
+        return self.candidates(source).load(
+            PaperServiceWorkload.reference(instance),
+            instance=instance.instance_id,
+            entity=str(source.scenario.instrument_id),
+            quantity=instance.quantity,
+            lot=instance.lot,
+            currency=source.scenario.adverse.currency,
             tick=service.instance_limits(instance).tick,
-            implementation=self.implementation,
-        ).identity
+            source_identity=self.input_identity(source),
+        )
+
+    @staticmethod
+    def candidates(source: PaperServiceSource) -> ReferenceCandidates:
+        """Bind the reference candidates to one source's venue and freshness."""
+        return ReferenceCandidates(
+            venue=source.capture.venue, freshness_us=source.freshness_us, clock="receipt"
+        )
 
     def input_identity(self, source: PaperServiceSource) -> str:
-        """Pin one native capture and stable feature requirement to its input digest."""
-        inputs = ServiceBookInputs((), source.freshness_us, source.market_interval_us)
+        """Pin one native capture and its projected touch fields to its input digest."""
         return hashlib.sha256(
-            self.codec.encode_json((source.capture, inputs.requirement, inputs.identity))
+            self.codec.encode_json((source.capture, self.candidates(source).inputs))
         ).hexdigest()
 
     def deployment(
@@ -400,19 +417,18 @@ class PaperServiceWorkload:
         )
         sources = {item.name: item for item in service.sources}
         primary = sources[definitions[0].source]
+        loaded = tuple(
+            (item, self.candidate(service, item, sources[item.source])) for item in definitions
+        )
         strategies = tuple(
             PaperStrategyIdentity(
                 instance_id=item.instance_id,
-                policy_identity=self.policy_identity(service, item, sources[item.source]),
-                candidate_identity="paper-services-reference",
+                policy_identity=candidate.policy.identity,
+                candidate_identity=candidate.definition.identity,
                 model_identity="rule-only",
-                feature_identity=ServiceBookInputs(
-                    (),
-                    sources[item.source].freshness_us,
-                    sources[item.source].market_interval_us,
-                ).identity,
+                feature_identity=candidate.feature.schema.identity,
             )
-            for item in definitions
+            for item, candidate in loaded
         )
         return PaperDeployment(
             account_id=account.account_id,
@@ -613,7 +629,8 @@ class PaperServiceWorkload:
                 for item in service.sources
             ),
             "strategies": tuple(
-                (item.instance_id, item.policy, item.source) for item in service.instances
+                (item.instance_id, PaperServiceWorkload.reference(item).formula, item.source)
+                for item in service.instances
             ),
             "opening_cash": self.money("100000"),
             "reference_touch": (

@@ -11,7 +11,7 @@ from typing import Literal
 
 # project library imports
 from configuration import UniverseSelection
-from market_data.contracts import RequestBinding
+from market_data.contracts import RequestBinding, TradeBoundary
 from market_data.datasets import (
     DatasetReaders,
     PublicTradeHistory,
@@ -77,7 +77,12 @@ class PublicTradeQuery(WireRecord, frozen=True, kw_only=True):
 
 
 class PublicTradeResult(WireRecord, frozen=True, kw_only=True):
-    """Retain selected values, units, reference history, duplicate counts and limitations."""
+    """Retain selected values, units, reference history, duplicate counts and limitations.
+
+    A captured source also returns its message ``boundaries`` known by the cutoff and
+    the capture's ``idle_seconds``, so readers apply the live trade source's
+    synchronization, staleness and coverage rules. A REST source returns neither.
+    """
 
     query: PublicTradeQuery
     instruments: tuple[InstrumentDefinition, ...]
@@ -85,6 +90,8 @@ class PublicTradeResult(WireRecord, frozen=True, kw_only=True):
     references: ReferenceHistory
     duplicate_observations: int
     reasons: tuple[str, ...]
+    boundaries: tuple[TradeBoundary, ...] = ()
+    idle_seconds: int | None = None
 
     def __post_init__(self) -> None:
         """Require typed results whose data and reference assertions obey the cutoff."""
@@ -98,6 +105,9 @@ class PublicTradeResult(WireRecord, frozen=True, kw_only=True):
             or type(self.reasons) is not tuple
             or type(self.duplicate_observations) is not int
             or self.duplicate_observations < 0
+            or type(self.boundaries) is not tuple
+            or (self.boundaries and (type(self.idle_seconds) is not int or self.idle_seconds <= 0))
+            or any(item.received_at > self.query.known_at for item in self.boundaries)
         ):
             raise ValueError("invalid public query result")
         for row in self.rows:
@@ -105,7 +115,7 @@ class PublicTradeResult(WireRecord, frozen=True, kw_only=True):
             if (
                 row.ts_knowledge > self.query.known_at
                 or not self.query.start <= row.ts_event < self.query.end
-                or row.receipt.request.instrument.instrument_id not in self.query.instruments
+                or row.instrument.instrument_id not in self.query.instruments
             ):
                 raise ValueError("public result violates its selection")
 
@@ -137,11 +147,11 @@ class PublicTradeReader:
         source changes create observable revisions; they never rewrite earlier reads.
         No source completeness, original availability or empirical quality is inferred.
         """
-        history, instruments = self._open(query)
+        history, instruments, idle_seconds = self._open(query)
         versions: dict[tuple[InstrumentId, str], PublicTradeObservation] = {}
         duplicates = 0
         for row in history.observations:
-            instrument = row.receipt.request.instrument.instrument_id
+            instrument = row.instrument.instrument_id
             if instrument not in query.instruments or row.ts_knowledge > query.known_at:
                 continue
             key = instrument, row.trade.trade_id
@@ -156,10 +166,17 @@ class PublicTradeReader:
                 key=self._order,
             )
         )
-        reasons = [
-            "original historical availability unknown; cutoff uses local durable receipt",
-            "venue completeness and exhaustive revisions unproven; polling can miss trades",
-        ]
+        reasons = (
+            [
+                "captured feed; cutoff uses local durable receipt",
+                "venue completeness unproven; coverage gaps are explicit boundaries",
+            ]
+            if history.boundaries
+            else [
+                "original historical availability unknown; cutoff uses local durable receipt",
+                "venue completeness and exhaustive revisions unproven; polling can miss trades",
+            ]
+        )
         if not rows:
             reasons.append("no selected observations; empty does not prove a quiet market")
         if any(row.specification_identity is None for row in rows):
@@ -178,6 +195,10 @@ class PublicTradeReader:
             ),
             duplicate_observations=duplicates,
             reasons=tuple(reasons),
+            boundaries=tuple(
+                item for item in history.boundaries if item.received_at <= query.known_at
+            ),
+            idle_seconds=idle_seconds if history.boundaries else None,
         )
 
     def replay(
@@ -189,9 +210,9 @@ class PublicTradeReader:
         changed query must not reuse that cursor. Repeated identical observations are
         retained here for source replay and deduplicated only by cutoff reads.
         """
-        history, _ = self._open(query)
+        history, _, _ = self._open(query)
         selected_ids = {
-            (row.receipt.request.instrument.instrument_id, row.trade.trade_id)
+            (row.instrument.instrument_id, row.trade.trade_id)
             for row in history.observations
             if query.start <= row.ts_event < query.end and row.ts_knowledge <= query.known_at
         }
@@ -200,9 +221,8 @@ class PublicTradeReader:
                 (
                     r
                     for r in history.observations
-                    if r.receipt.request.instrument.instrument_id in query.instruments
-                    and (r.receipt.request.instrument.instrument_id, r.trade.trade_id)
-                    in selected_ids
+                    if r.instrument.instrument_id in query.instruments
+                    and (r.instrument.instrument_id, r.trade.trade_id) in selected_ids
                     and r.ts_knowledge <= query.known_at
                 ),
                 key=self._order,
@@ -220,19 +240,44 @@ class PublicTradeReader:
 
     def _open(
         self, query: PublicTradeQuery
-    ) -> tuple[PublicTradeHistory, tuple[InstrumentDefinition, ...]]:
+    ) -> tuple[PublicTradeHistory, tuple[InstrumentDefinition, ...], int | None]:
         """Admit complete snapshot bytes and enforce selected universe before returning rows."""
         query.__post_init__()
         manifest = SnapshotStore(
             self._snapshots, self._raw, readers=self._readers, manifest_type=PublicTradeManifest
         ).read(query.snapshot_id, max_bytes=query.max_bytes)
         partition = manifest.partitions[0]
-        job = partition.acquisition.job
+        listed: tuple[InstrumentDefinition, ...]
+        idle_seconds: int | None = None
+        if partition.acquisition is not None:
+            job = partition.acquisition.job
+            universes = job.universes
+            if query.start < job.start or query.end > job.end:
+                raise ValueError("query extends outside saved event selection")
+            listed = job.instruments
+        elif partition.capture is not None and partition.capture.capture is not None:
+            request = partition.capture.capture
+            if request.universes is None:
+                raise ValueError("captured public trades require declared universes")
+            universes = request.universes
+            config = request.config
+            idle_seconds = config.idle_seconds
+            listed = (
+                InstrumentDefinition(
+                    instrument_id=config.instrument_id,
+                    venue=config.venue,
+                    symbol=config.symbol,
+                    product="spot",
+                    base_currency=config.base_currency,
+                    quote_currency=config.quote_currency,
+                    calendar="continuous-utc",
+                ),
+            )
+        else:
+            raise ValueError("public trade partition requires exactly one source")
         for instrument in query.instruments:
-            job.universes.require(instrument, query.purpose)
-            job.universes.require(instrument, "collection")
-        if query.start < job.start or query.end > job.end:
-            raise ValueError("query extends outside saved event selection")
+            universes.require(instrument, query.purpose)
+            universes.require(instrument, "collection")
         with (self._snapshots / query.snapshot_id / partition.sha256).open("rb") as source:
             payload = source.read(query.max_bytes + 1)
         if (
@@ -240,8 +285,10 @@ class PublicTradeReader:
             or hashlib.sha256(payload).hexdigest() != partition.sha256
         ):
             raise ValueError("public history changed after admission")
-        return DomainCodec().decode_json(payload, PublicTradeHistory), tuple(
-            i for i in job.instruments if i.instrument_id in query.instruments
+        return (
+            DomainCodec().decode_json(payload, PublicTradeHistory),
+            tuple(i for i in listed if i.instrument_id in query.instruments),
+            idle_seconds,
         )
 
     @staticmethod
@@ -249,7 +296,7 @@ class PublicTradeReader:
         """Order equal-knowledge inputs by canonical listing and retained source position."""
         return (
             row.ts_knowledge,
-            str(row.receipt.request.instrument.instrument_id),
-            row.receipt.request.ordinal,
+            str(row.instrument.instrument_id),
+            row.ordinal,
             row.position,
         )

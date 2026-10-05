@@ -48,7 +48,7 @@ class SharedPaperDecision(WireRecord, frozen=True):
             if type(item) is not SharedStrategyInput:
                 raise TypeError("shared paper decision requires SharedStrategyInput")
             item.__post_init__()
-            if item.context.decision_at >= self.at:
+            if item.decision_at >= self.at:
                 raise ValueError("coordination must follow every decision")
 
 
@@ -98,12 +98,13 @@ def run_shared_paper(
 ) -> SharedPaperResult:
     """Run configured strategy decisions and normalized physical events through one journal.
 
-    Applications inject the selected policies and causal feature/prediction
-    inputs. Market marks and complete account observations are independent
-    events. Physical fills are authored paper facts here; this workflow neither
-    invents venue observations nor matches unobserved liquidity. Failures
-    propagate with the durable journal intact, and reopening restores policy
-    continuation and reservations. Operator stop/restart uses the account CLI.
+    Applications inject the selected candidates and their causal source inputs;
+    a decision whose candidates all pause commits nothing. Market marks and
+    complete account observations are independent events. Physical fills are
+    authored paper facts here; this workflow neither invents venue observations
+    nor matches unobserved liquidity. Failures propagate with the durable journal
+    intact, and reopening restores candidate continuation and reservations.
+    Operator stop/restart uses the account CLI.
     """
     journal = AccountJournal(journal_path, config)
     runtime = SharedDecisionRuntime(journal, bindings)
@@ -116,14 +117,14 @@ def run_shared_paper(
                 raise ValueError("shared paper account reconciliation failed")
         elif isinstance(event, SharedPaperDecision):
             event.__post_init__()
-            outcomes.append(
-                runtime.evaluate(
-                    identity=event.identity,
-                    at=event.at,
-                    inputs=event.inputs,
-                    crossing=event.crossing,
-                )
+            outcome = runtime.evaluate(
+                identity=event.identity,
+                at=event.at,
+                inputs=event.inputs,
+                crossing=event.crossing,
             )
+            if outcome is not None:
+                outcomes.append(outcome)
         else:
             journal.apply_net_event(event)
     return SharedPaperResult(

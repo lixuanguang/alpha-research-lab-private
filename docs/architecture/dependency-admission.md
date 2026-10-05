@@ -9,13 +9,28 @@ policy consumed by the checker.
 Schema version 5 binds the frozen `uv.lock` to exact package versions, artifact
 hashes and URLs, the reviewed PyPI simple index, Darwin arm64 and Linux x86_64
 wheel coverage, dependency edges, licenses, and vulnerability coverage. The
-checker fixes the root lock, independent collector/execution lock paths and
+checker fixes the root lock, independent collector, execution and paper services lock paths and
 `src`/`tools` runtime scan roots directly.
-[`make lock-check`](../governance/dependency-locks.md) separately ties all five
+[`make lock-check`](../governance/dependency-locks.md) separately ties all six
 environment locks to their owning project manifests. The checker
 rejects missing, duplicate, mutable or unsafe identities. Development tools
 remain outside the runtime package. `pip-audit` must cover the complete admitted
 package set, and every finding blocks admission; no vulnerability waivers exist.
+
+## Research extensions in paper-services releases
+
+A repository extension under `extensions/` enters the paper-services closure as a
+locked path dependency, like a platform project. An extension built from outside the
+repository (`alpha-governance-artifacts build --extensions DIR`) is admitted as an
+**external extension**. It must be a pure-Python wheel that no lock names and that is
+not an `alpha-research-*` distribution. Every active requirement must name a package
+the locked closure already installs, at a version the requirement accepts. It must
+declare exactly one candidate component provider, no scripts and no uv sources, and
+pass the supported-import audit. Its source is signed under
+`source/external/<name>/`, and provenance compares every wheel member to it. A new
+third-party dependency is therefore a reviewed lock change here, never a side effect
+of building an extension. The signed closure facts list external extensions
+separately.
 
 ## Wheel-only development allowance
 

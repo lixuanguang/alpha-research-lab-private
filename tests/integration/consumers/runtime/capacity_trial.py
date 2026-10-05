@@ -823,7 +823,7 @@ class CapacityTrial:
                     self.clients,
                     period_seconds=self.reconcile_seconds,
                     record=self.record,
-                    knowledge=self._accepted_market_at,
+                    accepted_market=self._accepted_market_at,
                 )
                 self.reconciler.start()
             self.record("steady_started", {"monotonic": start})

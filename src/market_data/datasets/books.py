@@ -41,7 +41,7 @@ class CaptureAncestor(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             raise ValueError("capture ancestor exceeds its original segment byte bound")
 
 
-class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
+class CaptureInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
     """Bind a selected raw prefix to native configuration, clocks and original provenance."""
 
     raw: RawObject
@@ -85,6 +85,11 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
             raise ValueError("archive input cannot acquire capture predecessors")
         if self.capture is not None:
             self.capture_chain()
+
+    @property
+    def is_trades(self) -> bool:
+        """Return whether this input is a public trades capture rather than a book."""
+        return self.capture is not None and self.capture.config.channel == "trades"
 
     def capture_chain(self) -> tuple[CaptureAncestor, ...]:
         """Validate exact segment linkage and expose original replay order without duplicates."""
@@ -138,7 +143,7 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
         raise ValueError("missing book source request")
 
     @classmethod
-    def read(cls, directory: Path, *, max_records: int) -> BookInput:
+    def read(cls, directory: Path, *, max_records: int) -> CaptureInput:
         """Load a completed collector directory using its strict existing request schema.
 
         Args:
@@ -272,7 +277,7 @@ class BookHistory(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fiel
 
     schema: Literal["canonical-book-prefix"] = "canonical-book-prefix"
     scope: Literal["exploratory_degraded"] = "exploratory_degraded"
-    input: BookInput
+    input: CaptureInput
     observations: tuple[BookObservation, ...]
 
     def __post_init__(self) -> None:
@@ -280,7 +285,7 @@ class BookHistory(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fiel
         if (
             self.schema != "canonical-book-prefix"
             or self.scope != "exploratory_degraded"
-            or type(self.input) is not BookInput
+            or type(self.input) is not CaptureInput
             or type(self.observations) is not tuple
             or not self.observations
             or len(self.observations) > self.input.max_records
@@ -297,13 +302,13 @@ class BookStreamHeader(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown
 
     schema: Literal["canonical-book-stream"] = "canonical-book-stream"
     scope: Literal["exploratory_degraded"] = "exploratory_degraded"
-    input: BookInput
+    input: CaptureInput
 
     def __post_init__(self) -> None:
         """Reject changed scope, schema or source evidence."""
         if self.schema != "canonical-book-stream" or self.scope != "exploratory_degraded":
             raise ValueError("unsupported canonical book stream")
-        if type(self.input) is not BookInput:
+        if type(self.input) is not CaptureInput:
             raise ValueError("book stream requires a typed input")
         self.input.__post_init__()
 
@@ -357,13 +362,13 @@ class BookStream:
     _max_line_bytes: ClassVar[int] = 16_777_216
 
     @staticmethod
-    def validate_row(selection: BookInput, position: int, row: BookObservation) -> None:
+    def validate_row(selection: CaptureInput, position: int, row: BookObservation) -> None:
         """Preserve original positions and source-specific clock absence or presence."""
         BookObservation.__post_init__(row)
         BookStream._validate_lineage(selection, position, row)
 
     @staticmethod
-    def _validate_lineage(selection: BookInput, position: int, row: BookObservation) -> None:
+    def _validate_lineage(selection: CaptureInput, position: int, row: BookObservation) -> None:
         """Check an already validated row's original position and source clocks.
 
         Strict decoding runs the row's own validation, so a freshly decoded row that
@@ -396,7 +401,7 @@ class BookStream:
         return line
 
     @classmethod
-    def _header_line(cls, selection: BookInput) -> bytes:
+    def _header_line(cls, selection: CaptureInput) -> bytes:
         """Bind a stream to the complete immutable source selection."""
         line = cls._line(BookStreamHeader(input=selection))
         if len(line) > 1_048_576:
@@ -406,7 +411,7 @@ class BookStream:
     @classmethod
     def write(
         cls,
-        selection: BookInput,
+        selection: CaptureInput,
         store: RawStore,
         readers: DatasetReaders,
         output: BinaryIO,
@@ -472,7 +477,7 @@ class BookStream:
     def verify(
         cls,
         path: Path,
-        selection: BookInput,
+        selection: CaptureInput,
         store: RawStore,
         readers: DatasetReaders,
         *,
@@ -547,13 +552,13 @@ class BookPartition(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     """Bind deterministic book bytes to the immutable input and explicit prefix selection."""
 
     sha256: str
-    selection: BookInput
+    selection: CaptureInput
 
     def __post_init__(self) -> None:
         """Validate digest and native input identity before snapshot staging."""
         if not isinstance(self.sha256, str) or not re.fullmatch(r"[a-f0-9]{64}", self.sha256):
             raise ValueError("invalid canonical book digest")
-        if type(self.selection) is not BookInput:
+        if type(self.selection) is not CaptureInput:
             raise ValueError("book partition requires a typed input")
         self.selection.__post_init__()
 
@@ -630,7 +635,7 @@ class BookDatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unkn
         """
         if type(max_bytes) is not int or max_bytes <= 0:
             raise ValueError("book dataset requires positive max_bytes")
-        manifest = cls._codec.decode_json(BookInput._read_bytes(path, max_bytes), cls)
+        manifest = cls._codec.decode_json(CaptureInput._read_bytes(path, max_bytes), cls)
         if manifest.identity != identity:
             raise ValueError("book dataset identity mismatch")
         if report is not None:
@@ -733,6 +738,11 @@ class BookSnapshot:
         """Return the exact admitted manifest digest."""
         return self._identity
 
+    @property
+    def request_identities(self) -> tuple[str, ...]:
+        """Return every native partition's request identity, sorted."""
+        return tuple(sorted(self._partitions))
+
     def partition(self, request_identity: str) -> BookPartition:
         """Select an immutable partition by exact native request identity."""
         try:
@@ -743,7 +753,7 @@ class BookSnapshot:
         partition.__post_init__()
         return partition
 
-    def selection(self, request_identity: str) -> BookInput:
+    def selection(self, request_identity: str) -> CaptureInput:
         """Return the selected frozen native provenance record."""
         return self.partition(request_identity).selection
 
