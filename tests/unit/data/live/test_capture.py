@@ -911,6 +911,24 @@ class TestReceiptClock:
         stamps = [record.received_ns for record in taken]
         assert stamps == sorted(stamps)
 
+    def test_a_woken_put_keeps_the_queue_unsettled(self) -> None:
+        """Space freed for a waiting put is not idleness: no clock may slip in ahead."""
+        asyncio.run(self._woken_put())
+
+    async def _woken_put(self) -> None:
+        """Free the queue's only slot while a stamped record waits for it."""
+        queue = CaptureQueue(1)
+        receipts = ReceiptClock()
+        queue.put_received_nowait(self.frame(receipts), time.monotonic_ns())
+        waiting = asyncio.create_task(queue.put(self.frame(receipts)))
+        await asyncio.sleep(0)
+        queue.get_nowait()
+        assert queue.empty() and not queue.settled
+        await waiting
+        assert not queue.empty() and not queue.settled
+        queue.get_nowait()
+        assert queue.settled
+
     def test_clock_stops_with_its_receiver(self) -> None:
         """No clock is queued once the receiver has ended its session."""
         queue = CaptureQueue(4)

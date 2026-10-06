@@ -61,7 +61,22 @@ class CaptureQueue(asyncio.Queue[CaptureRecord]):
         self._receipts: deque[tuple[int, int]] = deque()
         self._put_clock: dict[int, int] = {}
         self._bytes = 0
+        # Stamped records awaiting space; a woken put is still in flight until it resumes.
+        self._putting = 0
         self.last_put_ns = time.monotonic_ns()
+
+    @property
+    def settled(self) -> bool:
+        """Report whether nothing is queued or still being put, so a clock may follow."""
+        return self.empty() and self._putting == 0
+
+    async def put(self, item: CaptureRecord) -> None:
+        """Count a stamped record as in flight until the queue accepts it."""
+        self._putting += 1
+        try:
+            await super().put(item)
+        finally:
+            self._putting -= 1
 
     def put_received_nowait(self, item: CaptureRecord, received_at_ns: int) -> None:
         """Preserve the socket receipt clock across frame validation and queueing."""
@@ -283,9 +298,10 @@ class ReceiptStream:
     ) -> None:
         """Queue a ``clock`` record whenever a receiving feed stays idle for the interval.
 
-        The record is stamped and queued in one step, and only into an empty queue.
-        Receivers also stamp and queue in one step, suspending only while the queue is
-        full, so every receipt stamped before a clock is queued ahead of it.
+        The record is stamped and queued in one step, and only into a settled queue:
+        empty, with no stamped record still being put. A receiver or snapshot that
+        stamped a record and waits for space, even one already woken, keeps the clock
+        out, so every receipt stamped before a clock is queued ahead of it.
 
         Args:
             queue: Bounded queue shared with the durable consumer.
@@ -302,7 +318,7 @@ class ReceiptStream:
                 continue
             if receiver.done():
                 return
-            if queue.empty():
+            if queue.settled:
                 queue.put_received_nowait(
                     CaptureRecord(kind="clock", epoch=epoch, received_ns=receipts.stamp()),
                     time.monotonic_ns(),

@@ -3956,6 +3956,15 @@ J6 used 300, 180 and 180 s phases.
   queue, after the interval passes with nothing queued. Receivers also stamp and
   queue in one step, so the ordering argument of the note holds without touching the
   durable writer.
+- **A clock waits for a settled queue (found by CI on Linux, PR #106).** The ordering
+  argument above missed one step. A snapshot stamped while the queue was full waits
+  for space. When the consumer frees the slot, the waiting put is woken but has not yet
+  resumed. In that gap the clock saw an empty queue and enqueued a later stamp, and the
+  snapshot then landed behind it. macOS scheduling hid this; the Linux runner hit it in
+  `test_clock_never_overtakes_a_stamped_snapshot`. The capture queue now counts puts in
+  flight, and the clock enqueues only into a settled queue: empty, with no stamped
+  record still being put. A deterministic test frees the slot under a waiting put and
+  checks that the queue stays unsettled.
 - **The regression guard moved to receipt.** A `ReceiptClock` per recording stamps
   every receipt and refuses a wall-clock step back. A receiver ends its session with
   `receipt_clock_regressed`, and a snapshot becomes a gap with that reason. Local
@@ -4060,7 +4069,7 @@ environment, so editable and non-editable installs could not race.
 
 | Lane | Result |
 | --- | --- |
-| `make check` | Passed: 2,589 passed, 4 skipped, 25 deselected; wheel smoke passed |
+| `make check` | Passed: 2,590 passed, 4 skipped, 25 deselected; wheel smoke passed |
 | Integration (`-m integration`, Feast worker selected) | Passed: 40 passed |
 | Performance (`-m performance`) | Passed: 25 passed |
 | Linux strict mypy | Passed: no issues in 712 source files |
