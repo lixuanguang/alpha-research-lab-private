@@ -3131,3 +3131,217 @@ decisions in the [stage-2 design](#stage-2-design-2026-10-02) still apply. MR15 
 open until they pass, and the stage-1 and stage-2a results above do not establish MR15
 acceptance. Other work, including MR16, can proceed first. When 2b runs, it needs its
 own declaration, rehearsals and counted attempt against the code current at that time.
+
+#### Stage 2b design note and declaration (approved 2026-10-07)
+
+This drafts 2b under the owner's trims of 2026-10-06
+([trims](qr-onboarding.md#owner-decision-stage-2b-trims-2026-10-06)). Its targets,
+budgets and requirements are the unchanged stage-2 ones. The owner approved the authority
+below, as drafted, on 2026-10-07. The counted 24-hour run still needs an owner-booked slot.
+
+**Authority (approved 2026-10-07).**
+- **Grants.** New grants per account in the existing signed form: the same 80 orders,
+  100 units per instrument, 1,000 notional per order and installed risk limits.
+  - **Counted run:** a life of **26 hours**.
+  - **Rehearsals:** a life of **26 hours** in the same form, so they exercise the long
+    grant. Each rehearsal service stops after its declared 2-hour life.
+  - **Denial session:** one grant with a **10-minute** life, plus one 26-hour grant.
+- **Service life.** The account configuration declares `service_life_seconds` 90,000
+  (the 25-hour cap the owner approved on 2026-10-02). That gives new configuration
+  digests, deployments and signed releases.
+- **Invocations.**
+  - The counted run invokes 87,600 s owners and an 87,000 s supervisor. The launcher's
+    outer bound is the cap plus 60 s.
+  - Rehearsals invoke 8,400 s owners and a 7,800 s supervisor under the same cap.
+  - No service renews itself, and each refuses a life past its grant's expiry (S3).
+
+**Workload.**
+- **Fixture.** `SustainedNativeFixture` with a declared number of 300-second periods:
+  - counted: 291 periods (87,300 s), 2,400,750 messages per source and 9,603,000 in
+    total, at least the profile's 9,504,000 a day;
+  - rehearsal: 26 periods.
+  - Its identity includes the period count, so it is a distinct input.
+- **Order mix.** The `target_clip` mix of 2a is unchanged. Paper adverse cost is 0, as
+  in 2a. Reconciliation runs every 60 s.
+- **Segments and chains.**
+  - Segments: 30 minutes, 75,000 messages and 256 MiB, as in 2a.
+  - Counted chain: 2,500,000 messages, 4 GiB and 50 segments per source.
+  - Rehearsal chain: 250,000 messages, 1 GiB and 6 segments.
+
+**Run shape.** One measured phase, with no injected fault (2a qualified recovery under
+load):
+- counted interval 86,400 s, or 288 windows;
+- rehearsal interval 7,200 s, or 24 windows.
+
+Readers, samplers, feature processes and reconciliation run throughout, as in 2a.
+
+**Gates.** All of 2a's phase gates carry over: run, inputs, parity, latency in every
+300-second window, reads, checkpoints, reconciliation and orders. 2b adds these:
+- **Checkpoint percentiles.**
+  - Selected book to committed checkpoint is graded at 250/750/2,000 ms over the whole
+    counted run, and in every window that holds at least 1,000 samples.
+  - Each account needs at least 1,000 committed checkpoints. The 3 s cadence gives
+    about 28,800.
+  - Rehearsals report this and do not grade it.
+- **Segments.** At least 48 per source in the counted run, with exact chained replay.
+- **Receipt.** At least 7,000,000 messages, with no source below 20 percent of the
+  total.
+- **Resources.**
+  - Total RSS at most 24 GiB.
+  - Mean CPU at most 7 cores, and p95 at most 9.
+  - Disk written and fsync cost reported.
+  - At least 512 GiB free at the start.
+- **Orders.** At most 40 per account for the day, within the 80-order grant.
+- **Host.** The quiet-host precheck and gate are as in 2a, with no iCloud waiver: the
+  repository is no longer in iCloud Documents. The operator still attests that iCloud
+  Drive syncing is paused.
+
+**After the counted run.**
+- **4× replay.**
+  - The retained 24-hour chains are replayed offline through the installed
+    reconstruction, the shared paper observer, the account journal and the selected
+    policies. This is the path the S4 projection already uses, now fed by the retained
+    recordings.
+  - It must run at least 4× recorded time, so it finishes within 6 hours.
+  - Its source and selection, feature, decision, order, fill, fee, cash, position and
+    checkpoint identities must be identical.
+  - It runs while the 72-hour retention elapses.
+- **72-hour retention.** At least 72 hours after the run ends, every chain still
+  replays exactly. Occupied space is reported against the 160/120/32/8 GiB ceilings.
+  The telemetry store holds the run's events under its eight-million-event, age-based
+  policy, projected to 7 days.
+- **Rehearsals** run the same replay on their 2-hour corpus. A rehearsal does not run
+  the retention check.
+
+**Denial session (one short session, before the rehearsals).**
+1. **Expiry.** Issue the 10-minute grant and run one owner for 5 minutes. After expiry:
+   - a new owner start is refused;
+   - a new exposure request is refused;
+   - protective actions stay allowed.
+2. **Revocation.** Issue a 26-hour grant, then revoke it with `revoke_paper`.
+   - A new start and new exposure are refused.
+   - A running owner's protective actions stay allowed.
+   - Nothing renews either grant.
+
+**Code (the M5 changes, each with tests).**
+- `SustainedWorkload` declares its timings, period count, chain and grant life instead
+  of the fixed 2a constants, and the 2a values stay unchanged. `paper_services`'
+  authorization takes the declared life instead of a fixed hour.
+- `SustainedDeclaration` gains a 2b preset, the checkpoint-percentile gate, the receipt
+  and segment gates, and the resource gates.
+- A replay step for the retained chains, with identity comparison and a speed check.
+- A retention step that re-runs chained replay and reports occupied space.
+- A denial-session driver.
+
+**Owner actions needed.**
+1. ~~Approve the authority above~~ (approved 2026-10-07).
+2. Book the counted 24-hour slot, plus the 72 hours that follow for retention, with the
+   laptop at home on AC, iCloud paused, and browser and editor closed.
+3. Separately, before any J2 or lakeFS work, run lakeFS first-user setup with the
+   existing keys
+   ([lakeFS guide](../../configs/development/lakefs/README.md#local-services)).
+
+#### Stage 2b implementation (2026-10-07)
+
+The approved design note is implemented as follows. Nothing is signed or run by the
+code itself.
+
+**Workload and declaration.**
+- `CapacityWorkload.grant_seconds` declares each grant's life. It is one hour unless a
+  stage declares otherwise. `PaperServiceWorkload.authorization` takes the life.
+- `Stage2bWorkload` and `Stage2bRehearsalWorkload` declare:
+  - the 90,000 s cap;
+  - 26-hour grants;
+  - their chains (50 segments, 2,500,000 messages and 4 GiB for the counted run; 6
+    segments, 250,000 messages and 1 GiB for the rehearsal);
+  - their fixtures, `Stage2bNativeFixture` (291 periods, 2,400,750 slots a source) and
+    `Stage2bRehearsalFixture` (26 periods).
+- `SustainedDeclaration.stage2b()` and `.stage2b_rehearsal()` fix:
+  - the day timings, 86,400/87,000/87,600 s and 7,200/7,800/8,400 s;
+  - the minimum segments, 48 and 4;
+  - receipt of at least 7,000,000 messages with a 20 percent source share;
+  - whole-run checkpoint percentiles per account, graded only for the counted run;
+  - at most 40 orders per account for the day;
+  - a resource gate of 24 GiB RSS, mean CPU 7 and p95 9;
+  - a 4× replay.
+- `capacity_sustained_cohort.py --stage 2b|2b-rehearsal` runs these steps: freeze,
+  candidate, quiet-host, grant, day, cleanup audit, host gate, resource gate, economic
+  replay.
+
+**Telemetry retention (TL-1).** The supervisor's monitoring store kept its default
+1,000,000-event capacity and no age bound. At 2b's rate of about 207,000 events a day,
+that would exhaust it after about 4.8 days.
+- `PaperServiceConfiguration.telemetry` (`PaperTelemetryRetention`) declares the
+  capacity and the retention days. When unset it is omitted, so every existing identity
+  is unchanged.
+- Every writer opens the store at the declared capacity (`MonitoringStore`).
+- The service monitor alone prunes samples past the age bound, at most once an hour.
+- The 2b workloads declare 8,000,000 events and 7 days.
+
+**Bounded evidence for a day.** Several paths held a whole day in memory:
+- the fixture's emitted slots, about 0.5 GB a source inside the measured trial;
+- the slot proof's frames;
+- the parity replay's delivery logs;
+- the results' row reader.
+
+All four now stream:
+- **Receipts.** Fixture receipts are JSON lines, `<source>.epoch-N-receipts.jsonl`,
+  appended in batches of 4,096 slots, with no file held open between batches. `FixtureReceipts` reads them for the stage-1 and
+  sustained collectors.
+- **Slot proof.** The sustained proof compares slots with frames as both stream. It
+  computes the slots due in the interval as one range of the run's own fixture.
+- **Replay.** `CapacityEconomicParity` streams each delivery log with its
+  canonical-bytes check.
+
+**Economic replay.** `SustainedEconomicReplay` (`capacity_parity.py --sustained`)
+replays the day's deliveries into fresh journals.
+- Each retained 60 s reconciliation is rebuilt from the replay journal's own facts,
+  under its original identity and clock, before the first delivery made available
+  after it.
+- It compares ledger, orders, net orders, fills, costs, traces and checkpoints with the
+  signed final facts and the held-target oracle.
+- It requires the replay to run at least 4× the recorded interval.
+
+**Retention and denial.**
+- **Retention.** `capacity_retention.py --day <attempt>/candidate/day` runs at least 72
+  hours after the day. It:
+  - replays every recording and compares it with its retained source summary;
+  - classifies occupied space against the 160/120/32/8 GiB ceilings;
+  - projects the monitoring store's events to 7 days, against 8,000,000.
+- **Denial.** `capacity_denial.py` builds the four signed 2b owners, then runs:
+  - **expiry:** 10-minute grants. A stop and a claim succeed while the grant is
+    current; after expiry, new exposure and a new claim are refused with
+    `paper_authorization_expired_or_not_yet_valid`, and a protective stop is applied;
+  - **revocation:** 26-hour grants and `revoke_paper`, with the same checks and
+    `paper_authorization_revoked`;
+  - in both drills, the grant must be unchanged afterwards.
+
+**Host sampler.** It adds each row's trial-tree RSS and host-wide disk bytes written.
+`ResourceGate` grades them.
+
+**Tests.**
+- `test_capacity_stage2b.py`: the presets, fixtures and telemetry, every day gate and its
+  named failures, rehearsal percentiles reported but not graded, the resource gate, the
+  receipt round trip and an unclosed epoch, and the retention classes.
+- `test_monitoring_store.py`: the shared capacity and the age pruning.
+- A configuration test that unset retention keeps the encoding.
+
+Rehearsals will exercise the economic replay's reconciliation interleaving end to end.
+
+**Validation (as run on the committed tree, 2026-10-07).**
+
+| Lane | Result |
+| --- | --- |
+| `make check` | Passed: 2,637 passed, 4 skipped, 25 deselected; wheel smoke passed |
+| Integration (`-m integration`, Feast worker selected) | Passed: 40 passed |
+| Performance (`-m performance`) | Passed: 25 passed |
+| Linux strict mypy | Passed: no issues in 722 source files |
+
+The first run of these lanes failed three things, each fixed:
+- the release module list lacked `monitoring_store.py`;
+- the venue-secret tests read bytecode compiled at the pre-move path;
+- a fixture left its receipts file open, which surfaced as an unraisable warning in a
+  later test.
+
+The fixture now holds no file between batches, and the runtime consumer suite passes with
+unraisable warnings treated as errors.

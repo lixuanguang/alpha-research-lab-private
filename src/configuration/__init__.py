@@ -55,6 +55,7 @@ from configuration.paper_services import (
     PaperServiceInstance,
     PaperServiceSource,
     PaperSourceChain,
+    PaperTelemetryRetention,
     ReferenceCandidate,
 )
 from configuration.public_data import DataCapability, PublicDataJob, UniverseSelection
@@ -120,6 +121,7 @@ __all__ = [
     "PaperSourceBinding",
     "PaperSourceChain",
     "PaperStrategyIdentity",
+    "PaperTelemetryRetention",
     "PublicDataJob",
     "ReferenceCandidate",
     "ResolvedManifest",

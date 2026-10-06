@@ -457,13 +457,17 @@ class PaperServiceWorkload:
             ),
         )
 
-    def authorization(self, deployment: PaperDeployment, at: datetime) -> PaperAuthorization:
-        """Grant finite count, notional and quantity for each signed instrument."""
+    def authorization(
+        self, deployment: PaperDeployment, at: datetime, *, life: timedelta = timedelta(hours=1)
+    ) -> PaperAuthorization:
+        """Grant finite count, notional and quantity for each signed instrument, for ``life``."""
+        if life <= timedelta(0):
+            raise ValueError("a paper grant requires a positive finite life")
         return PaperAuthorization(
             identity=f"{deployment.account_id}-{self.venue}-session",
             deployment_sha256=deployment.identity,
             valid_from=at - timedelta(minutes=1),
-            expires_at=at + timedelta(hours=1),
+            expires_at=at + life,
             quantities=tuple(
                 self.quantity("100", scenario.adverse.per) for scenario in deployment.scenarios
             ),

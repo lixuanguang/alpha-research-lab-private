@@ -32,7 +32,7 @@ from capacity_inputs import CapacityVariant, CapacityWorkload
 from capacity_reads import CapacityReadObserver
 from capacity_reconciler import AccountReconciler
 from capacity_recovery import CapacityRecovery
-from capacity_sustained import SustainedWorkload
+from capacity_sustained import Stage2bRehearsalWorkload, Stage2bWorkload, SustainedWorkload
 
 # project library imports
 from accounting import AccountLedger
@@ -61,7 +61,12 @@ class TrialWorkloads:
         public_venue: Literal["okx", "bitfinex"] | None,
     ) -> CapacityWorkload:
         """Select the stage-1 or the sustained workload by its explicit declared name."""
-        factory = SustainedWorkload if name == "sustained" else CapacityWorkload
+        factory: type[CapacityWorkload] = {
+            "capacity": CapacityWorkload,
+            "sustained": SustainedWorkload,
+            "stage2b": Stage2bWorkload,
+            "stage2b-rehearsal": Stage2bRehearsalWorkload,
+        }[name]
         return factory(opening_at=opening_at, socket_root=socket_root, public_venue=public_venue)
 
 
@@ -162,7 +167,7 @@ class AlertReceiver:
         self.path.unlink(missing_ok=True)
 
 
-type TrialWorkload = Literal["capacity", "sustained"]
+type TrialWorkload = Literal["capacity", "sustained", "stage2b", "stage2b-rehearsal"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -987,7 +992,11 @@ def main() -> None:
     parser.add_argument("--recover", action="store_true")
     parser.add_argument("--faults", action="store_true")
     parser.add_argument("--features", action="store_true")
-    parser.add_argument("--workload", choices=("capacity", "sustained"), default="capacity")
+    parser.add_argument(
+        "--workload",
+        choices=("capacity", "sustained", "stage2b", "stage2b-rehearsal"),
+        default="capacity",
+    )
     parser.add_argument("--interval-seconds", type=int, default=60)
     parser.add_argument("--supervisor-seconds", type=int, default=75)
     parser.add_argument("--service-seconds", type=int, default=120)

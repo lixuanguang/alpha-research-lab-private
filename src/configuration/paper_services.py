@@ -9,6 +9,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+# third party library imports
+import msgspec
+
 # project library imports
 from configuration.accounts import SERVICE_LIFE_MAXIMUM_SECONDS, AccountConfiguration
 from configuration.capture import CaptureConfig
@@ -57,6 +60,28 @@ class PaperSourceChain(WireRecord, frozen=True):
         ):
             if type(value) is not int or not minimum <= value <= maximum:
                 raise ValueError("invalid finite paper source chain limit")
+
+
+class PaperTelemetryRetention(WireRecord, frozen=True):
+    """Bound the supervisor's monitoring store and age out its oldest samples.
+
+    ``max_events`` is the store's capacity, below its 10,000,000-event ceiling;
+    samples older than ``retention_days`` are pruned as new ones arrive. Pruning
+    never touches an account or order journal.
+    """
+
+    max_events: int
+    retention_days: int
+
+    def __post_init__(self) -> None:
+        """Require a finite capacity and a positive whole-day age bound."""
+        if (
+            type(self.max_events) is not int
+            or not 1 <= self.max_events <= 10_000_000
+            or type(self.retention_days) is not int
+            or not 1 <= self.retention_days <= 366
+        ):
+            raise ValueError("invalid telemetry retention")
 
 
 class PaperServiceSource(WireRecord, frozen=True):
@@ -303,6 +328,8 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
     # Diagnostic telemetry cadence; protection reads stay every poll.
     telemetry_seconds: int = 1
     features: PaperFeatureServing | None = None
+    # Unset keeps the store's default capacity, no pruning and every existing identity.
+    telemetry: PaperTelemetryRetention | msgspec.UnsetType = msgspec.UNSET
 
     @property
     def telemetry_interval(self) -> int:
@@ -327,6 +354,10 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
             or not 1 <= self.telemetry_seconds <= 300
         ):
             raise ValueError("invalid bounded paper service selection")
+        if self.telemetry is not msgspec.UNSET:
+            if type(self.telemetry) is not PaperTelemetryRetention:
+                raise TypeError("paper telemetry retention requires its typed declaration")
+            self.telemetry.__post_init__()
         if self.previous_sha256 is not None:
             PaperDeployment.require_digest(self.previous_sha256)
         if (self.revision == 1) != (self.previous_sha256 is None):

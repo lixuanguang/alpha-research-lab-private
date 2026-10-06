@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 # project library imports
+from applications.execute.monitoring_store import MonitoringStore
 from applications.execute.service_candidates import PaperServiceCandidates
 from configuration import PaperServiceConfiguration
 from execution import (
@@ -65,6 +66,7 @@ class CandidateTelemetry:
     ) -> None:
         """Load every configured instance's candidate and bind the run's delivery logs."""
         resolved = PaperServiceCandidates(configuration, candidates)
+        self.retention = MonitoringStore.retention(configuration)
         releases = {owner.account_id: owner.release_identity for owner in owners}
         modes = {item.account_id: item.configuration.mode for item in configuration.accounts}
         self.exporters: dict[str, CandidateMonitoringExporter] = {}
@@ -119,7 +121,8 @@ class CandidateTelemetry:
                 *self._predictions(account, account_id, observed_at),
                 *self._delays(account_id, observed_at),
             )
-            TelemetryStore(self.root / "telemetry.sqlite3").append(events)
+            # The service monitor owns pruning; this writer only shares its capacity.
+            MonitoringStore.open(self.root, self.retention).append(events)
             due = self._next_dashboard.get(account_id, 0.0)
             mode = account.config.mode
             if time.monotonic() >= due and (mode == "paper" or mode == "shadow"):
