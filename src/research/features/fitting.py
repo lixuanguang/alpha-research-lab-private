@@ -59,7 +59,9 @@ class FittingRows:
 
         Sample row IDs are the feature vector digest. Outcomes are deliberately
         absent; supervised consumers additionally bind and validate label bytes.
-        Missing admitted features fail rather than silently changing the sample.
+        A training row with a missing value, as inside a capture gap, is left out
+        rather than imputed; the fitted version's ``fit_rows`` names exactly the rows
+        used, and ``incomplete`` names the rest. No complete row fails.
         """
         split.__post_init__()
         if type(rows) is not tuple or not rows:
@@ -78,14 +80,24 @@ class FittingRows:
                 raise ValueError("split sample does not match feature bytes/clocks")
         if set(by_id) != {s.row_id for s in split.samples}:
             raise ValueError("split must describe every supplied feature row")
-        admitted = tuple(by_id[s.row_id] for s in split.fitting_rows())
-        split.require_fit_rows(tuple(r.identity for r in admitted))
-        signature = VectorSignature.of(admitted[0])
-        for row in admitted:
-            if VectorSignature.of(row) != signature or any(v is None for v in row.values):
-                raise ValueError("fitting requires complete matching feature signatures")
+        training = tuple(by_id[s.row_id] for s in split.fitting_rows())
+        if not training:
+            raise ValueError("fitting requires training rows")
+        signature = VectorSignature.of(training[0])
+        for row in training:
+            if VectorSignature.of(row) != signature:
+                raise ValueError("fitting requires matching feature signatures")
             row.require_available(row.decision_at)
+        admitted = tuple(row for row in training if not FittingRows.incomplete(row))
+        if not admitted:
+            raise ValueError("fitting requires at least one complete training row")
+        split.require_fit_rows(tuple(r.identity for r in admitted))
         return admitted
+
+    @staticmethod
+    def incomplete(row: FeatureVector) -> bool:
+        """Return whether a training row lacks any feature value."""
+        return any(value is None for value in row.values)
 
 
 class TransformAdapter(Protocol):

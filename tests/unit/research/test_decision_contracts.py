@@ -570,6 +570,48 @@ class TestDecisionContracts:
                 capabilities=_CAPABILITIES,
             )
 
+    def test_incomplete_training_rows_are_left_out_and_named(self) -> None:
+        """A training row with a missing feature or label is left out, never imputed."""
+        rows, outcomes, split = _Scenario.training()
+        gapped = replace(rows[1], values=(None, rows[1].values[1]))
+        changed_rows = (rows[0], gapped, rows[2])
+        changed_outcomes = (
+            outcomes[0],
+            replace(outcomes[1], feature_identity=gapped.identity),
+            outcomes[2],
+        )
+        samples = tuple(o.sample(r) for r, o in zip(changed_rows, changed_outcomes, strict=True))
+        selected = replace(split, samples=samples)
+        transform = FittedTransform(CenterColumns())
+        fitted = transform.fit(changed_rows, selected, available_at=_Scenario.at(30))
+        assert fitted.fit_rows == (rows[0].identity,)
+        model = EstimatorLifecycle(NearestExample())
+        version = model.fit(
+            changed_rows,
+            changed_outcomes,
+            selected,
+            available_at=_Scenario.at(30),
+            transform=transform,
+            transform_version=fitted,
+        )
+        assert version.fit_rows == (rows[0].identity,)
+        unlabelled: tuple[Outcome, ...] = (replace(outcomes[0], value=None), *outcomes[1:])
+        unlabelled_samples = tuple(o.sample(r) for r, o in zip(rows, unlabelled, strict=True))
+        unlabelled_split = replace(split, samples=unlabelled_samples)
+        assert model.fit(
+            rows, unlabelled, unlabelled_split, available_at=_Scenario.at(30)
+        ).fit_rows == (rows[1].identity,)
+        empty = (replace(rows[0], values=(None, None)), gapped, rows[2])
+        empty_outcomes: tuple[Outcome, ...] = (
+            replace(outcomes[0], feature_identity=empty[0].identity),
+            changed_outcomes[1],
+            outcomes[2],
+        )
+        empty_samples = tuple(o.sample(r) for r, o in zip(empty, empty_outcomes, strict=True))
+        empty_split = replace(split, samples=empty_samples)
+        with pytest.raises(ValueError, match="at least one complete training row"):
+            transform.fit(empty, empty_split, available_at=_Scenario.at(30))
+
     def test_late_training_label_never_reaches_estimator(self) -> None:
         """Exclude a late training label while preserving the earlier admitted sample."""
         rows, outcomes, split = _Scenario.training()

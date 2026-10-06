@@ -1178,6 +1178,7 @@ class Journey:
         self.run_phase("P-A", paper, services, policy, first, scenarios=True)
         self.recover_accounts(paper, policy, paper / "service-p-a", "P-B")
         self.run_phase("P-B", paper, services, policy, second, shutdown=True)
+        self.require_alerts(paper, ("P-A", "P-B"), "paper_alert_received")
         shadow = root / "shadow"
         self.plan_phase(shadow, "shadow", shadow_seconds)
         shadow_services = self.install_services(
@@ -1374,6 +1375,7 @@ class Journey:
         )
         self.recover_accounts(paper, policy, paper / "service-u", "B")
         self.run_phase("B", paper, services, policy, rollback, shutdown=True)
+        self.require_alerts(paper, ("R", "U", "B"), "operations_alert_received")
         self.paper_step(
             "B-facts-after",
             "facts",
@@ -1723,6 +1725,20 @@ class Journey:
             raise RuntimeError("journey commands run only inside an attempt")
         pending.remove(background)
         return self.commands.finish(background, cwd=self.output, timeout=timeout)
+
+    def require_alerts(self, plan: Path, phases: tuple[str, ...], name: str) -> None:
+        """Require the local receiver to have observed an alert across a step's phases.
+
+        P-A injects order uncertainty, so J6 always alerts; a single later phase may
+        not, depending on its market (AL-1).
+        """
+        counts = {
+            phase: (plan / f"alerts-{phase}.jsonl").read_bytes().count(b"\n")
+            if (plan / f"alerts-{phase}.jsonl").is_file()
+            else 0
+            for phase in phases
+        }
+        self.require(name, sum(counts.values()) > 0, counts)
 
     def run_phase(
         self,

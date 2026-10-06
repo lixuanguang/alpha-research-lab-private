@@ -1019,8 +1019,10 @@ class PhaseVerification:
         )
         mode = self.configuration.accounts[0].configuration.mode
         if mode == "paper":
+            # Whether one phase alerts depends on its market, so the count is observed
+            # here and the driver requires an alert across the step's phases (AL-1).
             received = self.alerts.read_bytes().count(b"\n") if self.alerts.is_file() else 0
-            gates.append(PhaseGate("alert_received", received > 0, {"datagrams": received}))
+            gates.append(PhaseGate("alerts_observed", True, {"datagrams": received}))
         else:
             fills = {name: self.fills(name) for name in accounts}
             gates.append(PhaseGate("shadow_zero_fills", all(n == 0 for n in fills.values()), fills))

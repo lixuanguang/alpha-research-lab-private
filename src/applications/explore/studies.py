@@ -276,7 +276,6 @@ class StudyComponents:
         store.retain(attempt, f"split-{index:04d}", codec.encode_json(split))
         store.retain(attempt, f"outcomes-{index:04d}", codec.encode_json(outcomes))
         excluded = list(split.exclusions())
-        store.retain(attempt, f"fit-exclusions-{index:04d}", codec.encode_json(tuple(excluded)))
         transform_version = None
         model_version = None
         if self.transform is not None:
@@ -296,6 +295,21 @@ class StudyComponents:
                 transform_version=transform_version,
             )
             store.retain(attempt, f"model-{index:04d}", codec.encode_json(model_version))
+        fitted = (
+            model_version.fit_rows
+            if model_version is not None
+            else transform_version.fit_rows
+            if transform_version is not None
+            else None
+        )
+        if fitted is not None:
+            used = set(fitted)
+            excluded.extend(
+                (sample.row_id, "incomplete training row")
+                for sample in split.fitting_rows()
+                if sample.row_id not in used
+            )
+        store.retain(attempt, f"fit-exclusions-{index:04d}", codec.encode_json(tuple(excluded)))
         policy = DecisionSession(
             self.policy,
             run_identity=run.identity,

@@ -4256,6 +4256,21 @@ standing rule, and they are decided as follows.
   - *Owner decision (2026-10-06).* The corpus stays 72 consecutive UTC hours. A
     24-hour window was offered and declined. The acquisition is armed right after
     rehearsal-9 passes, and M5 preparation overlaps it.
+  - *Superseded the same day (owner, 2026-10-06).*
+    - The armed acquisition was disarmed before its window opened (all four runs
+      `stopped_before_start`). The host is a laptop that sleeps in transit, and no
+      always-on machine is available.
+    - The owner decided not to run the 72-hour acquisition for now. R1b is qualified
+      from measured runs on the one-hour corpora, with throughput, storage and
+      retention extrapolated to 72 hours by a stated linear model.
+    - Linear extrapolation is defensible because the paths that grew faster than
+      linearly are gone:
+      - full-state storage, replaced by the compact store;
+      - per-segment chain replay, replaced by CH-1;
+      - re-derivation on every reopen, replaced by RV-1.
+    - The extrapolation is recorded beside each limit as an extrapolation, not a
+      measurement. A full-length acquisition stays possible later, on an always-on host,
+      as confirmation.
 
 ## UV-1 design note: an unvalued fold is an outcome, not a crash (2026-10-06)
 
@@ -4427,7 +4442,21 @@ awake.
 - J1, J2 and J3 passed every criterion: eight captures, publication, reopen,
   lakeFS, every rule, learned, holdout and grid study, publication and the extension
   check.
-- It went on to J4–J7 unattended. Its result is recorded with the next run's.
+- It went on to J4–J7 unattended and passed every criterion there too: J4 16, J5 15,
+  J6 83 and J7 84. That makes 291 criteria with none failed, on a 60-minute J2, the
+  window that failed rehearsal-8 under the old format.
+
+**Fault-injection development runs (uncounted, not evidence).**
+- *Rehearsal-124* had a 30-minute J2 with 300 s segments.
+  - Every run rolled over into 6 segments.
+  - One collector was frozen for 40 s.
+  - A real Bitfinex disconnect occurred at 08:41:45.
+  - J2 passed: each chain published as one partition.
+  - J3 failed on FX-1, the incomplete training row.
+- *Rehearsal-125* reused that J2, with FX-1 applied.
+  - J1–J5 and J7 passed every criterion: J3 47, J4 16, J5 15, J7 84.
+  - J6 passed 82 of 83. Its one failure, `P-B:alert_received`, is fixed by AL-1: phase
+    A alerted, and J7's phases received 26, 27 and 26 datagrams.
 
 **Validation (as run on the committed tree, 2026-10-06).** The four lanes ran in
 parallel; `make check` kept the project environment, and each other lane had its own.
@@ -4448,6 +4477,86 @@ parallel; `make check` kept the project environment, and each other lane had its
 - R1b is assessed on sealed segments while the acquisition runs.
 - One full rehearsal runs on the frozen commit, before the counted M6.
 - Stage 2b's gates are brought to the owner as a trim list.
+
+## FX-1: an incomplete training row is left out and named (2026-10-06)
+
+- **Defect** (fault-injection run rehearsal-124).
+  - Bitfinex ETH's learned study raised *"fitting requires complete matching
+    feature signatures"* and aborted.
+  - Its trades capture really disconnected at 08:41:45 UTC. One training row's
+    trade-flow feature was then missing, and `FittingRows.select` refused the whole
+    fold.
+  - A missing label failed the same way.
+- **Precedent.** Inference already excludes a decision whose feature is missing, and
+  records it as `"missing inference feature"`.
+- **Change.**
+  - Transform and model fitting leave out a training row with a missing feature or
+    label. Nothing is imputed.
+  - Each fitted version's `fit_rows` names exactly the rows used.
+  - The model's rows must be a subset of the transform's.
+  - The fold's retained exclusions add each left-out row with
+    `"incomplete training row"`.
+  - A fit with no complete row still raises.
+  - Mismatched feature signatures still raise.
+- **Tests.**
+  - A gapped feature row and an unlabelled row are left out and named.
+  - No complete row raises.
+
+## AL-1: the alert criterion is per step, not per phase (2026-10-06)
+
+- **Defect** (fault-injection rerun rehearsal-125). J6 failed `P-B:alert_received`:
+  0 datagrams.
+- **The criterion depended on market outcomes, not on the platform.**
+  - Phase B issues no control and injects no fault.
+  - On rehearsal-123 its alerts came from the paper net-P&L rule (`paper.net_pnl < 0`)
+    and the QR metric's warning band, because those positions lost money within the
+    120 s phase.
+  - On rehearsal-125 they did not lose, so no rule tripped.
+- **The approved J6 criterion** is "alert observed by the local receiver".
+- **Change.**
+  - Each phase records its received datagrams as `alerts_observed`, which does not
+    gate.
+  - The driver requires at least one alert across J6's paper phases
+    (`paper_alert_received`; P-A's injected order uncertainty makes it deterministic).
+  - It likewise requires one across J7's R, U and B (`operations_alert_received`).
+
+## Owner decision: stage 2b trims (2026-10-06)
+
+The owner approved six trims to stage 2b's sequencing. Its targets, budgets and
+requirements are unchanged and not waived (runtime capacity, owner decisions of
+2026-10-02 and 2026-10-04).
+
+1. **Both grant denial trials in one short session.**
+   - Denial after expiry is shown with a grant of the same signed form but a
+     minutes-long life.
+   - Denial after revocation is shown on a 26-hour grant.
+   - It is one session, not separately declared trials.
+2. **Shorter uncounted rehearsals.** They run about 2 hours: rollover, the 25-hour
+   lifetime caps, the order-light mix, and a 4× replay of the 2-hour corpus. Only the
+   counted attempt runs 24 hours.
+3. **The 4× replay of the counted 24-hour corpus** starts right after the counted
+   run, while the 72-hour retention elapses.
+4. **M6, the counted journey, may run while 2b's 72-hour retention elapses.**
+   - J8 is evaluated once retention has passed.
+   - J8 takes no new measurement; it links the accepted R1b and 2b records.
+   - A retention failure still fails J8, and with it M6.
+5. **The repository moves out of iCloud-synced Documents before 2b starts,** so the
+   quiet-host gate needs no iCloud waiver. Recorded paths are updated at the move.
+6. **Checkpoint percentiles** (at least 1,000 per account) come from the counted
+   24-hour run itself.
+
+Free disk was 470 GiB on 2026-10-06. 2b needs at least 512 GiB at its start.
+
+## FX-1 and AL-1 validation (2026-10-06)
+
+The four lanes ran on the tree with FX-1 and AL-1 and the day's record updates.
+
+| Lane | Result |
+| --- | --- |
+| `make check` | Passed: 2,612 passed, 4 skipped, 25 deselected; wheel smoke passed |
+| Integration (`-m integration`, Feast worker selected) | Passed: 40 passed |
+| Performance (`-m performance`) | Passed: 25 passed |
+| Linux strict mypy | Passed: no issues in 715 source files |
 
 ## Milestones
 
