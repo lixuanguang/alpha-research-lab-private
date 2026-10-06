@@ -37,7 +37,12 @@ from research.studies.pipelines import PipelineRun, PipelineStepTask, ResearchPi
 from research.studies.publication import PublicationPolicy
 from research.studies.reports import BenchmarkPeriod, EconomicReport, QuantStatsReport, ReportPolicy
 from research.studies.results import ResultManifest, RunCheckpoint
-from research.studies.study_inputs import StudyArtifact, StudyMarketSource, StudyOutcomeSource
+from research.studies.study_inputs import (
+    StudyArtifact,
+    StudyMarketManifest,
+    StudyMarketSource,
+    StudyOutcomeSource,
+)
 from research.studies.study_results import StudyFoldResult, StudyResult
 from research.studies.tracking import (
     ClearMLDestination,
@@ -99,6 +104,7 @@ __all__ = [
     "StudyArtifact",
     "StudyFold",
     "StudyFoldResult",
+    "StudyMarketManifest",
     "StudyMarketSource",
     "StudyMonitoringExporter",
     "StudyOutcomeSource",

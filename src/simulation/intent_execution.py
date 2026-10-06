@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 import heapq
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -165,6 +166,10 @@ class _Schedule:
             heapq.heappush(self._events, (at, priority, self._serial, kind, index))
             self._serial += 1
 
+    def peek(self) -> datetime | None:
+        """Return the next event's time, if any event remains."""
+        return self._events[0][0] if self._events else None
+
     def pop(self) -> tuple[datetime, str, int]:
         """Select the next stable time/phase/source ordered event."""
         at, _, _, kind, index = heapq.heappop(self._events)
@@ -192,18 +197,25 @@ class LimitOrderExecution:
         costs: IntentCostModel,
         ledger: Ledger,
         decisions: tuple[DecisionRecord, ...],
-        market: tuple[IntentMarket, ...],
+        market: Iterable[IntentMarket],
     ) -> IntentSimulationResult:
-        """Step source, cancellation, expiry, trade, arrival and decisions causally."""
+        """Step source, cancellation, expiry, trade, arrival and decisions causally.
+
+        Market rows, in nondecreasing availability order, join the schedule only
+        when the next event is no earlier than them, and leave it once stepped, so
+        memory follows the open orders and near-term events, not the sample.
+        """
         if self.identity != spec.execution_identity or costs.identity != spec.cost_identity:
             raise ValueError("offline execution model identity mismatch")
         schedule = _Schedule(spec.end)
-        for index, row in enumerate(market):
-            schedule.add(row.available_at, 0, "market", index)
-            if row.trades:
-                schedule.add(row.available_at, 3, "trade", index)
         for index, decision in enumerate(decisions):
             schedule.add(decision.at, 5, "decision", index)
+        rows = iter(market)
+        pending = next(rows, None)
+        scheduled: dict[int, IntentMarket] = {}
+        fed = 0
+        last_fed: datetime | None = None
+        receipt_as_matching = False
         active: list[_Order] = []
         all_orders: list[_Order] = []
         rejected: list[IntentOrderOutcome] = []
@@ -212,12 +224,32 @@ class LimitOrderExecution:
         last_book: IntentMarket | None = None
         consumed: dict[tuple[str, Decimal], Fraction] = {}
         codec = DomainCodec()
-        while schedule:
+        while True:
+            # A row joins before any later event, and before an equal-time event of a
+            # later phase, exactly as if every row had been scheduled up front.
+            while pending is not None and (
+                (head := schedule.peek()) is None or pending.available_at <= head
+            ):
+                if last_fed is not None and pending.available_at < last_fed:
+                    raise ValueError("offline market rows must arrive in availability order")
+                last_fed = pending.available_at
+                receipt_as_matching |= pending.clock_assumption == "receipt-as-matching"
+                if pending.available_at <= spec.end:
+                    scheduled[fed] = pending
+                    schedule.add(pending.available_at, 0, "market", fed)
+                    if pending.trades:
+                        schedule.add(pending.available_at, 3, "trade", fed)
+                fed += 1
+                pending = next(rows, None)
+            if not schedule:
+                break
             at, kind, index = schedule.pop()
             if at == spec.end and kind not in ("market", "cancel", "expiry"):
+                if kind == "trade":
+                    scheduled.pop(index)
                 continue
             if kind == "market":
-                row = market[index]
+                row = scheduled[index] if scheduled[index].trades else scheduled.pop(index)
                 if row.book is not None:
                     if row.book.status == "degraded" and row.book.outcome in ("snapshot", "update"):
                         last_book = row
@@ -246,7 +278,7 @@ class LimitOrderExecution:
                 active = [order for order in active if order.closed_at is None]
                 continue
             if kind == "trade":
-                row = market[index]
+                row = scheduled.pop(index)
                 if row.source_at == spec.end:
                     continue
                 for trade in row.trades:
@@ -424,7 +456,7 @@ class LimitOrderExecution:
                 "entry/cancel delays are fixed; no venue acknowledgements or deployed OMS",
                 "receipt-as-matching maps original receipt to modeled matching time;"
                 " exchange-time fill fidelity is unproven"
-                if any(row.clock_assumption == "receipt-as-matching" for row in market)
+                if receipt_as_matching
                 else "source-and-knowledge clocks are supplied with each market input",
                 "fixed SpotLimits are a declared synthetic reference when no history is selected"
                 if spec.reference_history is None

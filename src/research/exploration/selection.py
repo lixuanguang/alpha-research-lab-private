@@ -270,6 +270,21 @@ class ResearchReader:
             ).replay(selection.query)
         )
 
+    def books(self, query: BookQuery) -> BookQueryReader:
+        """Verify a book snapshot once and return its reader, for streamed batches.
+
+        ``read`` collects every batch; a consumer that walks a long book forward
+        streams ``books(query).batches(query)`` instead, holding one batch at a time.
+        """
+        query.__post_init__()
+        return BookQueryReader.open(
+            self._snapshots,
+            self._raw,
+            readers=self._readers,
+            identity=query.snapshot_id,
+            max_bytes=query.max_bytes,
+        )
+
     def read(self, selection: ResearchSelection, *, recoveries: bool = False) -> ResearchDataset:
         """Verify every named input before returning the complete research assembly.
 

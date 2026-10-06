@@ -9,7 +9,11 @@ alpha, executable liquidity, release admission or trading authority.
 ## Offline decision-intent studies
 
 `IntentSimulation` composes an explicitly supplied `IntentExecutionModel`,
-`IntentCostModel` and the existing exact `Ledger`. The
+`IntentCostModel` and the existing exact `Ledger`. Decisions are an immutable
+tuple; the market is any iterable, consumed once and validated row by row as the
+model reads it, in nondecreasing availability order. `LimitOrderExecution`
+schedules a market row only when the next event is no earlier than it, and
+releases it once stepped, so a long sample is never held in memory. The
 [study application](../research/studies/README.md#generalized-decision-studies)
 carries target, exposure, order and quote decisions through this public boundary.
 The public `simulation` and `simulation.intents` imports remain stable. Immutable

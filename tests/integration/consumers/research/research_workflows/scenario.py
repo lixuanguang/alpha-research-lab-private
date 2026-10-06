@@ -501,13 +501,6 @@ class _ProfitChart:
         )
 
 
-class _MarketClocks(msgspec.Struct, frozen=True):
-    """Decode only source and knowledge clocks from a retained market artifact."""
-
-    source_at: datetime
-    known_at: datetime
-
-
 class _DecisionInputClock(msgspec.Struct, frozen=True):
     """Decode the retained cutoff from an otherwise complete decision input record."""
 

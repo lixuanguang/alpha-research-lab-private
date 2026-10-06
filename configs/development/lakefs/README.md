@@ -1,6 +1,6 @@
 # Local dataset versions and retention
 
-Owner: repository founder. Updated 2026-09-20. **Synthetic local research only.**
+Owner: repository founder. Updated 2026-10-06. **Synthetic local research only.**
 The `market_data.storage` public API provides `VersionedObject`, `DatasetVersion`
 and `LakeFSStorage`. It wraps the pinned lakeFS SDK 1.86.0, without adding a
 library command, replacing dataset manifests or changing market knowledge time.
@@ -62,11 +62,22 @@ Keep the encryption key paired with the retained volume; copying credentials
 does not initialize a new service or rotate a key.
 
 From the repository root, `make local-services-up` automatically loads that env
-file and starts lakeFS plus ClearML. Set `LAKEFS_LOCAL_PROJECT` and
-`CLEARML_LOCAL_PROJECT` in the private env file to select existing Compose
-projects. This workspace uses `alpha-workspace-features-restored` and
-`alpha-workspace-studies-restored` for the retained MR04 data. Omitted project
-names preserve each Compose file's original default. Use
+file and starts lakeFS plus ClearML. `LAKEFS_LOCAL_PROJECT` and
+`CLEARML_LOCAL_PROJECT` in the private env file select other Compose projects;
+omitted, each Compose file's default project is used. This workspace keeps no
+retained service data: every local volume, including the restored MR04 projects,
+was deleted on 2026-10-06, so the services start empty under their default
+projects. A fresh lakeFS volume needs first-user setup once, reusing the existing
+access keys, before any publication:
+
+```sh
+make local-services-up
+jq '{username: "admin", key: .}' secrets/lakefs-credentials.json \
+  | curl -sf -X POST -H 'Content-Type: application/json' --data-binary @- \
+    http://127.0.0.1:18000/api/v1/setup_lakefs
+```
+
+ClearML's local server needs no setup. Use
 `make local-services-status` to inspect them and `make local-services-down` to
 stop them while retaining volumes. `LOCAL_SERVICES_ENV=/absolute/private.env`
 overrides the file. The launcher loads service credentials; browser sign-in

@@ -4558,6 +4558,122 @@ The four lanes ran on the tree with FX-1 and AL-1 and the day's record updates.
 | Performance (`-m performance`) | Passed: 25 passed |
 | Linux strict mypy | Passed: no issues in 715 source files |
 
+## M4b design note: R1's workflow streams the captured corpus (2026-10-06)
+
+Decided under the standing rule: the most scalable and maintainable option, with no
+backward compatibility. Found while building R1b's measurement on a fresh capture.
+
+**Measurement harness.**
+[`native_capacity.py`](../../tests/integration/consumers/research/native_capacity.py)
+runs R1's combined workflow on a captured OKX BTC/ETH books and trades corpus:
+- publication, digest reopen and a re-derivation audit;
+- a completed-return feature over captured books: materialized with Feast, every PIT
+  cell checked against an independent scan of the stored rows, warm close latency,
+  offline Feast chunks;
+- four costed `ConfirmedSignal` trials on two workers, with one worker killed mid-trial,
+  recovery and an uninterrupted control;
+- report reopen, then backup and restore of inputs, features and results.
+
+It reuses `capacity_workload.py`'s measurement and runs beside it.
+
+**Defects found on a 6-minute pilot capture**, projected linearly to 72 hours at about
+2.35 million book rows per instrument:
+
+| Defect | Pilot measurement | 72-hour projection |
+| --- | ---: | ---: |
+| `SavedDecisionSource` kept every full 400-level book row in memory | 64 KB a row | about 150 GB per instrument |
+| `CapturedStudyMarket.read` built the whole window as one tuple | 4.9 KB a row | about 11.5 GB per trial |
+| Each fold stored that market again as its `market-NNNN` artifact | 2.7 KB a row | about 6.4 GB per trial |
+| `ScheduledFeatures` (completed returns) reads only the REST trade format | n/a | no native completed returns |
+
+**Changes.**
+- **SF-1: `CompletedReturnFeature`.**
+  - A generic-lifecycle kernel: `completed-return`, incremental, one input, a
+    `cadence_seconds` parameter.
+  - It freezes each decision's then-known close from any saved source, for example a
+    captured book's `bid`.
+  - It returns that close against the previous decision's close only when both exist
+    exactly one cadence apart. Otherwise the return is missing, with its reason.
+  - `ScheduledFeatures` is unchanged and remains the REST-format path.
+- **SM-1: the study market streams.**
+  - `StudyMarketSource.read` returns an iterable, consumed once.
+  - `IntentExecutionModel.run` takes an iterable market. `IntentSimulation` validates
+    each row as the model reads it, and validates any rows it leaves unread after it
+    returns.
+  - `LimitOrderExecution` schedules a row only when the next event is no earlier than
+    the row. It releases the row once stepped. Every row still joins before any later
+    event and before an equal-time event of a later phase, so results are unchanged.
+  - Nondecreasing availability was already a validated contract, and capture receipts
+    never move backward (`ReceiptClock`).
+  - `CapturedStudyMarket.read` is a generator.
+- **MK-1: a fold retains a market manifest, not the rows.**
+  - `market-NNNN` is a `StudyMarketManifest`: market identity, window, row count, first
+    and last clocks, and the SHA-256 of the consumed rows' canonical encodings.
+  - The rows are reproducible from the pinned snapshot.
+  - The cutoff check (no row past the fold's market window) runs on each row as it
+    streams.
+- **SB-1: `SavedDecisionSource` walks books forward.**
+  - The book index holds the row at or before the latest cutoff asked, plus one query
+    batch.
+  - An earlier cutoff restarts the stream, so any order of reads returns what a fresh
+    read returns.
+  - `ResearchReader.books(query)` opens a verified reader for streaming.
+  - Other inputs are read whole once, as before. Trade histories stay in memory: R1b's
+    workflow does not select them.
+  - Memory is bounded by `batch_size` whole books, so a long consumer should choose a
+    small batch. The harness uses 32: a close that crosses a batch decodes it, so a small batch keeps close latency even.
+
+**Not changed.** Feature values, fills, fees, marks and the order of every execution
+event are unchanged. The existing simulation, study, captured-market and decision
+suites pass unchanged in expectation, apart from:
+- the market manifest check;
+- the generator call sites in two captured-market tests.
+
+**Tests.**
+- Completed returns: exact values, every missing reason, checkpoint continuation and
+  refused definitions.
+- A single-use market iterator gives the tuple's exact result, and disorder is refused.
+- Saved book fields read in reversed and shuffled cutoff order, through 3-row batches,
+  equal a forward pass.
+
+## M4 result: R1b qualified by extrapolation (2026-10-06)
+
+- **Corpus.** A fresh 2-hour OKX BTC/ETH books and trades capture, taken with the laptop
+  on AC and held awake: 221,240 raw positions, chained replay parity, and one real ETH
+  trades disconnect kept as an explicit gap.
+- **Workflow.** R1's combined workflow ran on it end to end, with M4b's fixes. Recorded
+  in [research capacity](research-capacity.md#named-profile-r1b-declared-2026-10-06-by-extrapolation).
+  - Every PIT cell and every trial's fees and terminal NAV equalled independent
+    recomputation.
+  - A killed worker's retried trial equalled an uninterrupted control.
+  - Restore matched every result.
+- **R1b.** The named profile is declared there, with each re-based limit and its
+  rationale. Every 72-hour extrapolation is inside its limit, so R1b is qualified by
+  extrapolation, labelled as such.
+  - The main re-based limits: publication ≤ 4 h for 72 hours (measured about 760
+    positions a second), materialization ≤ 1 h, studies ≤ 3.5 h in total.
+  - R1's latency, reopen, memory and storage limits are unchanged and met.
+- **Not established.** 72 hours of original-clock coverage is not established. A
+  full-length acquisition on an always-on host remains the confirmation.
+- **Trade partitions.** They are still held whole in memory during publication, which
+  projects to a peak of about 5.4 GB at 72 hours. They move to the frame container if a
+  measured run nears 8 GiB.
+- **Service docs.** The lakeFS and ClearML guides no longer name the deleted MR04
+  restored projects. They give the first-user setup for an empty lakeFS volume, which
+  reuses the existing keys.
+
+**Validation (as run on the committed tree, 2026-10-06).**
+
+| Lane | Result |
+| --- | --- |
+| `make check` | Passed: 2,621 passed, 4 skipped, 25 deselected; wheel smoke passed |
+| Integration (`-m integration`, Feast worker selected) | Passed: 40 passed |
+| Performance (`-m performance`) | Passed: 25 passed |
+| Linux strict mypy | Passed: no issues in 717 source files |
+
+An earlier run of the same lanes failed only the engineering-standards check: nested
+and module-level helpers, and one missing docstring. They were moved to class owners.
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design
@@ -4574,7 +4690,8 @@ The four lanes ran on the tree with FX-1 and AL-1 and the day's record updates.
 3. **M3 — journey consumer and declaration.** The journey driver and its summary;
    architectural extension through the journey (P3); the exact commands; uncounted
    rehearsals to find remaining guide gaps.
-4. **M4 — MR15 R1 closure.**
+4. **M4 — MR15 R1 closure.** Done 2026-10-06 as the named profile R1b, qualified by
+   extrapolation ([M4 result](#m4-result-r1b-qualified-by-extrapolation-2026-10-06)).
 5. **M5 — MR15 stage 2b** (P4–P6), under its own declaration and gates.
 6. **M6 — counted journey**, recorded here, and roadmap update.
 

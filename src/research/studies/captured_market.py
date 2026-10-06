@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -27,8 +28,8 @@ class CapturedStudyMarket:
 
     The market reads one native partition of a published book snapshot. The
     snapshot is verified against its retained raw input once, when the market is
-    built; each ``read`` then streams only the requested window, so memory is
-    bounded by one window, never the whole capture.
+    built; each ``read`` then streams the requested window row by row, so memory is
+    bounded by one row, never the window or the whole capture.
 
     The required receipt-as-matching scenario uses original local knowledge clocks
     as simulated matching clocks. It is not observed exchange execution. Native L3
@@ -83,17 +84,17 @@ class CapturedStudyMarket:
             )
         ).hexdigest()
 
-    def read(self, window: TimeWindow) -> tuple[IntentMarket, ...]:
-        """Project controls and depth for the window, streaming the verified partition.
+    def read(self, window: TimeWindow) -> Iterator[IntentMarket]:
+        """Stream controls and depth for the window from the verified partition.
 
         Original receipts round upward to the supported microsecond clock, never
         making a message available early. Full source order breaks clock ties.
         No state before the requested window is fabricated as a starting book.
+        Rows are produced as they are consumed; none is retained here.
         """
         window.__post_init__()
         identity = self.identity
         instrument = str(self._source.request.config.instrument_id)
-        rows: list[IntentMarket] = []
         for row in self._snapshot.observations(self._request_identity):
             if row.received_ns is None:
                 raise ValueError("captured market lacks original receipt availability")
@@ -101,23 +102,20 @@ class CapturedStudyMarket:
                 microseconds=(row.received_ns + 999) // 1000
             )
             if at > window.end:
-                break
+                return
             # A capture clock changes no book, so it is no market boundary for execution.
             if at < window.start or row.outcome == "clock":
                 continue
-            rows.append(
-                IntentMarket(
-                    identity=f"{identity}:{row.position}",
-                    source_identity=identity,
-                    instrument=instrument,
-                    channel="l2",
-                    source_at=at,
-                    known_at=at,
-                    book=self._bounded(self._depth(row)),
-                    clock_assumption=self._assumption,
-                )
+            yield IntentMarket(
+                identity=f"{identity}:{row.position}",
+                source_identity=identity,
+                instrument=instrument,
+                channel="l2",
+                source_at=at,
+                known_at=at,
+                book=self._bounded(self._depth(row)),
+                clock_assumption=self._assumption,
             )
-        return tuple(rows)
 
     def _bounded(self, row: BookObservation) -> BookObservation:
         """Keep only the declared number of best levels per side, if any."""

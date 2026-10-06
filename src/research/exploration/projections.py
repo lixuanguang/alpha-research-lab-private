@@ -4,8 +4,9 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import threading
 from bisect import bisect_left, bisect_right
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -22,7 +23,6 @@ from market_data.datasets import PublicTradeObservation
 from market_data.query import BookMarketRow, BookQuery, BookQueryReader, PublicTradeResult
 from reference_data.instruments import InstrumentId
 from research.exploration.selection import (
-    BookResearchInput,
     BookSelection,
     PublicTradeResearchInput,
     PublicTradeSelection,
@@ -155,17 +155,25 @@ class SavedDecisionSource:
         for selection in self._selection.inputs:
             if not isinstance(selection, (PublicTradeSelection, BookSelection, ReferenceSelection)):
                 raise ValueError("trade selections use the window feature path, not projections")
-        dataset = self._reader.read(self._selection)
+        # Books stream through a forward cursor; every other input is read whole, once.
+        others = tuple(
+            item for item in self._selection.inputs if not isinstance(item, BookSelection)
+        )
+        read = iter(self._reader.read(ResearchSelection(inputs=others)).inputs if others else ())
         indexes: dict[str, _BookIndex | _TradeIndex | ReferenceResearchInput] = {}
-        for item, selection in zip(dataset.inputs, self._selection.inputs, strict=True):
+        for selection in self._selection.inputs:
+            if isinstance(selection, BookSelection):
+                indexes[selection.name] = _BookIndex(
+                    self._reader.books(selection.query), selection.query
+                )
+                continue
+            item = next(read)
             if isinstance(item, PublicTradeResearchInput) and isinstance(
                 selection, PublicTradeSelection
             ):
                 indexes[item.name] = _TradeIndex(
                     item.result, self._reader.public_trade_versions(selection)
                 )
-            elif isinstance(item, BookResearchInput) and isinstance(selection, BookSelection):
-                indexes[item.name] = _BookIndex(item, selection.query)
             elif isinstance(item, ReferenceResearchInput):
                 indexes[item.name] = item
             else:
@@ -391,10 +399,16 @@ class _TradeIndex:
 
 
 class _BookIndex:
-    """Return the last book row known by any cutoff from one read at the selection's cutoff.
+    """Return the last book row known by a cutoff, walking the verified book forward.
 
     Fields and units equal ``LiveBookDecisionSource``'s: visible-depth imbalance and
     the touch prices and sizes, with native L3 orders aggregated by price.
+
+    Rows stream in receipt order from one verified reader. The index keeps only the
+    row at or before the latest cutoff asked, plus the current query batch, so its
+    memory is one batch, not the book. A cutoff earlier than the previous one
+    restarts the stream; forward consumers (materialization, a study's decisions)
+    therefore read the book once. Reads are serialized by a lock.
     """
 
     UNITS: ClassVar[Mapping[str, str]] = MappingProxyType(
@@ -407,24 +421,57 @@ class _BookIndex:
         }
     )
 
-    def __init__(self, item: BookResearchInput, query: BookQuery) -> None:
-        """Index rows in source order by exact receipt nanoseconds."""
-        self._item, self._query = item, query
-        # A capture clock changes no book, so a cutoff after one reads the row before it,
-        # as the live source carries its market across a clock.
-        self._rows = tuple(
-            row
-            for batch in item.batches
-            for row in batch.rows
-            if not (isinstance(row, BookObservation) and row.outcome == "clock")
-        )
-        self._received = [-1 if row.received_ns is None else row.received_ns for row in self._rows]
+    def __init__(self, reader: BookQueryReader, query: BookQuery) -> None:
+        """Bind the verified reader and the selection's query, and open the stream."""
+        self._reader, self._query = reader, query
+        self._lock = threading.Lock()
+        self._restart()
+
+    def _restart(self) -> None:
+        """Open the stream at its first row; the first batch carries columns and evidence."""
+        self._batches = self._reader.batches(self._query)
+        first = next(self._batches)
+        self._columns = first.columns
+        self._instrument = str(first.evidence.request.config.instrument_id)
+        self._pending: Iterator[BookMarketRow | BookObservation] = iter(first.rows)
+        self._current: BookMarketRow | BookObservation | None = None
+        self._cutoff = -2
+        self._lookahead = self._next_row()
+
+    def _next_row(self) -> BookMarketRow | BookObservation | None:
+        """Return the next row that can change the book; a capture clock cannot."""
+        while True:
+            row = next(self._pending, None)
+            if row is None:
+                batch = next(self._batches, None)
+                if batch is None:
+                    return None
+                self._pending = iter(batch.rows)
+                continue
+            if not (isinstance(row, BookObservation) and row.outcome == "clock"):
+                return row
+
+    @staticmethod
+    def _received(row: BookMarketRow | BookObservation) -> int:
+        """Order rows by exact receipt nanoseconds; an unknown receipt sorts first."""
+        return -1 if row.received_ns is None else row.received_ns
+
+    def _row_at(self, cutoff: int) -> BookMarketRow | BookObservation | None:
+        """Advance to the last row received at or before the cutoff."""
+        with self._lock:
+            if cutoff < self._cutoff:
+                self._restart()
+            self._cutoff = cutoff
+            while self._lookahead is not None and self._received(self._lookahead) <= cutoff:
+                self._current = self._lookahead
+                self._lookahead = self._next_row()
+            return self._current
 
     def _fields(self, row: BookMarketRow) -> dict[str, ExactRatio] | None:
         """Aggregate visible depth by price and project imbalance and the touch."""
         bids: dict[Decimal, Fraction] = {}
         asks: dict[Decimal, Fraction] = {}
-        if self._item.batches[0].columns == ("orders",):
+        if self._columns == ("orders",):
             for order in row.values[0]:
                 if isinstance(order, Order):
                     side = bids if order.side == "buy" else asks
@@ -454,17 +501,14 @@ class _BookIndex:
     ) -> tuple[NamedObservation, ...]:
         """Project one book field of the last row known at the cutoff."""
         _Projection.units(requirement, self.UNITS[requirement.field.name])
-        if str(self._item.batches[0].evidence.request.config.instrument_id) != entity:
+        if self._instrument != entity:
             return ()
         elapsed = at - datetime(1970, 1, 1, tzinfo=UTC)
         cutoff = (elapsed.days * 86_400 + elapsed.seconds) * 1_000_000_000 + (
             elapsed.microseconds * 1000
         )
-        position = bisect_right(self._received, cutoff) - 1
-        if position < 0:
-            return ()
-        row = self._rows[position]
-        if row.received_ns is None:
+        row = self._row_at(cutoff)
+        if row is None or row.received_ns is None:
             return ()
         received = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(
             microseconds=(row.received_ns + 999) // 1000

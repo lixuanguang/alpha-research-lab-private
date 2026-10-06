@@ -4,8 +4,9 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+from collections.abc import Iterable
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
 
 # project library imports
 from research.experiments import Fingerprint, TimeWindow
@@ -45,9 +46,44 @@ class StudyMarketSource(Protocol):
         """Identify retained source bytes and the explicit execution-clock interpretation."""
         ...
 
-    def read(self, window: TimeWindow) -> tuple[IntentMarket, ...]:
-        """Return bounded canonical inputs through the terminal cutoff, preserving source order."""
+    def read(self, window: TimeWindow) -> Iterable[IntentMarket]:
+        """Yield canonical inputs through the terminal cutoff in source order.
+
+        A study consumes the rows once, in nondecreasing availability order, and
+        retains a ``StudyMarketManifest`` of them rather than the rows themselves.
+        """
         ...
+
+
+class StudyMarketManifest(WireRecord, frozen=True):
+    """Identify the market rows one fold consumed without retaining a copy of them.
+
+    The rows are reproducible from the pinned market source and window; ``sha256``
+    is over each row's canonical encoding followed by a newline, in consumed order.
+    """
+
+    source_identity: str
+    window: TimeWindow
+    rows: int
+    first_available_at: datetime | None
+    last_available_at: datetime | None
+    last_source_at: datetime | None
+    sha256: str
+    schema_version: Literal["study-market-manifest"] = "study-market-manifest"
+
+    def __post_init__(self) -> None:
+        """Require consistent counts and clocks."""
+        self.window.__post_init__()
+        clocks = (self.first_available_at, self.last_available_at, self.last_source_at)
+        if (
+            self.schema_version != "study-market-manifest"
+            or type(self.rows) is not int
+            or self.rows < 0
+            or (self.rows == 0) != all(clock is None for clock in clocks)
+            or (self.rows > 0 and any(clock is None for clock in clocks))
+            or len(self.sha256) != 64
+        ):
+            raise ValueError("invalid study market manifest")
 
 
 class StudyOutcomeSource(Protocol):

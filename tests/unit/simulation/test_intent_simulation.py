@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -171,7 +172,7 @@ class _Case:
         )
 
     def run(
-        self, decisions: tuple[DecisionRecord, ...], market: tuple[IntentMarket, ...]
+        self, decisions: tuple[DecisionRecord, ...], market: Iterable[IntentMarket]
     ) -> IntentSimulationResult:
         """Start a fresh injected ledger and execute one bounded sample."""
         ledger = Ledger(LedgerState(initial_cash=self.spec.initial_cash, dimension=self.dimension))
@@ -390,6 +391,29 @@ class TestIntentSimulation:
         assert replaced.ledger.fills == ()
         assert replaced.orders[0].reason == "replaced"
         assert replaced.orders[0].canceled == conservative.quantity("1")
+
+    def test_streamed_market_equals_the_same_rows_as_a_tuple(self) -> None:
+        """A single-use market iterator gives exactly the tuple's result; disorder is refused."""
+        case = _Case(queue_ahead="1")
+        bid = OrderIntent(
+            side="buy",
+            quantity=case.quantity("1"),
+            limit=case.price("99"),
+            time_in_force="post-only",
+        )
+        inputs = (
+            case.book(1),
+            case.trade(4, price="99", quantity="1", aggressor="sell"),
+            case.trade(5, price="99", quantity="2", aggressor="sell"),
+            case.book(10, bid="98", ask="100"),
+        )
+        decisions = (
+            case.decision(2, bid),
+            case.decision(6, TargetIntent(quantity=case.quantity("0"))),
+        )
+        assert case.run(decisions, iter(inputs)) == case.run(decisions, inputs)
+        with pytest.raises(ValueError, match="availability or sample order"):
+            case.run(decisions, iter((inputs[0], inputs[2], inputs[1], inputs[3])))
 
     def test_ioc_partial_and_post_only_crossing_are_explicit(self) -> None:
         """Displayed capacity bounds IOC fills and a crossing post-only quote is rejected."""
