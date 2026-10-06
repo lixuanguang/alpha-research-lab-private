@@ -484,8 +484,11 @@ class _ProfitChart:
                 fold_id=fold.fold_id,
                 name="net-profit",
                 at=fold.window.end,
-                units=fold.terminal_mark.net.currency.code,
-                value=ExactRatio.from_fraction(Fraction(fold.terminal_mark.net.value)),
+                units=fold.ledger.initial_cash.currency.code,
+                value=None
+                if fold.terminal_mark is None
+                else ExactRatio.from_fraction(Fraction(fold.terminal_mark.net.value)),
+                missing_reason=fold.terminal_missing_reason,
             )
             for fold in context.folds
         )

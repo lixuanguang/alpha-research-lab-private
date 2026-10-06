@@ -68,7 +68,9 @@ class TestPersistedOccurrences:
                 ts_received=datetime(2026, 9, 16, tzinfo=UTC),
                 ts_ingested=datetime(2026, 9, 16, tzinfo=UTC),
             )
-            RawStore(root).publish(path, descriptor=descriptor, request=request.binding)
+            RawStore(root).publish(
+                path, descriptor=descriptor, request=request.binding, compress=False
+            )
             descriptors.append(descriptor)
         state = AcquisitionManifest(run=run, completed=tuple(descriptors))
         state.save(root / "manifest.json")

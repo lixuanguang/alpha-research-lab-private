@@ -134,9 +134,11 @@ class _PollingTransport:
 class _LostAcknowledgement(RawStore):
     """Model death after durable raw publication but before checkpoint acknowledgement."""
 
-    def publish(self, source: Path, *, descriptor: RawObject, request: RequestBinding) -> Path:
+    def publish(
+        self, source: Path, *, descriptor: RawObject, request: RequestBinding, compress: bool
+    ) -> Path:
         """Publish bytes then fail, leaving the original pending receipt for recovery."""
-        super().publish(source, descriptor=descriptor, request=request)
+        super().publish(source, descriptor=descriptor, request=request, compress=compress)
         raise OSError("lost raw publication acknowledgement")
 
 
@@ -148,9 +150,11 @@ class _RegressedPublicationClock(RawStore):
         super().__init__(root)
         self._clock = clock
 
-    def publish(self, source: Path, *, descriptor: RawObject, request: RequestBinding) -> Path:
+    def publish(
+        self, source: Path, *, descriptor: RawObject, request: RequestBinding, compress: bool
+    ) -> Path:
         """Retain bytes before simulating a backwards wall-clock adjustment."""
-        path = super().publish(source, descriptor=descriptor, request=request)
+        path = super().publish(source, descriptor=descriptor, request=request, compress=compress)
         self._clock.at -= timedelta(seconds=1)
         return path
 

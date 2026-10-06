@@ -76,7 +76,7 @@ class TestArchiveRows:
             ts_ingested=datetime(2026, 9, 16, tzinfo=UTC),
         )
         store = RawStore(root)
-        store.publish(source, descriptor=descriptor, request=request.binding)
+        store.publish(source, descriptor=descriptor, request=request.binding, compress=False)
         return AcquisitionManifest(run=run, completed=(descriptor,)), store
 
     def test_exact_order_origins_selection_and_serialization(

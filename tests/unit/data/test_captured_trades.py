@@ -382,12 +382,17 @@ class TestCapturedTrades:
         assert '"public-trades"' in capsys.readouterr().out
 
     def test_published_history_must_equal_its_replay(self, tmp_path: Path) -> None:
-        """Reopening refuses a snapshot when the tape replay differs from the retained history."""
+        """An audit refuses a snapshot when the tape replay differs from the retained history.
+
+        A plain reopen checks digests only, so it reads the history as published.
+        """
         snapshots, raw, identity = self.publish(tmp_path, "okx")
+        store = SnapshotStore(
+            snapshots, raw, readers=_DroppingReaders(), manifest_type=PublicTradeManifest
+        )
+        assert store.read(identity, max_bytes=_LIMIT).identity == identity
         with pytest.raises(ValueError, match="differs from retained source"):
-            SnapshotStore(
-                snapshots, raw, readers=_DroppingReaders(), manifest_type=PublicTradeManifest
-            ).read(identity, max_bytes=_LIMIT)
+            store.read(identity, max_bytes=_LIMIT, rederive=True)
 
     def test_trades_capture_requires_declared_universes(self, tmp_path: Path) -> None:
         """A captured trades partition cannot be published without its universes."""

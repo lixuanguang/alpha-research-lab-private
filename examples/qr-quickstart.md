@@ -118,11 +118,11 @@ already gives a listing. For a listing no configuration names yet, author a new
 random UUID once, record it in your own configuration and universes, and never
 derive it from a symbol.
 
-Publish the completed runs. Pass every segment of a book run, and the last segment
-of a trades run (it carries its whole chain):
+Publish the completed runs. Pass the last segment of each run; it carries its whole
+chain, and passing two segments of one run is refused:
 
 ```sh
-alpha-dataset capture-publish --captures /absolute/runs/okx-btc-usdt-books/segments/<id> \
+alpha-dataset capture-publish --captures /absolute/runs/okx-btc-usdt-books/segments/<last-id> \
   /absolute/runs/okx-btc-usdt-trades/segments/<last-id> \
   --store /absolute/data/raw --snapshots /absolute/data/snapshots \
   --max-records 1000000 --max-bytes 1000000000
@@ -130,8 +130,8 @@ alpha-dataset discover --snapshots /absolute/data/snapshots \
   --max-entries 100 --max-bytes 64000000
 ```
 
-The command prints the book snapshot identity and one trades snapshot identity per
-trades run. Captured trades keep each message's coverage, so research applies the
+The command prints the book snapshot identity, holding one partition per book run,
+and one trades snapshot identity per trades run. Captured trades keep each message's coverage, so research applies the
 same synchronization, staleness and flow-window rules the live trade source does
 ([captured public trades](../src/market_data/README.md#captured-public-trades)).
 

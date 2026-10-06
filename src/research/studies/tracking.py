@@ -271,15 +271,22 @@ class ClearMLPublication:
                     trial_evaluation = self._codec.decode_json(
                         self._store.artifact(attempt_id, "trial-evaluation"), TrialEvaluation
                     )
-                    ratio = trial_evaluation.net_return
-                    projection = int(ratio.numerator) / int(ratio.denominator)
-                    if not math.isfinite(projection):
-                        raise ValueError("trial objective has no finite dashboard projection")
-                    parameters["comparison/exact_net_return"] = (
-                        f"{ratio.numerator}/{ratio.denominator}"
-                    )
-                    if task.status == "in_progress":
-                        task.get_logger().report_single_value("comparison/net_return", projection)
+                    objective = trial_evaluation.net_return
+                    if objective is None:
+                        parameters["comparison/missing_net_return"] = str(
+                            trial_evaluation.missing_reason
+                        )
+                    else:
+                        projection = int(objective.numerator) / int(objective.denominator)
+                        if not math.isfinite(projection):
+                            raise ValueError("trial objective has no finite dashboard projection")
+                        parameters["comparison/exact_net_return"] = (
+                            f"{objective.numerator}/{objective.denominator}"
+                        )
+                        if task.status == "in_progress":
+                            task.get_logger().report_single_value(
+                                "comparison/net_return", projection
+                            )
             if "factor-diagnostics" in names:
                 report = self._codec.decode_json(
                     self._store.artifact(attempt_id, "factor-diagnostics"), AlphalensReport

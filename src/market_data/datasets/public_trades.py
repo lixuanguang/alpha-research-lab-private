@@ -374,11 +374,13 @@ class PublicTradeManifest(WireRecord, frozen=True, kw_only=True):
         max_bytes: int,
         readers: DatasetReaders,
         report: Callable[[str, QualityReport], None] | None = None,
+        rederive: bool = False,
     ) -> PublicTradeManifest:
-        """Verify a pinned snapshot against retained raw responses and source pagination.
+        """Check, or with ``rederive`` reproduce, a pinned snapshot from its raw inputs.
 
         The shared SnapshotStore owns file-kind, atomic publication and filesystem
-        guarantees. A changed raw response, canonical file or source decoder fails.
+        guarantees. A changed raw response or canonical file always fails; a changed
+        source decoder fails when the snapshot is re-derived, as publication does.
         """
         if type(max_bytes) is not int or max_bytes <= 0:
             raise ValueError("public snapshot requires positive byte limit")
@@ -398,16 +400,21 @@ class PublicTradeManifest(WireRecord, frozen=True, kw_only=True):
             or hashlib.sha256(canonical).hexdigest() != partition.sha256
         ):
             raise ValueError("public canonical bytes differ from manifest")
-        if partition.acquisition is not None:
-            expected = cls.canonical(
-                partition.acquisition, store, readers=readers, max_bytes=max_bytes
-            )
-        elif partition.capture is not None:
-            expected = cls.captured(partition.capture, store, readers=readers, max_bytes=max_bytes)
+        if rederive:
+            if partition.acquisition is not None:
+                expected = cls.canonical(
+                    partition.acquisition, store, readers=readers, max_bytes=max_bytes
+                )
+            elif partition.capture is not None:
+                expected = cls.captured(
+                    partition.capture, store, readers=readers, max_bytes=max_bytes
+                )
+            else:
+                raise ValueError("public trade partition requires exactly one source")
+            if canonical != expected:
+                raise ValueError("public canonical history differs from retained source responses")
         else:
-            raise ValueError("public trade partition requires exactly one source")
-        if canonical != expected:
-            raise ValueError("public canonical history differs from retained source responses")
+            cls._check_raw(partition, store, max_bytes=max_bytes)
         if report is not None:
             report(
                 identity,
@@ -424,3 +431,27 @@ class PublicTradeManifest(WireRecord, frozen=True, kw_only=True):
                 ),
             )
         return manifest
+
+    @staticmethod
+    def _check_raw(partition: PublicTradePartition, store: RawStore, *, max_bytes: int) -> None:
+        """Verify every raw input digest the partition was derived from."""
+        if partition.acquisition is not None:
+            inputs = tuple(
+                (receipt.raw, receipt.request.binding) for receipt in partition.acquisition.receipts
+            )
+        elif partition.capture is not None:
+            capture = partition.capture
+            inputs = (
+                *(
+                    (ancestor.raw, ancestor.capture.binding)
+                    for ancestor in capture.capture_chain()[:-1]
+                ),
+                (capture.raw, capture.request.binding),
+            )
+        else:
+            raise ValueError("public trade partition requires exactly one source")
+        for descriptor, binding in inputs:
+            if descriptor.size_bytes > max_bytes:
+                raise ValueError("public raw input exceeds max_bytes")
+            with store.open(descriptor=descriptor, request=binding):
+                pass

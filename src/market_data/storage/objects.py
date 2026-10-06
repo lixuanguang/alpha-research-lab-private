@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+from compression import zstd
 from datetime import datetime
 from pathlib import Path
 
@@ -55,13 +56,21 @@ class RawFiles:
         )
 
     @classmethod
-    def verify(cls, descriptor: RawObject, path: Path, *, request: RequestBinding) -> RawObject:
+    def verify(
+        cls,
+        descriptor: RawObject,
+        path: Path,
+        *,
+        request: RequestBinding,
+        compressed: bool = False,
+    ) -> RawObject:
         """Recheck metadata, request binding and all retained bytes without changing state.
 
         Args:
             descriptor: Expected immutable byte identity and provenance.
             path: Existing saved file; callers must prevent concurrent writes.
             request: Independently expected request, checked before file access.
+            compressed: The file holds the bytes as zstd frames; verify the original bytes.
 
         Returns:
             This descriptor after successful verification, with original clocks intact.
@@ -74,7 +83,7 @@ class RawFiles:
         if type(request) is not RequestBinding or request.identity != descriptor.request_identity:
             raise ValueError("raw object request identity mismatch")
         request.__post_init__()
-        digest, size = cls._fingerprint(path)
+        digest, size = cls._fingerprint(path, compressed=compressed)
         if size != descriptor.size_bytes:
             raise ValueError(
                 f"raw object size mismatch: expected {descriptor.size_bytes}, got {size}"
@@ -86,12 +95,15 @@ class RawFiles:
         return descriptor
 
     @staticmethod
-    def _fingerprint(path: Path) -> tuple[str, int]:
-        """Hash and count the same binary stream without decoding or decompressing it."""
+    def _fingerprint(path: Path, *, compressed: bool = False) -> tuple[str, int]:
+        """Hash and count the original bytes, decompressing a zstd object first."""
         digest = hashlib.sha256()
         size = 0
-        with path.open("rb") as source:
-            while chunk := source.read(1_048_576):
-                digest.update(chunk)
-                size += len(chunk)
+        try:
+            with zstd.ZstdFile(path, "rb") if compressed else path.open("rb") as source:
+                while chunk := source.read(1_048_576):
+                    digest.update(chunk)
+                    size += len(chunk)
+        except (zstd.ZstdError, EOFError) as error:
+            raise ValueError("corrupt or truncated compressed raw object") from error
         return digest.hexdigest(), size

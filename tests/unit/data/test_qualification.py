@@ -115,7 +115,7 @@ class TestSourceQualification:
                 ts_received=_END,
                 ts_ingested=_END,
             )
-            raw.publish(path, descriptor=descriptor, request=request.binding)
+            raw.publish(path, descriptor=descriptor, request=request.binding, compress=False)
             acquisitions.append(AcquisitionManifest(run=run, completed=(descriptor,)))
         old, new = acquisitions
         old_rows = tuple(publisher.occurrences(old, raw, max_bytes=1_000_000))

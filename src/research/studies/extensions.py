@@ -235,10 +235,24 @@ class NetReturnMetric:
         total_initial = Fraction(0)
         total_net = Fraction(0)
         currencies: set[str] = set()
+        unvalued = False
         for fold in context.folds:
             initial = Fraction(fold.ledger.initial_cash.value)
-            net = Fraction(fold.terminal_mark.net.value)
             currencies.add(fold.ledger.initial_cash.currency.code)
+            if fold.terminal_mark is None:
+                unvalued = True
+                observations.append(
+                    ReportObservation(
+                        fold_id=fold.fold_id,
+                        name="net-return",
+                        at=fold.window.end,
+                        units="ratio",
+                        value=None,
+                        missing_reason=fold.terminal_missing_reason,
+                    )
+                )
+                continue
+            net = Fraction(fold.terminal_mark.net.value)
             observations.append(
                 ReportObservation(
                     fold_id=fold.fold_id,
@@ -254,6 +268,9 @@ class NetReturnMetric:
         reason = None
         if len(currencies) != 1:
             reason = "fold quote currencies differ"
+        elif unvalued:
+            # An aggregate over the valued folds alone would hide which capital it covers.
+            reason = "at least one fold is unvalued"
         elif any(observation.value is None for observation in observations):
             reason = "at least one fold has zero initial cash"
         return MetricValue(

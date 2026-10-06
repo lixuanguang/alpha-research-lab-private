@@ -303,9 +303,11 @@ class TestCapture:
         descriptor = DomainCodec().decode_json((root / "manifest.json").read_bytes(), RawObject)
         digest = descriptor.sha256
         assert isinstance(digest, str)
-        os.chmod(root / digest, 0o600)
-        (root / digest).write_bytes(b"tampered")
-        with pytest.raises(ValueError, match="size mismatch"):
+        # A sealed capture is stored compressed beside its plain live journal.
+        assert not (root / digest).exists()
+        os.chmod(root / f"{digest}.zst", 0o600)
+        (root / f"{digest}.zst").write_bytes(b"tampered")
+        with pytest.raises(ValueError, match="corrupt or truncated compressed raw object"):
             SavedCapture.read(root, book_factory=BookAdapters.create)
 
     def test_health_tracks_durable_economic_progress(self, tmp_path: Path) -> None:

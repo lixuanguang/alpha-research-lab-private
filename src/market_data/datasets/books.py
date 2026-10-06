@@ -17,10 +17,11 @@ import msgspec
 
 # project library imports
 from market_data.contracts import BookObservation, CaptureRequest, OKXArchiveRequest, RawObject
+from market_data.datasets.book_frames import BookFrameDecoder, BookFrameEncoder, StoredBookRow
 from market_data.datasets.readers import DatasetReaders
 from market_data.storage import RawStore
 from market_data.validation import QualityReport
-from serialization import DomainCodec
+from serialization import DomainCodec, FrameReader, FrameWriter
 
 
 class CaptureAncestor(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
@@ -288,7 +289,6 @@ class BookHistory(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fiel
             or type(self.input) is not CaptureInput
             or type(self.observations) is not tuple
             or not self.observations
-            or len(self.observations) > self.input.max_records
             or any(type(row) is not BookObservation for row in self.observations)
         ):
             raise ValueError("invalid canonical book history")
@@ -300,13 +300,13 @@ class BookHistory(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fiel
 class BookStreamHeader(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
     """Identify a line-delimited native history by its complete source selection."""
 
-    schema: Literal["canonical-book-stream"] = "canonical-book-stream"
+    schema: Literal["canonical-book-frames"] = "canonical-book-frames"
     scope: Literal["exploratory_degraded"] = "exploratory_degraded"
     input: CaptureInput
 
     def __post_init__(self) -> None:
         """Reject changed scope, schema or source evidence."""
-        if self.schema != "canonical-book-stream" or self.scope != "exploratory_degraded":
+        if self.schema != "canonical-book-frames" or self.scope != "exploratory_degraded":
             raise ValueError("unsupported canonical book stream")
         if type(self.input) is not CaptureInput:
             raise ValueError("book stream requires a typed input")
@@ -356,10 +356,14 @@ class BookAdmissionReport(msgspec.Struct, frozen=True, kw_only=True, forbid_unkn
 
 
 class BookStream:
-    """Write and verify exact native observations with memory bounded by one message."""
+    """Write and verify exact native observations in bounded compressed frames.
+
+    The stored file is a ``FrameWriter`` stream. Its first record is the header,
+    binding the stream to its complete source selection; every later record is one
+    ``StoredBookRow``, whole or a delta from the previous row in its frame.
+    """
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
-    _max_line_bytes: ClassVar[int] = 16_777_216
 
     @staticmethod
     def validate_row(selection: CaptureInput, position: int, row: BookObservation) -> None:
@@ -393,20 +397,12 @@ class BookStream:
             raise ValueError("captured book history requires original receipt and epoch")
 
     @classmethod
-    def _line(cls, value: object) -> bytes:
-        """Encode one canonical bounded line with exact numeric strings."""
-        line = cls._codec.encode_json(value) + b"\n"
-        if len(line) > cls._max_line_bytes:
-            raise ValueError("book canonical message exceeds line bound")
-        return line
-
-    @classmethod
-    def _header_line(cls, selection: CaptureInput) -> bytes:
+    def _header(cls, selection: CaptureInput) -> bytes:
         """Bind a stream to the complete immutable source selection."""
-        line = cls._line(BookStreamHeader(input=selection))
-        if len(line) > 1_048_576:
+        header = cls._codec.encode_json(BookStreamHeader(input=selection))
+        if len(header) > 1_048_576:
             raise ValueError("book canonical header exceeds metadata bound")
-        return line
+        return header
 
     @classmethod
     def write(
@@ -418,29 +414,23 @@ class BookStream:
         *,
         max_bytes: int,
     ) -> BookAdmissionReport:
-        """Admit raw positions and write one canonical line at a time to a staged file."""
+        """Admit raw positions and write bounded compressed frames to a staged file."""
         selection.__post_init__()
         reasons = ["visible depth only; coverage and historical eligibility unproven"]
-        digest = hashlib.sha256()
-        used = invalid = gaps = duplicates = count = 0
+        invalid = gaps = duplicates = count = 0
         try:
             if type(max_bytes) is not int or max_bytes <= 0 or selection.raw.size_bytes > max_bytes:
                 raise ValueError("book raw input exceeds max_bytes")
-            header = cls._header_line(selection)
-            output.write(header)
-            digest.update(header)
-            used += len(header)
+            frames = FrameWriter(output)
+            frames.add(cls._header(selection))
+            encoder = BookFrameEncoder()
             admitted = False
             for row in readers.books(selection, store):
-                if count >= selection.max_records:
-                    raise ValueError("book prefix exceeds selected record bound")
                 cls.validate_row(selection, count, row)
-                line = cls._line(row)
-                used += len(line)
-                if used > max_bytes:
+                stored = encoder.encode(row, frame_start=frames.at_frame_start)
+                frames.add(cls._codec.encode_json(stored))
+                if frames.stored_bytes > max_bytes:
                     raise ValueError("book canonical stream exceeds max_bytes")
-                output.write(line)
-                digest.update(line)
                 count += 1
                 invalid += row.outcome == "invalid_frame"
                 gaps += row.outcome in ("gap", "invalid_frame")
@@ -449,6 +439,9 @@ class BookStream:
                     "degraded",
                     "stale",
                 )
+            digest = frames.close()
+            if frames.stored_bytes > max_bytes:
+                raise ValueError("book canonical stream exceeds max_bytes")
             if invalid or not admitted:
                 raise ValueError("book prefix contains invalid input or no admitted reconstruction")
         except (ValueError, TypeError, OSError, OverflowError, EOFError, tarfile.TarError) as error:
@@ -470,7 +463,7 @@ class BookStream:
             gap_count=gaps,
             duplicate_count=duplicates,
             record_count=count,
-            sha256=digest.hexdigest(),
+            sha256=digest,
         )
 
     @classmethod
@@ -484,18 +477,27 @@ class BookStream:
         sha256: str,
         max_bytes: int,
     ) -> BookAdmissionReport:
-        """Compare every saved line with fresh normalization of the immutable raw source."""
+        """Compare every stored record with fresh normalization of the immutable raw source.
+
+        Each fresh row is encoded against the stored frame boundaries and must equal
+        the stored record byte for byte, so verification never re-compresses.
+        """
         with path.open("rb") as source:
             cls._check_digest(source, sha256, max_bytes=max_bytes)
-            if source.readline(1_048_577) != cls._header_line(selection):
+            records = FrameReader.records(source)
+            header = next(records, None)
+            if header is None or header != (True, cls._header(selection)):
                 raise ValueError("canonical book header differs from retained selection")
+            encoder = BookFrameEncoder()
             invalid = gaps = duplicates = count = 0
             admitted = False
             for row in readers.books(selection, store):
-                if count >= selection.max_records:
-                    raise ValueError("book prefix exceeds selected record bound")
                 cls.validate_row(selection, count, row)
-                if source.readline(cls._max_line_bytes + 1) != cls._line(row):
+                stored = next(records, None)
+                if stored is None:
+                    raise ValueError("canonical book differs from retained admission inputs")
+                frame_start, record = stored
+                if record != cls._codec.encode_json(encoder.encode(row, frame_start=frame_start)):
                     raise ValueError("canonical book differs from retained admission inputs")
                 count += 1
                 invalid += row.outcome == "invalid_frame"
@@ -505,7 +507,7 @@ class BookStream:
                     "degraded",
                     "stale",
                 )
-            if source.read(1):
+            if next(records, None) is not None:
                 raise ValueError("canonical book has unselected records")
             if invalid or not admitted:
                 raise ValueError("book prefix contains invalid input or no admitted reconstruction")
@@ -521,6 +523,36 @@ class BookStream:
             record_count=count,
             sha256=sha256,
         )
+
+    @classmethod
+    def check(
+        cls,
+        path: Path,
+        selection: CaptureInput,
+        store: RawStore,
+        *,
+        sha256: str,
+        max_bytes: int,
+    ) -> None:
+        """Check a published partition's digest, header and raw inputs without re-deriving.
+
+        Publication re-derived the partition from these raw inputs, and every digest
+        is checked, so any changed byte is refused.
+        """
+        with path.open("rb") as source:
+            cls._check_digest(source, sha256, max_bytes=max_bytes)
+            header = next(FrameReader.records(source), None)
+            if header is None or header != (True, cls._header(selection)):
+                raise ValueError("canonical book header differs from retained selection")
+        ancestors = selection.capture_chain()[:-1] if selection.capture is not None else ()
+        for descriptor, binding in (
+            *((ancestor.raw, ancestor.capture.binding) for ancestor in ancestors),
+            (selection.raw, selection.request.binding),
+        ):
+            if descriptor.size_bytes > max_bytes:
+                raise ValueError("book raw input exceeds max_bytes")
+            with store.open(descriptor=descriptor, request=binding):
+                pass
 
     @staticmethod
     def _check_digest(source: BinaryIO, expected: str, *, max_bytes: int) -> os.stat_result:
@@ -615,8 +647,9 @@ class BookDatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unkn
         max_bytes: int,
         readers: DatasetReaders,
         report: Callable[[str, QualityReport], None] | None = None,
+        rederive: bool = False,
     ) -> BookDatasetManifest:
-        """Reproduce all selected book boundaries before admitting a saved snapshot.
+        """Check, or reproduce, every selected book partition before admitting a snapshot.
 
         Args:
             readers: Selected readers and native re-decoders for complete verification.
@@ -626,6 +659,8 @@ class BookDatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unkn
             store: Retained original raw objects, protected from external mutation.
             max_bytes: Positive bound on each canonical file and original raw object.
             report: Optional sink for each reproduced partition's quality report.
+            rederive: Reproduce every partition from raw input; otherwise check every
+                partition file and raw object digest.
 
         Returns:
             Verified exploratory manifest; this format grants no trade-query capability.
@@ -642,14 +677,23 @@ class BookDatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unkn
             raise ValueError("stream admission reports require BookSnapshot.read")
         for partition in manifest.partitions:
             try:
-                BookStream.verify(
-                    partitions / partition.sha256,
-                    partition.selection,
-                    store,
-                    readers,
-                    sha256=partition.sha256,
-                    max_bytes=max_bytes,
-                )
+                if rederive:
+                    BookStream.verify(
+                        partitions / partition.sha256,
+                        partition.selection,
+                        store,
+                        readers,
+                        sha256=partition.sha256,
+                        max_bytes=max_bytes,
+                    )
+                else:
+                    BookStream.check(
+                        partitions / partition.sha256,
+                        partition.selection,
+                        store,
+                        sha256=partition.sha256,
+                        max_bytes=max_bytes,
+                    )
             except (
                 ValueError,
                 TypeError,
@@ -717,15 +761,16 @@ class BookSnapshot:
         identity: str,
         max_bytes: int,
         report: Callable[[str, BookAdmissionReport], None] | None = None,
+        rederive: bool = False,
     ) -> BookSnapshot:
-        """Reproduce selected raw histories and open an optionally reported session."""
+        """Check, or with ``rederive`` reproduce, a snapshot and open a reported session."""
         # Local import keeps the storage format independent of its publication service.
         # project library imports
         from market_data.datasets.snapshots import SnapshotStore
 
         manifest = SnapshotStore(
             directory, raw, readers=readers, manifest_type=BookDatasetManifest
-        ).read(identity, max_bytes=max_bytes)
+        ).read(identity, max_bytes=max_bytes, rederive=rederive)
         session = cls._from_verified(directory, manifest, max_bytes=max_bytes)
         if report is not None:
             for partition in manifest.partitions:
@@ -822,20 +867,25 @@ class BookSnapshot:
         path = self._root / self.identity / partition.sha256
         with path.open("rb") as source:
             original = BookStream._check_digest(source, partition.sha256, max_bytes=self.max_bytes)
-            header = self._codec.decode_json(source.readline(1_048_577), BookStreamHeader)
+            records = FrameReader.records(source)
+            first = next(records, None)
+            if first is None or not first[0]:
+                raise ValueError("canonical book stream has no header")
+            header = self._codec.decode_json(first[1], BookStreamHeader)
             header.__post_init__()
             if header.input != partition.selection:
                 raise ValueError("canonical book input differs from manifest")
+            decoder = BookFrameDecoder()
             count = 0
-            while line := source.readline(BookStream._max_line_bytes + 1):
-                if len(line) > BookStream._max_line_bytes or not line.endswith(b"\n"):
-                    raise ValueError("incomplete or oversized canonical book line")
-                row = self._codec.decode_json(line, BookObservation)
+            for frame_start, record in records:
+                row = decoder.decode(
+                    self._codec.decode_json(record, StoredBookRow), frame_start=frame_start
+                )
                 BookStream._validate_lineage(partition.selection, count, row)
                 yield row
                 count += 1
-            if not count or count > partition.selection.max_records:
-                raise ValueError("canonical book record count outside selected bound")
+            if not count:
+                raise ValueError("canonical book stream has no rows")
             current = os.fstat(source.fileno())
             if (current.st_size, current.st_mtime_ns, current.st_ctime_ns) != (
                 original.st_size,

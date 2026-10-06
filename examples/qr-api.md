@@ -30,7 +30,7 @@ name's docstring is its contract; this page says where it fits.
 | `OrderIntent` | `strategies` | One limit order: side, `Quantity`, limit price and time in force. |
 | `QuoteIntent` | `strategies` | A two-sided quote of two `OrderIntent`s. |
 | `ReportContext` | `research.reports` | What your metric or chart component receives: the study's folds and their economics. |
-| `FoldSummary` | `research.reports` | One fold's ledger, terminal mark and curve; your metric reads these from its `ReportContext`. |
+| `FoldSummary` | `research.reports` | One fold's ledger, terminal mark and curve; your metric reads these from its `ReportContext`. `terminal_mark` is `None` for a fold left holding without a fresh terminal bid, with `terminal_missing_reason`; report such a fold as missing, never as zero. |
 | `ReportObservation` | `research.reports` | One exact series value, or an explicit missing value, at its UTC clock. |
 | `MetricValue` | `research.reports` | What your metric returns: its exact value, units and per-fold evidence. |
 | `ChartSpec` | `research.reports` | What your chart returns: exact named series for a line, bar or table view. |

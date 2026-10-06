@@ -73,9 +73,10 @@ class FoldSummary(WireRecord, frozen=True, kw_only=True):
     fold_id: str
     window: TimeWindow
     ledger: LedgerState
-    terminal_mark: LedgerMark
+    terminal_mark: LedgerMark | None
     curve: tuple[LedgerPoint, ...]
     diagnostics: tuple[ReportObservation, ...] = ()
+    terminal_missing_reason: str | None = None
 
     def __post_init__(self) -> None:
         """Reject forged terminal economics, unordered marks and mislabeled diagnostics."""
@@ -85,10 +86,21 @@ class FoldSummary(WireRecord, frozen=True, kw_only=True):
             raise TypeError("fold summary requires a window and exact ledger state")
         self.window.__post_init__()
         balance = Ledger(self.ledger).balance
-        if type(self.terminal_mark) is not LedgerMark:
+        if self.terminal_mark is None:
+            # Only an open holding can lack a terminal valuation, and it must say why.
+            if (
+                not balance.holding.value
+                or type(self.terminal_missing_reason) is not str
+                or not self.terminal_missing_reason.strip()
+            ):
+                raise ValueError("an unvalued fold requires an open holding and a reason")
+        elif self.terminal_missing_reason is not None:
+            raise ValueError("a valued fold cannot have a missing reason")
+        elif type(self.terminal_mark) is not LedgerMark:
             raise TypeError("fold summary requires an exact terminal mark")
-        self.terminal_mark.__post_init__()
-        self._check_terminal_mark(balance)
+        else:
+            self.terminal_mark.__post_init__()
+            self._check_terminal_mark(balance, self.terminal_mark)
         if type(self.curve) is not tuple or not self.curve:
             raise ValueError("fold summary requires a terminal ledger curve")
         previous: datetime | None = None
@@ -103,7 +115,12 @@ class FoldSummary(WireRecord, frozen=True, kw_only=True):
             if point.mark is not None and point.mark.nav.currency != balance.cash.currency:
                 raise ValueError("ledger curve currency differs from fold currency")
             previous = point.at
-        if self.curve[-1].at != self.window.end or self.curve[-1].mark != self.terminal_mark:
+        last = self.curve[-1]
+        if (
+            last.at != self.window.end
+            or last.mark != self.terminal_mark
+            or (self.terminal_mark is None and last.missing_reason != self.terminal_missing_reason)
+        ):
             raise ValueError("ledger curve must end with the reconciled terminal mark")
         if type(self.diagnostics) is not tuple:
             raise TypeError("fold diagnostics must be immutable")
@@ -114,9 +131,8 @@ class FoldSummary(WireRecord, frozen=True, kw_only=True):
             if observation.fold_id != self.fold_id or not self.window.contains(observation.at):
                 raise ValueError("fold diagnostic is outside its decision window")
 
-    def _check_terminal_mark(self, posted: LedgerBalance) -> None:
+    def _check_terminal_mark(self, posted: LedgerBalance, mark: LedgerMark) -> None:
         """Reconcile a supplied mark against the replayed posted state without a price guess."""
-        mark = self.terminal_mark
         currency = self.ledger.initial_cash.currency
         if mark.nav.currency != currency:
             raise ValueError("terminal mark currency differs from fold currency")

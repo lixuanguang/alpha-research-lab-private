@@ -64,7 +64,7 @@ def main() -> None:
     interruption = _InterruptedPublication(arguments.point)
     with patch("market_data.storage.raw.os.link", interruption.link):
         RawStore(arguments.root).publish(
-            arguments.source, descriptor=descriptor, request=request.binding
+            arguments.source, descriptor=descriptor, request=request.binding, compress=False
         )
     raise RuntimeError("publication did not reach the requested interruption")
 

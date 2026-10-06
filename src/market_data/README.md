@@ -92,8 +92,8 @@ preserves the open socket and native state; explicit resume retains an
 interruption gap before acquiring a fresh native snapshot. A segment whose
 provisioning died before its first cursor commit holds no acknowledged record;
 resume moves it to `interrupted-segments/` rather than failing, and refuses any
-other segment that lacks a cursor. `CaptureInput` and
-`SourceAdapters` reconstruct suffix segments from their original predecessors,
+other segment that lacks a cursor. A chain's last segment is its `CaptureInput`:
+`SourceAdapters` replays the whole chain from its original predecessors in one pass,
 while `SavedCaptureRun` independently verifies the completed live trace. The
 [collector guide](../../docs/data/l3-collectors.md#finite-public-collection-with-segment-rollover)
 owns limits, process ownership and stop/resume commands. This collection path
@@ -270,8 +270,9 @@ Publication replays the whole segment chain through the venue `TradeTape` the li
 trade source uses, numbering messages from zero across segments, and retains one
 `TradeBoundary` per message: its receipt and the receipt that opened its
 synchronized interval (`TradeTapeCoverage`). Coverage closes at a gap, invalid
-frame, session end or capture end. Reopening replays the raw input again and
-refuses any difference. A trades capture needs declared universes; research access
+frame, session end or capture end. Publication replays the raw input again and
+refuses any difference; reopening checks every digest (see
+[publish and reopen](#publish-and-reopen-an-atomic-snapshot)). A trades capture needs declared universes; research access
 requires its research membership.
 
 `PublicTradeReader` returns a captured source's boundaries known by the cutoff and
@@ -502,7 +503,8 @@ retrieval reference and original aware-UTC receipt/ingestion clocks. Use
 `RawFiles.describe(..., request=request.binding, ...)` with caller-supplied
 metadata and `RawFiles.verify(descriptor, path, request=expected.binding)` to
 reopen it. Verification hashes one binary stream in one-MiB chunks, including
-compression headers/trailers and line endings; it does not decode or decompress.
+compression headers/trailers and line endings; it decodes nothing, and decompresses
+only a `RawStore` object stored compressed (`compressed=True`).
 Changed bytes, truncation, append, wrong request binding or invalid metadata
 raise `ValueError`; access failures raise `OSError`.
 
@@ -514,13 +516,19 @@ quality own the next checks.
 ## Durable raw-byte store
 
 `RawStore` takes an existing caller-provisioned directory and publishes a verified
-descriptor under its digest name. It stages on the same filesystem, flushes and
-syncs, marks the object read-only, verifies again, and uses a no-clobber hard link
-followed by directory synchronization. Matching objects are reused only after
-verification; conflicting bytes are never overwritten.
+descriptor under its digest name. `publish(..., compress=...)` is explicit: a
+compressed object is stored as zstd under the digest name with `.zst` appended, and
+the digest is always of the original bytes. Sealed capture journals are compressed;
+already compressed archives, replayed by path, and REST pages are not. It stages on
+the same filesystem, flushes and syncs, marks the object read-only, verifies again,
+and uses a no-clobber hard link followed by directory synchronization. Matching
+objects, in either encoding, are reused only after verification; conflicting bytes
+are never overwritten, and an object present in both encodings is refused.
+`copy(origin, ...)` publishes another store's object in its stored encoding.
 
 `open` accepts only the digest-named regular file, rejects symlinks/directories,
-verifies the complete object and returns a read-only stream at position zero.
+verifies the complete original bytes and returns a read-only stream of them at
+position zero.
 Interruption can leave a staging orphan or a visible object whose acknowledgement
 was lost; retry by verifying the object or republishing from the source. The
 store does not own acquisition manifests, garbage collection, transport or
@@ -659,8 +667,12 @@ manifest path or `latest` alias is never a substitute for an explicit identity.
 `DatasetPublication.publish` stages canonical files and the manifest in a hidden
 directory, synchronizes them, then publishes one directory rename. A matching
 retry verifies/reuses the existing snapshot; changed policy or inputs produce a
-new identity, and prior snapshots remain readable. `SnapshotStore.read(identity,
-...)` re-verifies every raw/canonical file and repeats admission. Callbacks receive
+new identity, and prior snapshots remain readable. Publication re-derives every
+partition from raw input before the rename. `SnapshotStore.read(identity, ...)`
+on a book or public-trade snapshot then checks the manifest identity and every
+canonical and raw digest, so any changed byte is refused; `rederive=True` (also on
+`BookSnapshot.read`) audits by re-deriving every partition. The original trade
+format always re-derives and repeats admission, because its reports come from it. Callbacks receive
 `started`, `persisted` and `complete` only at their documented durability
 boundaries; callback failure does not imply rollback.
 
@@ -784,34 +796,41 @@ and [research study protocol](../../examples/study-protocol.md#research-ticket).
 Exchange L3 or OKX native book capture/archive directories and OKX or Bitfinex
 public `trades` capture directories, an existing `RawStore`, an existing snapshot
 directory and explicit `max_records`/`max_bytes`. Every input is a `CaptureInput`
-(original request, raw object, bounded prefix and segment chain). Book inputs
-publish together as one book snapshot; each trades capture chain publishes as its
-own `public-trades` snapshot (see [captured public trades](#captured-public-trades)).
-The same path is the installed command:
+(original request, raw object, bounded prefix and segment chain). A rolled-over
+run is selected by its **last segment**, which carries the whole chain; selecting
+two segments of one chain is refused. Book inputs publish together as one book
+snapshot, with one partition per chain whose positions count from zero across it;
+each trades capture chain publishes as its own `public-trades` snapshot (see
+[captured public trades](#captured-public-trades)). The same path is the installed
+command:
 
 ```sh
-alpha-dataset capture-publish --captures /absolute/run/segment-a /absolute/run/trades \
+alpha-dataset capture-publish --captures /absolute/run/books/segments/last /absolute/run/trades \
   --store /absolute/run/raw --snapshots /absolute/run/snapshots \
   --max-records 1000000 --max-bytes 1000000000
 ```
 
 It prints the book snapshot identity (or `null`) and each trades snapshot identity.
-The `book-dataset` format writes a typed source header followed by one exact
-`BookObservation` JSON line per original raw position. Publication keeps one
-observation plus the native visible state in memory, then independently replays
-the retained raw input against every staged line before the directory is made
-visible. The manifest and partition digests identify exact bytes. Any other
-book dataset schema is refused.
+A `book-dataset` partition is a sequence of zstd frames (`FrameWriter`): a typed
+source header, then one record per original raw position. A frame's first row
+stores the whole visible state; every later row stores only its exact change from
+the row before (`StoredBookRow`), so storage grows with changes, not with depth.
+`BookSnapshot.observations` rebuilds every `BookObservation` exactly. Publication
+keeps one frame plus the native visible state in memory, then independently replays
+the retained raw input against every staged record before the directory is made
+visible. The manifest and partition digests identify exact bytes. Any other book
+dataset schema is refused.
 
-At most 1,000,000 raw positions per input are selectable for streamed publication,
-subject to each source's own record limit and the caller's raw/canonical byte cap.
+At most 1,000,000 raw positions of a chain's last segment are selectable, subject
+to each source's own record limit and the caller's raw/canonical byte cap, which
+applies to stored bytes.
 The in-memory `CaptureInput.admit` reference envelope is limited to 10,000
 positions; the online `BookCapture` parity buffer retains its own 10,000
 position bound. Publication reports use `BookAdmissionReport` with counts and a
 digest, without carrying the whole canonical file in memory. L3 orders keep native
 IDs and sizes; L2 levels keep aggregate sizes and counts; zero-size updates delete levels. Adjacent duplicates retain positions
 without repeating mutations, and conflicting native sequences reject the whole
-partition. Full visible state is a bounded reference representation. Transport
+partition. Transport
 gaps, unknown availability and selected-prefix limits remain quality controls.
 
 Only `exploratory_degraded` book publication is supported. Historical eligibility,

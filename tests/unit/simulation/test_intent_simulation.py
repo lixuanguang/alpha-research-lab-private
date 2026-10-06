@@ -231,6 +231,7 @@ class TestIntentSimulation:
         assert result.ledger.fills[0].effective == case.price("101")
         assert result.ledger.fills[0].fee == case.money("0.20")
         assert result.ledger.fills[0].quantity == case.quantity("1")
+        assert result.mark is not None and result.net_return is not None
         assert result.mark.nav == case.money("997.80")
         assert result.mark.net == case.money("-2.20")
         assert Fraction(
@@ -250,6 +251,7 @@ class TestIntentSimulation:
             (case.book(1), case.book(10)),
         )
         assert flat.ledger.fills == ()
+        assert flat.mark is not None
         assert flat.mark.nav == case.money("1000")
         assert flat.decisions[0].reason == "no_change"
         future_source = case.run(
@@ -273,6 +275,7 @@ class TestIntentSimulation:
         )
         assert result.ledger.fills[0].quantity == case.quantity("2")
         assert result.ledger.fills[0].filled_at == case.at(3)
+        assert result.mark is not None
         assert result.mark.net == case.money("-4.40")
 
     def test_idle_decisions_pay_entry_latency_without_cancel_latency(self) -> None:
@@ -369,6 +372,7 @@ class TestIntentSimulation:
         assert result.orders[0].queue_ahead == conservative.quantity("2")
         assert result.ledger.fills[0].filled_at == conservative.at(5)
         assert result.ledger.fills[0].fee == conservative.money("0.10")
+        assert result.mark is not None
         assert result.mark.net == conservative.money("-1.10")
 
         optimistic = _Case(queue_ahead="0")
@@ -421,6 +425,43 @@ class TestIntentSimulation:
         }
         assert quoted.ledger.fills == ()
 
+    def test_open_holding_without_a_fresh_terminal_bid_is_unvalued(self) -> None:
+        """A gap before the end leaves the holding unvalued, never marked at a stale bid."""
+        case = _Case()
+        gap = case.book(5)
+        assert gap.book is not None
+        gap = replace(
+            gap,
+            identity="gap:5",
+            book=replace(
+                gap.book, outcome="gap", status="recovering", reason="disconnect", bids=(), asks=()
+            ),
+        )
+        result = case.run(
+            (case.decision(2, TargetIntent(quantity=case.quantity("1"))),), (case.book(1), gap)
+        )
+        assert result.ledger.fills[0].quantity == case.quantity("1")
+        assert result.valuation_price is None
+        assert result.mark is None and result.net_return is None
+        assert result.unvalued_reason == IntentSimulationResult.unvalued_without_fresh_bid
+        assert (
+            DomainCodec().decode_json(DomainCodec().encode_json(result), IntentSimulationResult)
+            == result
+        )
+        valued = case.run(
+            (case.decision(2, TargetIntent(quantity=case.quantity("1"))),),
+            (case.book(1), case.book(10)),
+        )
+        assert valued.mark is not None
+        with pytest.raises(ValueError, match="unvalued open holding"):
+            replace(result, unvalued_reason=None)
+        with pytest.raises(ValueError, match="unvalued open holding"):
+            replace(result, mark=valued.mark)
+        with pytest.raises(ValueError, match="valued result"):
+            replace(valued, unvalued_reason="stale")
+        with pytest.raises(ValueError, match="valued result"):
+            replace(valued, mark=None, net_return=None)
+
     def test_identity_and_terminal_mark_cannot_be_silently_substituted(self) -> None:
         """Selected models, source identity and reconstructed accounting remain bound."""
         case = _Case()
@@ -432,6 +473,7 @@ class TestIntentSimulation:
         with pytest.raises(ValueError, match="market identity"):
             case.run((), (replace(case.book(1), source_identity="foreign"),))
         result = case.run((), (case.book(1), case.book(10)))
+        assert result.mark is not None
         with pytest.raises(ValueError, match="terminal mark"):
             replace(result, mark=replace(result.mark, nav=case.money("999"))).__post_init__()
 

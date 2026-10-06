@@ -400,9 +400,9 @@ class LimitOrderExecution:
             if terminal_book is None or not ledger.balance.holding.value
             else self._price(spec, max(price for price, _ in terminal_book.bids))
         )
-        if ledger.balance.holding.value and valuation is None:
-            raise ValueError("open intent holding requires a fresh terminal bid")
-        mark = ledger.mark(valuation)
+        # An open holding without a fresh terminal bid stays unvalued; no stale price.
+        unvalued = bool(ledger.balance.holding.value) and valuation is None
+        mark = None if unvalued else ledger.mark(valuation)
         return IntentSimulationResult(
             spec=spec,
             decisions=final_decisions,
@@ -410,9 +410,12 @@ class LimitOrderExecution:
             ledger=ledger.state,
             valuation_price=valuation,
             mark=mark,
-            net_return=ExactRatio.from_fraction(
+            net_return=None
+            if mark is None
+            else ExactRatio.from_fraction(
                 Fraction(mark.net.value) / Fraction(spec.initial_cash.value)
             ),
+            unvalued_reason=IntentSimulationResult.unvalued_without_fresh_bid if unvalued else None,
             limitations=(
                 "offline no-impact L2 book; depth and trades may be incomplete",
                 "passive queue position is modeled from visible same-price size",

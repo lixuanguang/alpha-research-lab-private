@@ -82,7 +82,7 @@ def main() -> None:
                 ts_received=datetime(2026, 9, 17, tzinfo=UTC),
                 ts_ingested=datetime(2026, 9, 17, tzinfo=UTC),
             )
-            store.publish(source, descriptor=origin, request=request.binding)
+            store.publish(source, descriptor=origin, request=request.binding, compress=False)
             acquisition = AcquisitionManifest(run=run, completed=(origin,))
             original, revised = tuple(
                 DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(

@@ -135,7 +135,7 @@ class TestSnapshotStore:
                 ts_received=datetime(2026, 9, 17, tzinfo=UTC),
                 ts_ingested=datetime(2026, 9, 17, tzinfo=UTC),
             )
-            store.publish(source, descriptor=descriptor, request=request.binding)
+            store.publish(source, descriptor=descriptor, request=request.binding, compress=False)
             acquisitions.append(AcquisitionManifest(run=selected, completed=(descriptor,)))
         history = EligibilityAssertions.read(
             _ROOT / "tests/fixtures/eligibility/membership-corrections.json", catalog=catalog

@@ -260,8 +260,8 @@ class TestBookDatasets:
             DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_captures(
                 (live, live), RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT
             ).book
-        (raw / selected.raw.sha256).chmod(0o644)
-        (raw / selected.raw.sha256).write_bytes(b"corrupt")
+        (raw / f"{selected.raw.sha256}.zst").chmod(0o644)
+        (raw / f"{selected.raw.sha256}.zst").write_bytes(b"corrupt")
         with pytest.raises(ValueError):
             SnapshotStore(
                 snapshots,

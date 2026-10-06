@@ -24,6 +24,7 @@ import shutil
 import signal
 import socket
 import subprocess  # nosec B404  # [owner=runtime; rationale=declared journey commands; expires=2027-03-01]
+import sys
 import tarfile
 import threading
 import time
@@ -79,6 +80,36 @@ class CaptureWindow(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
             raise ValueError("capture window needs a lead of 30-900 s and readiness inside it")
         if self.duration_seconds > 6 * 3600:
             raise ValueError("journey captures are at most six hours")
+
+
+class HostAwake:
+    """Hold a macOS sleep assertion for this process's lifetime; elsewhere, do nothing.
+
+    ``caffeinate -i -s -w PID`` prevents idle and system sleep (on AC power) until
+    this process exits, so a crash cannot leave the assertion behind.
+    """
+
+    def __init__(self) -> None:
+        """Start without an assertion."""
+        self._process: subprocess.Popen[bytes] | None = None
+
+    def __enter__(self) -> HostAwake:
+        """Take the assertion on macOS; refuse to run without it there."""
+        if sys.platform == "darwin":
+            executable = shutil.which("caffeinate")
+            if executable is None:
+                raise RuntimeError("the journey requires caffeinate to keep the host awake")
+            self._process = subprocess.Popen(  # nosec B603  # [owner=runtime; rationale=fixed system tool; expires=2027-03-01]
+                [executable, "-i", "-s", "-w", str(os.getpid())]
+            )
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        """Release the assertion."""
+        if self._process is not None:
+            self._process.terminate()
+            self._process.wait(timeout=10)
+            self._process = None
 
 
 class JourneyDeclaration(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
@@ -1954,6 +1985,15 @@ class Journey:
         )
 
     def run(self) -> Summary:
+        """Run the declared steps once, holding the host awake, stopping at the first failure.
+
+        An idle-sleeping host freezes every capture and paper service; rehearsal
+        development run 120 lost 18 of 60 captured minutes that way.
+        """
+        with HostAwake():
+            return self._steps()
+
+    def _steps(self) -> Summary:
         """Run the declared steps once, stopping at the first failure."""
         declaration = self.declaration
         through = STEPS.index(declaration.through)

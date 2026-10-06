@@ -188,7 +188,8 @@ class _Run:
             result = StudyResult.read(store, attempt)
             report = StudyReportReader.read(store, attempt)
             assert len(result.folds) == 2
-            assert tuple(f.economics.mark.net.value for f in result.folds) == (
+            assert all(f.economics.mark is not None for f in result.folds)
+            assert tuple(f.economics.mark.net.value for f in result.folds if f.economics.mark) == (
                 Decimal("-2.20"),
                 Decimal("-2.20"),
             )
@@ -518,6 +519,7 @@ class _Run:
                 assert (
                     tuple(int(value) for value in fold.model.state.decode().split(",")) == trained
                 )
+                assert fold.economics.mark is not None
                 assert fold.economics.mark.net.value == Decimal("-2.20")
                 assert fold.economics.ledger.fills[0].effective.value == Decimal("101")
                 assert fold.economics.ledger.fills[0].fee.value == Decimal("0.20")
@@ -534,10 +536,9 @@ class _Run:
             publication=local,
         )
         assert rule_result.status == "completed"
-        assert (
-            StudyResult.read(store, rule_result.start.attempt_id).folds[0].economics.mark.net.value
-            == 0
-        )
+        rule_mark = StudyResult.read(store, rule_result.start.attempt_id).folds[0].economics.mark
+        assert rule_mark is not None
+        assert rule_mark.net.value == 0
         shifted_policy = _TargetPolicy(scenario.dimension, threshold=0)
         shifted = scenario.study(
             shifted_policy, fitted=True, transformed=True, family="installed-shifted-study"
@@ -564,6 +565,7 @@ class _Run:
             assert fold.transform.fit_rows == fold.model.fit_rows
             assert len(fold.transform.fit_rows) == 2
             assert tuple(item.value for item in fold.predictions) == (prediction,)
+            assert fold.economics.mark is not None
             assert fold.economics.mark.net.value == Decimal("-2.20")
         order_policy = _OrderPolicy(scenario)
         for optimistic, filled_at, ahead in (
@@ -599,6 +601,7 @@ class _Run:
             assert len(order.fills) == 1 and order.fills[0].filled_at == filled_at
             assert order.fills[0].effective.value == Decimal("99")
             assert order.fills[0].fee.value == Decimal("0.20")
+            assert order_result.economics.mark is not None
             assert order_result.economics.mark.net.value == Decimal("-0.20")
             order_report = StudyReportReader.read(store, order_history.start.attempt_id)
             assert order_report.metrics[0].value == ExactRatio(numerator="1", denominator="1")

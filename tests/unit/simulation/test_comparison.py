@@ -112,6 +112,24 @@ class _FailedEvaluation:
         raise OSError("declared test input is unavailable")
 
 
+class _UnvaluedEvaluation:
+    """Report the trading variant without an objective, as an unvalued fold would."""
+
+    def __init__(self, evaluator: EconomicComparison) -> None:
+        """Delegate every other variant to the real evaluator."""
+        self._evaluator = evaluator
+
+    def evaluate(
+        self, run: BacktestRun, trial: Trial, store: AttemptStore, attempt_id: str
+    ) -> TrialEvaluation:
+        """Return no objective for the trading rule, with the unvalued reason."""
+        if run.economics.rule != "no-trade":
+            return TrialEvaluation(
+                net_return=None, missing_reason="1 of 1 folds unvalued: no fresh terminal bid"
+            )
+        return self._evaluator.evaluate(run, trial, store, attempt_id)
+
+
 class TestParameterComparison:
     """Exercise the real Optuna journal and installed economic adapters on known prices."""
 
@@ -232,6 +250,7 @@ class TestParameterComparison:
                 result = DomainCodec().decode_json(
                     store.artifact(attempt, "trial-evaluation"), TrialEvaluation
                 )
+                assert result.net_return is not None
                 objectives.add(
                     Fraction(int(result.net_return.numerator), int(result.net_return.denominator))
                 )
@@ -263,6 +282,7 @@ class TestParameterComparison:
                 {"rejected", "completed"},
             ),
             ("failed", definition, _FailedEvaluation(), {"failed"}),
+            ("unvalued", definition, _UnvaluedEvaluation(evaluator), {"rejected", "completed"}),
         ):
             path = tmp_path / label
             with AttemptStore(path / "attempts") as store:
@@ -274,6 +294,8 @@ class TestParameterComparison:
                 for attempt in attempts:
                     history = store.read(attempt)
                     assert history.events[-1].reason
+                    if label == "unvalued" and history.status == "rejected":
+                        assert "folds unvalued" in str(history.events[-1].reason)
                     if history.status != "completed":
                         assert history.events[-1].result is None
                         with pytest.raises(ValueError, match="completed result"):

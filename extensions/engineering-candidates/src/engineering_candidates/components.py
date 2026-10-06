@@ -217,28 +217,34 @@ class FoldNetMetric:
         observations: list[ReportObservation] = []
         total = Fraction(0)
         currencies: set[str] = set()
+        unvalued: str | None = None
         for fold in context.folds:
-            net = Fraction(fold.terminal_mark.net.value)
             currencies.add(fold.ledger.initial_cash.currency.code)
-            total += net
+            if fold.terminal_mark is None:
+                unvalued = fold.terminal_missing_reason
+            else:
+                total += Fraction(fold.terminal_mark.net.value)
             observations.append(
                 ReportObservation(
                     fold_id=fold.fold_id,
                     name="fold-net",
                     at=fold.window.end,
                     units=fold.ledger.initial_cash.currency.code,
-                    value=ExactRatio.from_fraction(net),
-                    missing_reason=None,
+                    value=None
+                    if fold.terminal_mark is None
+                    else ExactRatio.from_fraction(Fraction(fold.terminal_mark.net.value)),
+                    missing_reason=fold.terminal_missing_reason,
                 )
             )
         single = len(currencies) == 1
+        reason = "fold quote currencies differ" if not single else unvalued
         return MetricValue(
             definition=self.identity,
             name="Fold net value",
             version="1",
             units=currencies.pop() if single else "mixed",
-            value=ExactRatio.from_fraction(total) if single else None,
-            missing_reason=None if single else "fold quote currencies differ",
+            value=ExactRatio.from_fraction(total) if reason is None else None,
+            missing_reason=reason,
             observations=tuple(observations),
         )
 
@@ -269,8 +275,10 @@ class FoldNetChart:
                 name=f"fold-net ({fold.ledger.initial_cash.currency.code})",
                 at=fold.window.end,
                 units=fold.ledger.initial_cash.currency.code,
-                value=ExactRatio.from_fraction(Fraction(fold.terminal_mark.net.value)),
-                missing_reason=None,
+                value=None
+                if fold.terminal_mark is None
+                else ExactRatio.from_fraction(Fraction(fold.terminal_mark.net.value)),
+                missing_reason=fold.terminal_missing_reason,
             )
             for fold in context.folds
         )

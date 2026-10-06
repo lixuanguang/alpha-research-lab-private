@@ -7,7 +7,7 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
-from typing import Literal, Protocol
+from typing import ClassVar, Literal, Protocol
 
 # project library imports
 from accounting import Fill, Ledger, LedgerMark, LedgerState
@@ -332,23 +332,33 @@ class IntentDecisionOutcome(WireRecord, frozen=True):
 
 
 class IntentSimulationResult(WireRecord, frozen=True):
-    """Retain auditable offline orders, exact postings and a reconstructed terminal mark."""
+    """Retain auditable offline orders, exact postings and a reconstructed terminal mark.
+
+    An open holding without a fresh terminal bid is unvalued: ``mark`` and
+    ``net_return`` are absent and ``unvalued_reason`` says why. A stale price is never
+    used to value it.
+    """
+
+    unvalued_without_fresh_bid: ClassVar[str] = "no fresh terminal bid for an open holding"
 
     spec: IntentSimulationSpec
     decisions: tuple[IntentDecisionOutcome, ...]
     orders: tuple[IntentOrderOutcome, ...]
     ledger: LedgerState
     valuation_price: Price | None
-    mark: LedgerMark
-    net_return: ExactRatio
+    mark: LedgerMark | None
+    net_return: ExactRatio | None
     limitations: tuple[str, ...]
+    unvalued_reason: str | None = None
 
     def __post_init__(self) -> None:
         """Reject forged mark, return, child identity or posting attribution."""
         self.spec.__post_init__()
         self.ledger.__post_init__()
-        self.mark.__post_init__()
-        self.net_return.__post_init__()
+        if self.mark is not None:
+            self.mark.__post_init__()
+        if self.net_return is not None:
+            self.net_return.__post_init__()
         if (
             self.ledger.initial_cash != self.spec.initial_cash
             or self.ledger.dimension != self.spec.limits.maximum.dimension
@@ -390,7 +400,18 @@ class IntentSimulationResult(WireRecord, frozen=True):
             self.valuation_price.model_copy()
             if self.spec.limits_at(self.spec.end).price_reason(self.valuation_price) is not None:
                 raise ValueError("invalid terminal valuation price")
-        if Ledger(self.ledger).mark(self.valuation_price) != self.mark:
+        ledger = Ledger(self.ledger)
+        if ledger.balance.holding.value and self.valuation_price is None:
+            if (
+                self.mark is not None
+                or self.net_return is not None
+                or self.unvalued_reason != self.unvalued_without_fresh_bid
+            ):
+                raise ValueError("an unvalued open holding has no mark or return, only its reason")
+            return
+        if self.unvalued_reason is not None or self.mark is None or self.net_return is None:
+            raise ValueError("a valued result requires its mark and return, without a reason")
+        if ledger.mark(self.valuation_price) != self.mark:
             raise ValueError("terminal mark does not match exact ledger")
         expected = ExactRatio.from_fraction(
             Fraction(self.mark.net.value) / Fraction(self.spec.initial_cash.value)

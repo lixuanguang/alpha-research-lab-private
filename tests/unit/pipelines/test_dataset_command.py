@@ -63,7 +63,7 @@ class TestDatasetCommand:
             ts_received=datetime(2026, 9, 17, tzinfo=UTC),
             ts_ingested=datetime(2026, 9, 17, tzinfo=UTC),
         )
-        RawStore(raw).publish(path, descriptor=descriptor, request=request.binding)
+        RawStore(raw).publish(path, descriptor=descriptor, request=request.binding, compress=False)
         acquisition = AcquisitionManifest(run=run, completed=(descriptor,))
         acquisition.save(root / f"{symbol}.json")
         history = EligibilityAssertions.read(

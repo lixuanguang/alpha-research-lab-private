@@ -167,7 +167,7 @@ def fetch_partition(
             )
             if prepare is not None:
                 prepare(descriptor)
-            store.publish(source, descriptor=descriptor, request=request.binding)
+            store.publish(source, descriptor=descriptor, request=request.binding, compress=False)
         descriptor = replace(descriptor, ts_ingested=clock())
         progress.update(status="stored", sha256=descriptor.sha256)
         report(codec.encode_json(progress).decode())
@@ -251,7 +251,9 @@ def acquire(
             except FileNotFoundError:
                 descriptor = None
             else:
-                store.publish(manifest_path, descriptor=descriptor, request=request.binding)
+                store.publish(
+                    manifest_path, descriptor=descriptor, request=request.binding, compress=False
+                )
                 descriptor = replace(descriptor, ts_ingested=clock())
         if descriptor is None:
             for attempt in range(len(retry_delays) + 1):

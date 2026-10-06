@@ -12,7 +12,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 # third party library imports
-import msgspec
 import pytest
 from msgspec.structs import force_setattr, replace
 from test_book_datasets import TestBookDatasets as _Inputs
@@ -21,12 +20,19 @@ from test_book_replay import _View
 # project library imports
 from configuration import CaptureConfig
 from market_data.adapters.sources import SourceAdapters
-from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest
-from market_data.datasets import BookHistory, BookSnapshot, CaptureInput, DatasetPublication
+from market_data.contracts import CaptureRecord, CaptureRequest
+from market_data.datasets import (
+    BookFrameDecoder,
+    BookHistory,
+    BookSnapshot,
+    CaptureInput,
+    DatasetPublication,
+    StoredBookRow,
+)
 from market_data.query import BookMarketRow, BookQuery, BookQueryReader
 from market_data.replay import BookReplay
 from market_data.storage import CaptureJournal, RawStore
-from serialization import DomainCodec
+from serialization import DomainCodec, FrameReader
 
 _LIMIT = 1_048_576
 _END = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(seconds=1)
@@ -188,32 +194,32 @@ class TestVerifiedBookReadCost:
             session, request_identity = self._publish(tmp_path / str(updates), updates)
             partition = session.partition(request_identity)
             path = tmp_path / str(updates) / "snapshots" / session.identity / partition.sha256
-            lines = tuple(path.read_bytes().splitlines(keepends=True)[1:])
-            decode = self._median(partial(self._decode, lines))
+            with path.open("rb") as source:
+                records = tuple(FrameReader.records(source))[1:]
+            decode = self._median(partial(self._decode, records))
             read = self._median(partial(self._read, session, request_identity))
-            print(f"{len(lines)} rows: strict decode {decode:.6f}s, verified read {read:.6f}s")
+            print(f"{len(records)} rows: strict decode {decode:.6f}s, verified read {read:.6f}s")
             ratios.append(read / decode)
         # Re-running each decoded row's validation made reads about 1.36x the decode here.
         assert max(ratios) < 1.2
 
     def test_strict_row_decoding_runs_row_validation(self, tmp_path: Path) -> None:
-        """Reads rely on decoding to refuse malformed rows, so decoding must validate them."""
+        """Reads rely on rebuilding to refuse malformed rows, so rebuilding must validate them."""
         session, request_identity = self._publish(tmp_path, 2)
         partition = session.partition(request_identity)
         path = tmp_path / "snapshots" / session.identity / partition.sha256
         codec = DomainCodec()
-        line = path.read_bytes().splitlines()[3]
-        assert codec.decode_json(line, BookObservation).bids
-        fields = msgspec.json.Decoder(dict[str, object]).decode(line)
-        bids = fields["bids"]
-        assert isinstance(bids, list) and bids
+        with path.open("rb") as source:
+            record = tuple(FrameReader.records(source))[3][1]
+        stored = codec.decode_json(record, StoredBookRow)
+        assert stored.whole and stored.bids
         for field, value, message in (
             ("state_identity", "not-a-digest", "state or quality scope"),
-            ("bids", [bids[0], bids[0]], "duplicate native order or aggregate price"),
+            ("bids", (stored.bids[0], stored.bids[0]), "duplicate native order or aggregate price"),
             ("position", -1, "occurrence coordinates"),
         ):
             with pytest.raises(ValueError, match=message):
-                codec.decode_json(codec.encode_json({**fields, field: value}), BookObservation)
+                BookFrameDecoder().decode(replace(stored, **{field: value}), frame_start=True)
         assert sum(1 for _ in session.observations(request_identity)) == 6
 
     @classmethod
@@ -274,12 +280,12 @@ class TestVerifiedBookReadCost:
         return session, selected.request.identity
 
     @staticmethod
-    def _decode(lines: tuple[bytes, ...]) -> int:
-        """Strictly decode and drop each canonical row, which runs its own validation once."""
-        codec = DomainCodec()
-        for line in lines:
-            codec.decode_json(line, BookObservation)
-        return len(lines)
+    def _decode(records: tuple[tuple[bool, bytes], ...]) -> int:
+        """Strictly decode and rebuild each stored row, which validates it once."""
+        codec, decoder = DomainCodec(), BookFrameDecoder()
+        for frame_start, record in records:
+            decoder.decode(codec.decode_json(record, StoredBookRow), frame_start=frame_start)
+        return len(records)
 
     @staticmethod
     def _read(session: BookSnapshot, request_identity: str) -> int:

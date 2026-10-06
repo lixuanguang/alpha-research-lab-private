@@ -552,16 +552,16 @@ workspace and retention budgets before launch and before every manual resume.
 Include abandoned sealing files and both sources' remaining journal/publication
 growth; refuse a resume that can exceed the selected occupied-space cap without
 deleting any reconstruction evidence. Selecting a collection staging ceiling
-does not change a research acceptance profile. No compression or
-reconstruction-record discard is implemented.
+does not change a research acceptance profile. A sealed segment's raw object is
+stored zstd-compressed beside its plain live journal; no reconstruction record is
+discarded.
 
-Pass the ordered segment directories to `DatasetPublication.publish_captures` or
-`alpha-dataset capture-publish`; a trades chain publishes as one `public-trades`
-snapshot covering every segment.
+Pass each run's last segment directory to `DatasetPublication.publish_captures` or
+`alpha-dataset capture-publish`; a book chain publishes as one partition and a
+trades chain as one `public-trades` snapshot, each covering every segment.
 `CaptureInput.read` binds the exact predecessor descriptors, and `SourceAdapters`
-replays original predecessors before projecting a suffix with no new snapshot.
+replays the whole chain in one pass, positions counted from zero across it.
 Raw identities, clocks and suffix positions stay attributable. Publication copies
 the predecessor objects for portable reopening. This preserves ingestion
 compatibility; it does not establish full-run publication throughput or R1
-workspace/retention budgets. A suffix currently reconstructs its complete
-predecessor chain, so publishing every long-run segment repeats that work.
+workspace/retention budgets.
