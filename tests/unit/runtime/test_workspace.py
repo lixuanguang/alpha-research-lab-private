@@ -15,6 +15,7 @@ from typing import cast
 import pytest
 
 # project library imports
+from research.experiments import AttemptStore
 from runtime import JobQueue, JobRun, JobSpec, JobWorkerPool, WorkspaceBackup
 
 _PIN = hashlib.sha256(b"installed-test-artifact").hexdigest()
@@ -152,6 +153,16 @@ class TestWorkspaceBackup:
             fcntl.flock(writer.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             with pytest.raises(BlockingIOError):
                 WorkspaceBackup.create(source, tmp_path / "busy-backup", components=("studies",))
+
+    def test_backup_refuses_open_study_session(self, tmp_path: Path) -> None:
+        """An open AttemptStore session blocks a snapshot even between its mutations."""
+        source = tmp_path / "workspace"
+        (source / "attempts").mkdir(parents=True)
+        with AttemptStore(source / "attempts"):
+            with pytest.raises(BlockingIOError):
+                WorkspaceBackup.create(source, tmp_path / "busy-backup", components=("attempts",))
+        WorkspaceBackup.create(source, tmp_path / "backup", components=("attempts",))
+        assert not (tmp_path / "busy-backup").exists()
 
     def test_mutable_sqlite_wal_and_immutable_serving_bytes_restore(self, tmp_path: Path) -> None:
         """Capture committed WAL rows while preserving pinned Feast generation bytes."""

@@ -70,6 +70,22 @@ propagates and leaves an inspectable interrupted journal. `alpha-collect` alone
 adds optional snapshot publication; another consumer can reuse the collection
 service without importing that application.
 
+Receipts in a recording never move backwards. Both runners stamp every record on
+one `ReceiptClock`. A received message stamped before the previous receipt (a
+wall-clock step back) ends its session with the visible gap
+`receipt_clock_regressed`, and locally made records (sessions, gaps, ends) are
+never stamped earlier than the last receipt. While a connected feed receives
+nothing for its configured `clock_interval_ms`, the runner retains a `clock`
+record. A clock states only that nothing was received between the previous record
+and its receipt; it has no bytes, changes no native book, trade tape or market
+age, and is not a message for message limits. It is stamped and queued in one step,
+and only into an empty queue, so no earlier receipt can be retained after it.
+Consumers that wait for a feed to pass an instant, such as the live feature
+publisher and the shared paper observer, therefore see a quiet feed pass it within
+one interval. Readers project a clock row (outcome `clock`) like a heartbeat that
+keeps the prior market. Published book histories keep it as one row, so original
+positions stay contiguous, and market rows are unchanged.
+
 `CaptureRunRunner` supplies the separate finite public collection path with
 fixed UTC start/readiness/stop and durable segment lineage. Storage rollover
 preserves the open socket and native state; explicit resume retains an

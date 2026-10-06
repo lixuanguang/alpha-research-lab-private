@@ -572,12 +572,16 @@ class AccountAdmission:
                     raise ValueError("observation identity reused with different content")
                 return saved.matched
         account = transaction.account(observation.snapshot.account_id)
+        if observation.at < self.knowledge_at(transaction, account) or (
+            account.reconciled_at is not None and observation.at < account.reconciled_at
+        ):
+            # The account learned more after the observation was made, so it is stale,
+            # not evidence of a break: refuse it unrecorded and leave the account as is.
+            raise ValueError("observation_precedes_account_state")
         ledger = AccountLedger(account.ledger)
         orders = self.open_orders(transaction, account.ledger.account_id)
         matched = (
-            observation.at >= self.knowledge_at(transaction, account)
-            and (account.reconciled_at is None or observation.at >= account.reconciled_at)
-            and observation.snapshot == ledger.snapshot()
+            observation.snapshot == ledger.snapshot()
             and {order.identity: order for order in observation.open_orders}
             == {order.identity: order for order in orders}
             and not any(order.status == "unknown" for order in orders)
@@ -982,7 +986,9 @@ class AccountAdmission:
 
         A child not yet attached to a physical parent is cancelled at once; any other
         live order gets a durable cancel request at ``at``, which paper matching
-        honours after the scenario's cancel delay. Returns the affected parents.
+        honours after the scenario's cancel delay. An attached child records the
+        request too, so it ends with its parent instead of awaiting reissue.
+        Returns the affected parents.
         """
         affected: list[NetOrder] = []
         attached = {
@@ -1017,6 +1023,17 @@ class AccountAdmission:
                 transaction.state = replace(transaction.state, net_events=net_events)
             affected.append(updated)
         for child in transaction.state.orders:
+            if (
+                child.instance_id == instance_id
+                and not child.order.is_terminal
+                and child.order.identity in attached
+                and not child.order.cancel_requested
+            ):
+                # The parent's cancellation ends this child; it is never reissued.
+                transaction.save_order(
+                    replace(child, order=replace(child.order, cancel_requested=True))
+                )
+                continue
             if (
                 child.instance_id == instance_id
                 and not child.order.is_terminal

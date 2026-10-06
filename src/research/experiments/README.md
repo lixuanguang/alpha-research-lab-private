@@ -131,11 +131,16 @@ a reason; reproduction uses a new attempt. `publish_experiments` in the
 [studies guide](../studies/README.md) retries retained bytes and never reruns
 research.
 
-`with AttemptStore(root)` holds a nonblocking POSIX advisory writer lock for the
-workflow. A competing writer fails with `BlockingIOError`; read-only inspection
-needs no lock, and process death releases the lock. This initial contract
-supports one local writer on macOS/Linux and concurrent readers of a committed
-prefix. Network filesystems, hostile mutation, multi-host coordination,
+`with AttemptStore(root)` opens a session that may mutate the store. Several
+sessions, in one process or many, may record into one store at once, so
+independent studies can run in parallel over one family and holdout history.
+Each mutation rechecks persisted state and appends under the store's exclusive
+POSIX advisory writer lock, held only for that mutation. `store.transaction()`
+holds it across a compound check-and-write, as `evaluate_study` does for its
+idempotency key and start. A session holds a shared session lock, so a
+workspace backup refuses while any session is open. Read-only inspection needs
+no session, and process death releases both locks. This contract covers local
+macOS/Linux processes and concurrent readers of a committed prefix. Network filesystems, hostile mutation, multi-host coordination,
 corruption recovery and power-loss qualification are outside the boundary.
 Back up the complete root together with raw/snapshot and implementation artifacts.
 

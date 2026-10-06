@@ -20,6 +20,8 @@ class CaptureConfig(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
 
     A feed is a venue book channel or, for OKX and Bitfinex, the public ``trades``
     channel. A trade feed has no depth (``depth`` 0); ``max_orders`` is unused.
+    ``clock_interval_ms`` is how long a connected feed may receive nothing before its
+    writer retains a ``clock`` record, so consumers know the feed has passed an instant.
     """
 
     venue: Literal["bitfinex", "coinbase", "okx"]
@@ -37,6 +39,7 @@ class CaptureConfig(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
     max_orders: int
     retries: int
     idle_seconds: int
+    clock_interval_ms: int
     schema_version: Literal["1"] = "1"
 
     def __post_init__(self) -> None:
@@ -78,9 +81,12 @@ class CaptureConfig(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
             (self.queue_capacity, 4096),
             (self.max_orders, 1_000_000),
             (self.idle_seconds, 120),
+            (self.clock_interval_ms, 10_000),
         ):
             if type(value) is not int or not 1 <= value <= maximum:
                 raise ValueError("invalid capture resource limit")
+        if self.clock_interval_ms < 10:
+            raise ValueError("capture clock interval must be at least 10 ms")
         if self.max_bytes < 8192 or self.max_frame_bytes > self.max_bytes // 2:
             raise ValueError("journal budget must leave room for frames and control records")
         if type(self.retries) is not int or not 0 <= self.retries <= 5:

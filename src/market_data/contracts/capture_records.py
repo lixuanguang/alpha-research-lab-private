@@ -18,9 +18,11 @@ class CaptureRecord(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
     Receipt is Unix nanoseconds observed immediately after a complete WebSocket
     message reaches the application. Source clocks remain in raw bytes and may
     be absent. Control records carry fixed local reasons, never exception bodies.
+    A ``clock`` record states only that nothing was received between the previous
+    record and its receipt instant; it carries no market content.
     """
 
-    kind: Literal["session", "frame", "snapshot", "gap", "session_end", "end"]
+    kind: Literal["session", "frame", "snapshot", "gap", "session_end", "end", "clock"]
     epoch: int
     received_ns: int
     raw: bytes = b""
@@ -33,10 +35,12 @@ class CaptureRecord(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
             or type(self.received_ns) is not int
             or self.epoch < 0
             or self.received_ns <= 0
-            or self.kind not in ("session", "frame", "snapshot", "gap", "session_end", "end")
+            or self.kind
+            not in ("session", "frame", "snapshot", "gap", "session_end", "end", "clock")
             or not isinstance(self.raw, bytes)
             or not isinstance(self.reason, str)
             or (self.kind not in ("frame", "snapshot") and self.raw)
+            or (self.kind == "clock" and self.reason)
         ):
             raise ValueError("invalid capture record, epoch or receipt timestamp")
 

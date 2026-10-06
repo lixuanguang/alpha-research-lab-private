@@ -437,7 +437,12 @@ Services require explicit recovery between invocations. A paper supervisor's
 Account requests default to a complete response. Internal `PaperAccount` helpers
 select a typed `projection` for their requested read or operation receipt, so a
 checkpoint lookup does not transfer unrelated order and accounting history.
-Explicit operator inspection remains complete. The service reuses its opened
+Explicit operator inspection remains complete. An operator reads every saved
+decision's outcome with the `decisions` projection (optionally narrowed by
+`account_id`): one compact `DecisionOutcome` per decision, in commit order, with
+its instance, decision identity and time, `committed` or `rejected` status, reason,
+and the quote legs admission dropped with their reasons. A rejected batch's
+decisions carry the batch's refusal reason. The service reuses its opened
 journal handle after checking the exact configuration, path and owner; each
 query and economic transaction still reads current SQLite state. Neither response
 projection nor handle reuse changes admission checks. The store may reuse a fully

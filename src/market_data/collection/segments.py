@@ -40,12 +40,13 @@ class CaptureSegmentWriter:
         A rollover is storage only: it adds no session, end, gap or snapshot.
         """
         encoded_bytes = len(self._codec.encode_json(record)) + 1
-        original = record.kind in ("frame", "snapshot", "session")
-        reserve = 8192 if original else 0
+        # Terminal controls may use the reserve; every other record may rotate.
+        rotating = record.kind in ("frame", "snapshot", "session", "clock")
+        reserve = 8192 if rotating else 0
         if self.total_bytes + encoded_bytes > self.run.request.window.max_bytes - reserve:
             raise OverflowError("capture run byte limit")
         config = self.run.request.config
-        if original and (
+        if rotating and (
             time.monotonic() >= self.deadline
             or self.segment_messages >= config.max_messages
             or self.current.size + encoded_bytes > config.max_bytes - 4096

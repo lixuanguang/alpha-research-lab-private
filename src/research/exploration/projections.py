@@ -410,7 +410,14 @@ class _BookIndex:
     def __init__(self, item: BookResearchInput, query: BookQuery) -> None:
         """Index rows in source order by exact receipt nanoseconds."""
         self._item, self._query = item, query
-        self._rows = tuple(row for batch in item.batches for row in batch.rows)
+        # A capture clock changes no book, so a cutoff after one reads the row before it,
+        # as the live source carries its market across a clock.
+        self._rows = tuple(
+            row
+            for batch in item.batches
+            for row in batch.rows
+            if not (isinstance(row, BookObservation) and row.outcome == "clock")
+        )
         self._received = [-1 if row.received_ns is None else row.received_ns for row in self._rows]
 
     def _fields(self, row: BookMarketRow) -> dict[str, ExactRatio] | None:

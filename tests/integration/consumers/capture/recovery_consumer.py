@@ -255,9 +255,15 @@ class _Transport(VenueTransport):
         self.delays: list[float] = []
 
     async def pause(self, delay: float) -> None:
-        """Observe requested backoff without making fixture acceptance wait for wall time."""
-        if delay:
-            self.delays.append(delay)
+        """Observe requested backoff without making fixture acceptance wait for wall time.
+
+        Reconnect backoff starts at one second. Shorter waits are the capture clock's
+        idle intervals, which keep their real duration and are not backoff.
+        """
+        if delay < 1:
+            await self.sleep(delay)
+            return
+        self.delays.append(delay)
         await self.sleep(0)
 
     async def open(self, timeout: float) -> FeedSocket:

@@ -26,6 +26,7 @@ from execution.account_records import (
     AccountPaperTrace,
     AccountQuote,
     AccountView,
+    DecisionOutcome,
     NetFeeCorrection,
     NetOrder,
     PortfolioBatch,
@@ -58,6 +59,7 @@ type AccountResponseProjection = Literal[
     "reductions",
     "operation",
     "monitoring",
+    "decisions",
 ]
 
 
@@ -142,6 +144,7 @@ class AccountExecutionRequest(WireRecord, frozen=True):
             "reductions",
             "operation",
             "monitoring",
+            "decisions",
         ):
             raise ValueError("invalid account response projection")
         if self.projection == "operation":
@@ -372,6 +375,7 @@ class AccountExecutionResult(WireRecord, frozen=True):
     paper_traces: tuple[AccountPaperTrace, ...] = ()
     paper_reductions: tuple[PaperReductionResult, ...] = ()
     paper_fills: tuple[AccountPaperFill, ...] = ()
+    decision_outcomes: tuple[DecisionOutcome, ...] = ()
     paper_costs: tuple[AccountPaperCost, ...] = ()
     checkpoint: bytes | None = None
     saved_batch: PortfolioBatch | None = None

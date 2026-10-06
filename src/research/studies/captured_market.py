@@ -102,7 +102,8 @@ class CapturedStudyMarket:
             )
             if at > window.end:
                 break
-            if at < window.start:
+            # A capture clock changes no book, so it is no market boundary for execution.
+            if at < window.start or row.outcome == "clock":
                 continue
             rows.append(
                 IntentMarket(

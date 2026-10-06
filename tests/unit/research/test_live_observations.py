@@ -116,7 +116,7 @@ class _LiveScenario:
 
     def push(
         self,
-        kind: Literal["session", "frame", "snapshot", "gap", "session_end", "end"],
+        kind: Literal["session", "frame", "snapshot", "gap", "session_end", "end", "clock"],
         ns: int,
         *,
         raw: bytes = b"",
@@ -420,6 +420,43 @@ class TestLiveBookDecisionSource:
             scenario.source.read(entity, stale_at).observations[0].reason == "stale_market_progress"
         )
         assert scenario.source.current_quote(entity, stale_at) is None
+
+    def test_clocks_carry_the_market_and_age_it_like_controls(self) -> None:
+        """A clock keeps the retained market, including after a sequenced heartbeat."""
+        okx = _LiveScenario("okx", "event")
+        entity = str(okx.request.config.instrument_id)
+        okx.push("session", 999_000_000)
+        okx.push("frame", 999_500_000, raw=_OKX_ACK)
+        book = okx.push("frame", 1_000_000_001, raw=_OKX_SNAPSHOT)
+        clock = okx.push("clock", 1_250_000_000)
+        assert clock.outcome == "clock" and clock.state_identity == book.state_identity
+        assert okx.source.latest_book == book
+        at = _EPOCH + timedelta(microseconds=1_250_000)
+        carried = okx.source.read(entity, at).observations[0]
+        assert carried.value == ExactRatio(numerator="1", denominator="3")
+        assert carried.event_at == _EPOCH + timedelta(seconds=1)
+        assert okx.source.current_book(entity, at) == book
+        # Past the freshness budget a clock finds the book stale, as a heartbeat would.
+        okx.push("clock", 16_500_000_000)
+        stale_at = _EPOCH + timedelta(seconds=17)
+        stale = okx.source.read(entity, stale_at).observations[0]
+        assert stale.value is None and stale.reason.startswith("stale:")
+        assert okx.source.latest_book is None
+        assert okx.source.current_book(entity, stale_at) is None
+
+        bitfinex = _LiveScenario("bitfinex", "receipt")
+        entity = str(bitfinex.request.config.instrument_id)
+        bitfinex.push("session", 1_000_000_000)
+        bitfinex.push("frame", 1_001_000_000, raw=b'{"event":"conf","status":"OK","flags":65536}')
+        bitfinex.push("frame", 1_002_000_000, raw=_BITFINEX_ACK)
+        market = bitfinex.push("frame", 1_003_000_000, raw=b"[7,[[1,100,2],[2,101,-1]],1]")
+        bitfinex.push("frame", 2_000_000_000, raw=b'[7,"hb",2]')
+        bitfinex.push("clock", 2_250_000_000)
+        assert bitfinex.source.latest_book == market
+        at = _EPOCH + timedelta(microseconds=2_250_000)
+        assert bitfinex.source.book_at(entity, at) == market
+        observed = bitfinex.source.read(entity, at).observations[0]
+        assert observed.value == ExactRatio(numerator="1", denominator="3")
 
     def test_bitfinex_boundary_refuses_changed_identity_and_sequence_gap(self) -> None:
         """A control carry requires the exact native L3 hash at its validated sequence."""

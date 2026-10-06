@@ -1,4 +1,4 @@
-"""J6 operator steps the journey driver delegates to the installed platform.
+"""J6 and J7 operator steps the journey driver delegates to the installed platform.
 
 The driver imports no platform code. It runs this consumer with the research
 interpreter to author the signed services and account definitions from the QR's
@@ -12,8 +12,10 @@ from __future__ import annotations
 
 # standard library imports
 import argparse
+import fcntl
 import hashlib
 import shutil
+import subprocess  # nosec B404  # [owner=runtime; rationale=standalone account inspection of a restored copy; expires=2027-03-01]
 import sys
 import time
 from dataclasses import dataclass
@@ -53,34 +55,61 @@ from configuration import (
 )
 from execution import (
     AccountControl,
+    AccountControlResult,
     AccountExecutionRequest,
+    AccountExecutionResult,
     AccountJournal,
     AccountObservation,
+    AccountPaperCost,
+    AccountPaperFill,
     AccountQuote,
+    AccountView,
     InstalledPaperAccount,
+    NetOrder,
     PaperMarket,
     PaperOwner,
     SocketPaperAccount,
+    TaggedOrder,
 )
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookRegistry
 from market_data.storage import CaptureRecording
 from reference_data.instruments import InstrumentId
-from research.experiments import CandidateBundle
+from research.experiments import AttemptStore, CandidateBundle
 from research.features import FeastOfflineWorker, FeastServingBridge, VersionedFeatureStore
 from research.observations import LiveBookDecisionSource, LiveTradeDecisionSource
+from research.studies import DecisionStudy, StudyResult
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
+    AccountRecoveryReceipt,
     LiveBookDelivery,
     ServedFeatures,
     SharedBookDelivery,
     SharedDecisionRuntime,
     SharedPaperCaptureObserver,
+    WorkspaceBackup,
 )
 from serialization import DomainCodec
 
 Mode = Literal["paper", "shadow"]
+# The paper services' workspace components J7 backs up: the release's candidates, the
+# served feature store and J6's two paper service roots.
+PAPER_COMPONENTS = ("candidates", "features", "service-p-a", "service-p-b")
+# The account rules paper may refuse for and research does not model (AB-1): budgets,
+# holdings, funding, and self-trade protection between the account's working orders.
+PAPER_ONLY_REASONS = frozenset(
+    {
+        "self_trade_conflict",
+        "holding_limit",
+        "instance_limit",
+        "account_limit",
+        "firm_limit",
+        "insufficient_cash",
+        "insufficient_owned_inventory",
+        "order_notional_limit",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -858,15 +887,21 @@ class RaceCheck:
         self.codec = DomainCodec()
 
     def assess(self, account_id: str, *, contenders: tuple[str, ...]) -> PhaseGate:
-        """Pass when one contender met the shared limit because the other held, and it held.
+        """Pass when one contender met the shared limit because another held, and it held.
 
-        Which contender acts first depends on the market, so either ordering is the race;
-        a refusal while the other contender is flat is a contender's own limit, not the
-        race. Groups are read in order until the race is seen.
+        Which contender acts first depends on the market, so either ordering is the race.
+        Another contender holds when it has fills, or when its latest admitted decision
+        reserved a working order: a resting order counts against the shared limit until
+        it fills or its cancel completes. A refusal while every other contender is flat
+        and unreserved is a contender's own limit, not the race. Groups are read in order
+        until the race is seen.
         """
         fills = self.installed.execute(
             AccountExecutionRequest(action="inspect", account_id=account_id, projection="facts")
         ).paper_fills
+        decided = self.installed.execute(
+            AccountExecutionRequest(action="inspect", account_id=account_id, projection="decisions")
+        ).decision_outcomes
         outcomes: list[dict[str, object]] = []
         race: dict[str, object] | None = None
         for delivery in self.logs.books():
@@ -904,12 +939,21 @@ class RaceCheck:
                             ),
                             Decimal(0),
                         )
-                        if other != refused and held != 0 and race is None:
+                        admitted = [
+                            item
+                            for item in decided
+                            if item.instance_id == other
+                            and item.status == "committed"
+                            and item.decided_at < group.at
+                        ]
+                        reserved = bool(admitted) and admitted[-1].reason == "reserved"
+                        if other != refused and (held != 0 or reserved) and race is None:
                             race = {
                                 "at": group.at,
                                 "refused": refused,
                                 "held_by": other,
                                 "held": held,
+                                "reserved": reserved,
                             }
         ledger = AccountLedger(self.installed.accounts()[0].ledger).snapshot()
         positions = [abs(item.value) for item in ledger.positions]
@@ -1021,6 +1065,278 @@ class PhaseVerification:
         account = snapshot.get("account")
         fills = account.get("paper_fills", ()) if isinstance(account, dict) else ()
         return len(fills) if isinstance(fills, list) else 0
+
+
+class StandaloneAccount:
+    """Inspect a restored account copy through the research environment's ``account`` command.
+
+    A restored copy is not selected by any installed target, so the runbook's
+    standalone interface reads it, with the account's signed configuration.
+    """
+
+    def __init__(self, configuration: Path, journal: Path, requests: Path) -> None:
+        """Bind the account configuration, the restored journal and retained requests."""
+        self.configuration, self.journal, self.requests = configuration, journal, requests
+        self.codec = DomainCodec()
+
+    def execute(self, request: AccountExecutionRequest) -> AccountExecutionResult:
+        """Run one read request and return its typed result."""
+        payload = self.codec.encode_json(request)
+        self.requests.mkdir(parents=True, exist_ok=True)
+        path = self.requests / f"{hashlib.sha256(payload).hexdigest()}.json"
+        path.write_bytes(payload)
+        completed = subprocess.run(  # nosec B603  # [owner=runtime; rationale=fixed standalone account command; expires=2027-03-01]
+            (
+                str(Path(sys.executable).parent / "alpha-execute"),
+                "account",
+                "--config",
+                str(self.configuration),
+                "--journal",
+                str(self.journal),
+                "--request",
+                str(path),
+            ),
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stderr.decode(errors="replace").strip()[-400:])
+        return self.codec.decode_json(completed.stdout, AccountExecutionResult)
+
+
+class RetainedFacts(msgspec.Struct, frozen=True):
+    """One journal's retained facts, with each instance's latest checkpoint digest."""
+
+    accounts: tuple[AccountView, ...]
+    orders: tuple[TaggedOrder, ...]
+    net_orders: tuple[NetOrder, ...]
+    controls: tuple[AccountControlResult, ...]
+    stopped_instances: tuple[str, ...]
+    fills: tuple[AccountPaperFill, ...]
+    costs: tuple[AccountPaperCost, ...]
+    checkpoints: dict[str, str | None]
+    quarantined: bool
+
+    def differing(self, other: RetainedFacts) -> tuple[str, ...]:
+        """Name the facts that differ from ``other``, ignoring the quarantine mark."""
+        pairs: tuple[tuple[str, object, object], ...] = (
+            ("accounts", self.accounts, other.accounts),
+            ("orders", self.orders, other.orders),
+            ("net_orders", self.net_orders, other.net_orders),
+            ("controls", self.controls, other.controls),
+            ("stopped_instances", self.stopped_instances, other.stopped_instances),
+            ("fills", self.fills, other.fills),
+            ("costs", self.costs, other.costs),
+            ("checkpoints", self.checkpoints, other.checkpoints),
+        )
+        return tuple(name for name, mine, theirs in pairs if mine != theirs)
+
+    def appended(self, later: RetainedFacts) -> tuple[str, ...]:
+        """Name the append-only histories ``later`` does not extend unchanged."""
+        pairs: tuple[tuple[str, tuple[object, ...], tuple[object, ...]], ...] = (
+            ("fills", self.fills, later.fills),
+            ("costs", self.costs, later.costs),
+            ("controls", self.controls, later.controls),
+        )
+        return tuple(name for name, mine, theirs in pairs if theirs[: len(mine)] != mine)
+
+
+class ControlWindow(msgspec.Struct, frozen=True):
+    """One supervisor control the journey sent during a phase, and when it ran."""
+
+    label: str
+    started_at: datetime
+    ended_at: datetime
+
+
+class ControlWindows(msgspec.Struct, frozen=True):
+    """Every supervisor control the journey sent during its paper phases."""
+
+    controls: tuple[ControlWindow, ...]
+
+
+class RetainedJournals(msgspec.Struct, frozen=True):
+    """Every paper journal's retained facts, by account."""
+
+    accounts: dict[str, RetainedFacts]
+
+
+class AccountFacts:
+    """Read one journal's retained facts: views, orders, controls, fills and checkpoints."""
+
+    def __init__(
+        self, reader: InstalledPaperAccount | StandaloneAccount, account: PaperServiceAccount
+    ) -> None:
+        """Bind a reader of one account and its planned configuration."""
+        self.reader, self.account = reader, account
+
+    def read(self, instances: tuple[str, ...]) -> RetainedFacts:
+        """Return the account's facts read through its reader."""
+        full = self.reader.execute(AccountExecutionRequest(action="inspect"))
+        facts = self.reader.execute(
+            AccountExecutionRequest(
+                action="inspect", account_id=self.account.account_id, projection="facts"
+            )
+        )
+        checkpoints: dict[str, str | None] = {}
+        for instance in instances:
+            saved = self.reader.execute(
+                AccountExecutionRequest(
+                    action="inspect", projection="checkpoint", query_instance=instance
+                )
+            ).checkpoint
+            checkpoints[instance] = None if saved is None else hashlib.sha256(saved).hexdigest()
+        return RetainedFacts(
+            accounts=full.accounts,
+            orders=full.orders,
+            net_orders=full.net_orders,
+            controls=full.controls,
+            stopped_instances=full.stopped_instances,
+            fills=facts.paper_fills,
+            costs=facts.paper_costs,
+            checkpoints=checkpoints,
+            quarantined=full.paper_restore_quarantined,
+        )
+
+
+class BackupRecord(msgspec.Struct, frozen=True):
+    """Read the paper backup's manifest digest and each account's recovery receipt."""
+
+    paper: str
+    accounts: dict[str, AccountRecoveryReceipt]
+
+
+class Quiescence:
+    """Check that no supervisor, publisher, scheduler or account owner holds its fence."""
+
+    @staticmethod
+    def held(path: Path) -> bool:
+        """Report whether another process holds the advisory lock at ``path``."""
+        if not path.exists():
+            return False
+        with path.open("a+b") as fence:
+            try:
+                fcntl.flock(fence.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(fence.fileno(), fcntl.LOCK_UN)
+        return False
+
+    @classmethod
+    def fences(
+        cls, configuration: PaperServiceConfiguration, plan: Path, targets: Path
+    ) -> tuple[Path, ...]:
+        """Return every fence a running J6 or J7 process would hold."""
+        paths = [*sorted(plan.glob("service-*/supervisor.lock"))]
+        if configuration.features is not None:
+            paths.append(Path(configuration.features.serving_root) / "publisher.lock")
+        for account in configuration.accounts:
+            socket = Path(account.socket_path)
+            paths.append(socket.with_suffix(".scheduler.lock"))
+            paths.append(socket.parent / "supervisor.endpoint.lock")
+            paths.append(targets / account.account_id / "state/accounts.sqlite3.service.lock")
+        return tuple(sorted(set(paths)))
+
+
+class EntryDelays:
+    """Compare every paper decision delay with its study's modelled entry delay.
+
+    A decision's delay is its coordination clock less its grid instant, as the
+    delivery logs retain both. A study's modelled delay is read from its retained
+    orders (placement less decision), so it is the delay research actually applied.
+    """
+
+    def __init__(self, configuration: PaperServiceConfiguration, plan: Path) -> None:
+        """Bind the configuration and the packaged families' identities."""
+        self.configuration = configuration
+        identities = msgspec.json.decode(
+            (plan / "candidates.json").read_bytes(), type=dict[str, str]
+        )
+        self.families = {identity: family for family, identity in identities.items()}
+        self.codec = DomainCodec()
+
+    def family(self, instance: PaperServiceInstance) -> str | None:
+        """Name the QR family an instance runs, or None for a platform reference."""
+        if not isinstance(instance.candidate, PackagedCandidate):
+            return None
+        return self.families[instance.candidate.definition_sha256]
+
+    def modelled(self, attempts: Path) -> dict[str, list[int]]:
+        """Return each family's distinct modelled entry delays, in microseconds."""
+        delays: dict[str, set[int]] = {}
+        with AttemptStore(attempts) as store:
+            for history in store.histories():
+                if history.status != "completed":
+                    continue
+                family = self.codec.decode_json(history.start.request, DecisionStudy).family
+                attempt = history.start.attempt_id
+                if "study-result" not in store.artifacts(attempt):
+                    continue
+                result = StudyResult.read(store, attempt)
+                retained = msgspec.json.decode(self.codec.encode_json(result), type=object)
+                for order in self.orders(retained):
+                    placed = datetime.fromisoformat(order["placed_at"])
+                    decided = datetime.fromisoformat(order["decision_at"])
+                    delays.setdefault(family, set()).add(
+                        (placed - decided) // timedelta(microseconds=1)
+                    )
+        return {family: sorted(values) for family, values in delays.items()}
+
+    @classmethod
+    def orders(cls, value: object) -> list[dict[str, str]]:
+        """Collect every retained simulated order, wherever the result nests it."""
+        if isinstance(value, dict):
+            placed, decided = value.get("placed_at"), value.get("decision_at")
+            if isinstance(placed, str) and isinstance(decided, str):
+                return [{"placed_at": placed, "decision_at": decided}]
+            return [item for child in value.values() for item in cls.orders(child)]
+        if isinstance(value, list):
+            return [item for child in value for item in cls.orders(child)]
+        return []
+
+    def observed(self, roots: tuple[Path, ...]) -> dict[str, list[int]]:
+        """Return every decided input's delay per instance over the given phase roots."""
+        delays: dict[str, list[int]] = {}
+        for root in roots:
+            for account in self.configuration.accounts:
+                logs = DeliveryLogs(root, self.configuration, account.account_id)
+                for delivery in logs.books():
+                    for group in delivery.decisions:
+                        delay = (group.coordinated_at - group.at) // timedelta(microseconds=1)
+                        for item in group.inputs:
+                            delays.setdefault(item.instance_id, []).append(delay)
+        return delays
+
+    def gates(self, attempts: Path, roots: tuple[Path, ...]) -> tuple[PhaseGate, dict[str, object]]:
+        """Pass when each candidate's every delay is at most its study's single modelled delay."""
+        modelled = self.modelled(attempts)
+        observed = self.observed(roots)
+        table: dict[str, object] = {}
+        failed: list[str] = []
+        for instance in self.configuration.instances:
+            values = sorted(observed.get(instance.instance_id, ()))
+            family = self.family(instance)
+            bound = modelled.get(family, []) if family is not None else []
+            row: dict[str, object] = {
+                "family": family,
+                "modelled_us": bound,
+                "decisions": len(values),
+            }
+            if values:
+                row.update(
+                    p50_us=values[len(values) // 2],
+                    p90_us=values[int(len(values) * 0.9)],
+                    p99_us=values[min(len(values) - 1, int(len(values) * 0.99))],
+                    max_us=values[-1],
+                )
+            table[instance.instance_id] = row
+            if family is not None and (len(bound) != 1 or (values and values[-1] > bound[0])):
+                failed.append(instance.instance_id)
+        return (
+            PhaseGate("decision_delay_within_modelled_entry_delay", not failed, {"failed": failed}),
+            table,
+        )
 
 
 class JourneyPaper:
@@ -1241,10 +1557,18 @@ class JourneyPaper:
             if arguments.stop.exists():
                 break
             for account_id, installed in sorted(clients.items()):
-                observed = PaperObservation(installed, account_id).observe(
-                    self.accepted_market(account_id)
-                )
-                matched = installed.reconcile(observed)
+                # A decision landing between the read and the reconcile makes the
+                # observation stale; the account refuses it unrecorded, so re-observe.
+                for attempt in range(3):
+                    observed = PaperObservation(installed, account_id).observe(
+                        self.accepted_market(account_id)
+                    )
+                    try:
+                        matched = installed.reconcile(observed)
+                        break
+                    except RuntimeError as error:
+                        if "observation_precedes_account_state" not in str(error) or attempt == 2:
+                            raise
                 with log.open("ab") as stream:
                     stream.write(
                         self.codec.encode_json(
@@ -1260,6 +1584,361 @@ class JourneyPaper:
                     )
                 if not matched:
                     raise SystemExit(f"reconciliation mismatch on {account_id}")
+
+    def print_gates(self, gates: list[PhaseGate]) -> None:
+        """Print criteria in the driver's gate shape."""
+        print(self.codec.encode_json(tuple(gates)).decode())
+
+    def instances(self, account_id: str) -> tuple[str, ...]:
+        """Return an account's planned instances."""
+        return tuple(
+            item.instance_id
+            for item in self.configuration().instances
+            if item.account_id == account_id
+        )
+
+    def quiesce(self) -> None:
+        """J7: refuse while any fence is held, and stop every paper account still running."""
+        arguments = self.arguments
+        configuration = self.configuration()
+        fences = Quiescence.fences(configuration, arguments.plan, arguments.targets)
+        held = [str(path) for path in fences if Quiescence.held(path)]
+        gates = [
+            PhaseGate("nothing_running", not held, {"held": held, "fences": len(fences)}),
+        ]
+        phases: dict[str, dict[str, object]] = {}
+        for account in configuration.accounts:
+            installed = self.installed(account)
+            before = installed.accounts()[0].phase
+            observed: dict[str, object] = {"before": before}
+            if before == "running":
+                state = installed.execute(AccountExecutionRequest(action="inspect"))
+                installed.paper_owner = state.paper_activations[0].owner
+                stop = installed.control(
+                    AccountControl(
+                        identity=f"{account.account_id}-j7-stop-{uuid4().hex[:8]}",
+                        account_id=account.account_id,
+                        kind="stop",
+                        at=datetime.now(UTC),
+                        reason="J7 quiesced backup",
+                    )
+                )
+                observed["stop"] = stop.status
+            observed["phase"] = installed.accounts()[0].phase
+            phases[account.account_id] = observed
+        gates.append(
+            PhaseGate(
+                "paper_accounts_stopped",
+                all(item["phase"] in ("stopped", "faulted") for item in phases.values()),
+                phases,
+            )
+        )
+        self.print_gates(gates)
+
+    def backup(self) -> None:
+        """J7: back up the paper services' components and every stopped paper account."""
+        arguments = self.arguments
+        backup = arguments.backup
+        paper = WorkspaceBackup.create(
+            arguments.plan, backup / "paper", components=PAPER_COMPONENTS
+        )
+        (backup / "accounts").mkdir()
+        receipts: dict[str, AccountRecoveryReceipt] = {}
+        for account in self.configuration().accounts:
+            result = self.installed(account).execute(
+                AccountExecutionRequest(
+                    action="backup", backup_root=str(backup / "accounts" / account.account_id)
+                )
+            )
+            if result.recovery is None:
+                raise ValueError(f"account backup of {account.account_id} returned no receipt")
+            receipts[account.account_id] = result.recovery
+        self.write(arguments.record, {"paper": paper, "accounts": receipts})
+
+    def restore(self) -> None:
+        """J7: restore the paper components and accounts and check each restored copy."""
+        arguments = self.arguments
+        configuration = self.configuration()
+        record = self.codec.decode_json(arguments.record.read_bytes(), BackupRecord)
+        restored = arguments.restored / "paper"
+        manifest = WorkspaceBackup.restore(arguments.backup / "paper", restored)
+        digest = hashlib.sha256((arguments.backup / "paper/manifest.json").read_bytes()).hexdigest()
+        gates = [
+            PhaseGate(
+                "paper_manifest_equal",
+                manifest == WorkspaceBackup.verify(arguments.backup / "paper")
+                and digest == record.paper,
+                {"manifest_sha256": digest, "files": len(manifest.files)},
+            )
+        ]
+        # The restored store must serve every J6 snapshot exactly: replay J6's
+        # retained deliveries from the restored roots against it.
+        if configuration.features is None:
+            raise ValueError("paper services serve no features")
+        features = msgspec.structs.replace(
+            configuration.features,
+            store_path=str(restored / "features/store.sqlite3"),
+            serving_root=str(restored / "features/feast"),
+        )
+        reopened = msgspec.structs.replace(configuration, features=features)
+        replayed: dict[str, dict[str, object]] = {}
+        for root in (name for name in PAPER_COMPONENTS if name.startswith("service-")):
+            # Each phase replays into its own scratch journals.
+            scratch = arguments.restored / "replay" / root
+            scratch.mkdir(parents=True)
+            replay = DeliveryReplay(reopened, restored / "candidates", scratch)
+            for item in reopened.accounts:
+                replayed[f"{root}/{item.account_id}"] = replay.replay(
+                    item, DeliveryLogs(restored / root, reopened, item.account_id)
+                )
+        gates.append(
+            PhaseGate(
+                "restored_store_serves_equal_values",
+                all(value["first_difference"] is None for value in replayed.values()),
+                replayed,
+            )
+        )
+        (arguments.restored / "accounts").mkdir()
+        accounts: dict[str, object] = {}
+        for account in configuration.accounts:
+            installed = self.installed(account)
+            backed = record.accounts[account.account_id]
+            target = arguments.restored / "accounts" / account.account_id
+            result = installed.execute(
+                AccountExecutionRequest(
+                    action="restore",
+                    backup_root=str(arguments.backup / "accounts" / account.account_id),
+                    restore_root=str(target),
+                    manifest_sha256=backed.manifest_sha256,
+                )
+            )
+            if result.journal_path is None:
+                raise ValueError(f"account restore of {account.account_id} named no journal")
+            copy = StandaloneAccount(
+                arguments.plan / f"account-{account.account_id}.json",
+                Path(result.journal_path),
+                arguments.plan / "requests" / f"{account.account_id}-restored",
+            )
+            instances = self.instances(account.account_id)
+            retained = AccountFacts(installed, account).read(instances)
+            reopened_facts = AccountFacts(copy, account).read(instances)
+            accounts[account.account_id] = {
+                "receipt_equal": result.recovery == backed,
+                "differing": reopened_facts.differing(retained),
+                "quarantined": reopened_facts.quarantined,
+                "retained_quarantined": retained.quarantined,
+            }
+        gates.append(
+            PhaseGate(
+                "restored_accounts_equal_and_quarantined",
+                all(
+                    item["receipt_equal"] is True
+                    and not item["differing"]
+                    and item["quarantined"] is True
+                    and item["retained_quarantined"] is False
+                    for item in accounts.values()
+                    if isinstance(item, dict)
+                ),
+                accounts,
+            )
+        )
+        self.print_gates(gates)
+
+    def upgrade(self) -> None:
+        """J7: author services v2, revision 2 with the inactive instance active."""
+        configuration = self.configuration()
+        if self.arguments.instance in configuration.active:
+            raise ValueError("the upgrade instance is already active")
+        active: tuple[str, ...] = (*configuration.active, self.arguments.instance)
+        self.write(
+            self.arguments.output,
+            msgspec.structs.replace(
+                configuration,
+                revision=configuration.revision + 1,
+                previous_sha256=configuration.identity,
+                active=active,
+            ),
+        )
+
+    def facts(self) -> None:
+        """J7: retain every paper journal's facts."""
+        self.write(
+            self.arguments.output,
+            RetainedJournals(
+                accounts={
+                    account.account_id: AccountFacts(self.installed(account), account).read(
+                        self.instances(account.account_id)
+                    )
+                    for account in self.configuration().accounts
+                }
+            ),
+        )
+
+    def late(self) -> None:
+        """J7: the activated instance decided during phase U."""
+        arguments = self.arguments
+        account = next(
+            item.account_id
+            for item in self.configuration().instances
+            if item.instance_id == arguments.instance
+        )
+        upgraded = self.codec.decode_json(
+            arguments.services.read_bytes(), PaperServiceConfiguration
+        )
+        decided = sum(
+            any(item.instance_id == arguments.instance for item in group.inputs)
+            for delivery in DeliveryLogs(arguments.root, upgraded, account).books()
+            for group in delivery.decisions
+        )
+        fills = [
+            item
+            for item in self.installed(self.account(account))
+            .execute(
+                AccountExecutionRequest(action="inspect", account_id=account, projection="facts")
+            )
+            .paper_fills
+            if item.instance_id == arguments.instance
+        ]
+        # Whether it also trades depends on the market and on the shared limit the race
+        # exhausts, so its fills are retained, not required.
+        self.print_gates(
+            [
+                PhaseGate(
+                    "late_instance_decided", decided > 0, {"groups": decided, "fills": len(fills)}
+                )
+            ]
+        )
+
+    def rollback_check(self) -> None:
+        """J7: after the rollback, journals keep their facts and the store its v2 snapshots."""
+        arguments = self.arguments
+        before, after = (
+            self.codec.decode_json(path.read_bytes(), RetainedJournals).accounts
+            for path in (arguments.before, arguments.after)
+        )
+        lost: dict[str, list[str]] = {}
+        for account_id, earlier in before.items():
+            later = after[account_id]
+            lost[account_id] = list(earlier.appended(later))
+            current = {item.order.identity: item for item in later.orders}
+            if any(
+                current.get(item.order.identity) != item
+                for item in earlier.orders
+                if item.order.is_terminal
+            ):
+                lost[account_id].append("terminal_orders")
+        gates = [PhaseGate("rollback_keeps_retained_facts", not any(lost.values()), lost)]
+        late = arguments.instance
+        account = next(
+            item.account_id for item in self.configuration().instances if item.instance_id == late
+        )
+        orders = [
+            sorted(
+                item.order.identity for item in facts[account].orders if item.instance_id == late
+            )
+            for facts in (before, after)
+        ]
+        fills = [
+            sum(1 for item in facts[account].fills if item.instance_id == late)
+            for facts in (before, after)
+        ]
+        held = before[account].checkpoints[late] == after[account].checkpoints[late]
+        gates.append(
+            PhaseGate(
+                "late_instance_held_and_placed_nothing",
+                held and orders[0] == orders[1] and fills[0] == fills[1],
+                {
+                    "checkpoint_unchanged": held,
+                    "orders": [len(item) for item in orders],
+                    "fills": fills,
+                },
+            )
+        )
+        # The store still serves every snapshot published under v2: U replays exactly.
+        upgraded = self.codec.decode_json(
+            arguments.services.read_bytes(), PaperServiceConfiguration
+        )
+        scratch = arguments.plan / "replay-u"
+        scratch.mkdir(exist_ok=True)
+        replay = DeliveryReplay(upgraded, arguments.plan / "candidates", scratch)
+        replayed = {
+            item.account_id: replay.replay(
+                item, DeliveryLogs(arguments.root, upgraded, item.account_id)
+            )
+            for item in upgraded.accounts
+        }
+        gates.append(
+            PhaseGate(
+                "store_keeps_upgraded_snapshots",
+                all(value["first_difference"] is None for value in replayed.values()),
+                replayed,
+            )
+        )
+        self.print_gates(gates)
+
+    def refusals(self) -> None:
+        """J7: every paper refusal and dropped leg carries a declared paper-only reason.
+
+        Paper enforces budgets research does not model (AB-1), so a budget-bound
+        decision research admits may be refused here, but for no other reason.
+        """
+        # An operator control stamps the account's clock while it runs, so a decision
+        # whose instant falls inside one is refused as stale: attributed, not unexplained.
+        windows = tuple(
+            (item.started_at, item.ended_at)
+            for item in self.codec.decode_json(
+                self.arguments.controls.read_bytes(), ControlWindows
+            ).controls
+        )
+        counts: dict[str, dict[str, int]] = {}
+        other: list[dict[str, object]] = []
+        for account in self.configuration().accounts:
+            outcomes = (
+                self.installed(account)
+                .execute(
+                    AccountExecutionRequest(
+                        action="inspect", account_id=account.account_id, projection="decisions"
+                    )
+                )
+                .decision_outcomes
+            )
+            for outcome in outcomes:
+                reasons = ((outcome.reason,) if outcome.status == "rejected" else ()) + tuple(
+                    leg.reason for leg in outcome.dropped
+                )
+                for reason in reasons:
+                    tally = counts.setdefault(outcome.instance_id, {})
+                    tally[reason] = tally.get(reason, 0) + 1
+                    attributed = reason == "decision_precedes_account_state" and any(
+                        start <= outcome.decided_at <= end for start, end in windows
+                    )
+                    if reason not in PAPER_ONLY_REASONS and not attributed:
+                        other.append(
+                            {
+                                "instance": outcome.instance_id,
+                                "at": outcome.decided_at,
+                                "reason": reason,
+                            }
+                        )
+        self.write(self.arguments.output, counts)
+        self.print_gates(
+            [
+                PhaseGate(
+                    "refusals_carry_paper_only_reasons",
+                    not other,
+                    {"other": other[:20], "counts": counts},
+                )
+            ]
+        )
+
+    def delays(self) -> None:
+        """J7: every paper decision delay is within its study's modelled entry delay."""
+        arguments = self.arguments
+        gate, table = EntryDelays(self.configuration(), arguments.plan).gates(
+            arguments.attempts, tuple(Path(item) for item in arguments.roots.split(","))
+        )
+        self.write(arguments.output, table)
+        self.print_gates([gate])
 
 
 class JourneyPaperArguments(argparse.Namespace):
@@ -1290,6 +1969,15 @@ class JourneyPaperArguments(argparse.Namespace):
     root: Path
     alerts: Path
     race: bool
+    backup: Path
+    record: Path
+    restored: Path
+    services: Path
+    before: Path
+    after: Path
+    attempts: Path
+    roots: str
+    controls: Path
 
 
 class JourneyPaperParser:
@@ -1304,6 +1992,15 @@ class JourneyPaperParser:
         "serve-requests",
         "reclaim",
         "verify",
+        "quiesce",
+        "backup",
+        "restore",
+        "upgrade",
+        "facts",
+        "late",
+        "rollback-check",
+        "delays",
+        "refusals",
     )
 
     @classmethod
@@ -1326,9 +2023,34 @@ class JourneyPaperParser:
         ):
             named["plan"].add_argument(f"--{name}", type=Path, required=True)
         named["plan"].add_argument("--duration", type=int, required=True)
-        for command in ("claim", "reclaim"):
+        for command in (
+            "claim",
+            "reclaim",
+            "quiesce",
+            "backup",
+            "restore",
+            "facts",
+            "late",
+            "refusals",
+        ):
             for name in ("launcher", "targets", "policy"):
                 named[command].add_argument(f"--{name}", type=Path, required=True)
+        for command in ("backup", "restore"):
+            for name in ("backup", "record"):
+                named[command].add_argument(f"--{name}", type=Path, required=True)
+        named["restore"].add_argument("--restored", type=Path, required=True)
+        for command in ("upgrade", "late", "rollback-check"):
+            named[command].add_argument("--instance", required=True)
+        for command in ("upgrade", "facts", "delays", "refusals"):
+            named[command].add_argument("--output", type=Path, required=True)
+        for command in ("late", "rollback-check"):
+            named[command].add_argument("--root", type=Path, required=True)
+            named[command].add_argument("--services", type=Path, required=True)
+        for name in ("before", "after"):
+            named["rollback-check"].add_argument(f"--{name}", type=Path, required=True)
+        named["delays"].add_argument("--attempts", type=Path, required=True)
+        named["refusals"].add_argument("--controls", type=Path, required=True)
+        named["delays"].add_argument("--roots", required=True)
         named["reclaim"].add_argument("--account", required=True)
         named["reclaim"].add_argument("--root", type=Path, required=True)
         named["serve-requests"].add_argument("--seconds", type=int, required=True)
@@ -1363,6 +2085,15 @@ def main() -> None:
         "serve-requests": journey.serve_requests,
         "reclaim": journey.reclaim,
         "verify": journey.verify,
+        "quiesce": journey.quiesce,
+        "backup": journey.backup,
+        "restore": journey.restore,
+        "upgrade": journey.upgrade,
+        "facts": journey.facts,
+        "late": journey.late,
+        "rollback-check": journey.rollback_check,
+        "delays": journey.delays,
+        "refusals": journey.refusals,
     }[arguments.step]()
 
 

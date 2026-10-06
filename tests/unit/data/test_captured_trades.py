@@ -80,6 +80,7 @@ class CapturedTradesFixture:
             max_orders=1,
             retries=1,
             idle_seconds=5,
+            clock_interval_ms=250,
         )
 
     @classmethod

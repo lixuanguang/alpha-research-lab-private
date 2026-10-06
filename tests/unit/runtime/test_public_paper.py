@@ -396,8 +396,8 @@ class TestSharedPublicPaper:
         cls,
         position: int,
         *,
-        seconds: int,
-        kind: Literal["session", "frame", "gap", "session_end", "end"],
+        seconds: float,
+        kind: Literal["session", "frame", "gap", "session_end", "end", "clock"],
         outcome: str,
         status: str,
         reason: str,
@@ -406,13 +406,13 @@ class TestSharedPublicPaper:
     ) -> SharedBookDelivery:
         """Author a canonical received control or two-sided market boundary."""
         at = cls.at + timedelta(seconds=seconds)
-        received_ns = int(at.timestamp()) * 1_000_000_000
+        received_ns = round(at.timestamp() * 1_000) * 1_000_000
         record = CaptureRecord(
             kind=kind,
             epoch=0,
             received_ns=received_ns,
             raw=b"{}" if kind == "frame" else b"",
-            reason=reason if kind not in ("frame", "session") else "",
+            reason=reason if kind not in ("frame", "session", "clock") else "",
         )
         level = Level(size=Decimal("4"), order_count=1)
         row = BookObservation(
@@ -817,6 +817,116 @@ class TestSharedPublicPaper:
         with pytest.raises(ValueError, match="replayed decision grid"):
             fresh.deliver(unmatched)
 
+    @classmethod
+    def _idle(cls, kind: str, position: int, seconds: float) -> SharedBookDelivery:
+        """Author a clock or heartbeat that leaves the authored market unchanged."""
+        return cls._delivery(
+            position,
+            seconds=seconds,
+            kind="clock" if kind == "clock" else "frame",
+            outcome=kind,
+            status="degraded",
+            reason="visible_depth_only",
+        )
+
+    @pytest.mark.parametrize("kind", ("clock", "heartbeat"))
+    def test_fresh_non_market_deliveries_decide_and_the_next_book_matches(
+        self, tmp_path: Path, kind: str
+    ) -> None:
+        """Time advances on any fresh delivery; only the next eligible book matches.
+
+        On a three-second grid at -0.5 s, a clock or heartbeat at 3 s crosses 2.5 s and
+        decides from the 2 s market without matching. The book at 4 s, between instants,
+        then matches that decision's order. Replay reproduces both deliveries exactly.
+        """
+        seconds = (0, 1, 2, 3, 3.5, 4)
+        times = tuple(self.at + timedelta(seconds=value) for value in seconds)
+        observer, journal = self._observer(
+            tmp_path / "timed.sqlite3",
+            clock=_SequenceClock(times),
+            cadence_us=3_000_000,
+            retain=True,
+            deciding=True,
+        )
+        assert journal.reconcile(self._opening())
+        markets = self._markets()
+        later = replace(
+            markets[4],
+            source=replace(
+                markets[4].source,
+                book=replace(markets[4].source.book, position=5),
+            ),
+        )
+        deliveries = (*markets[:3], self._idle(kind, 3, 3), self._idle(kind, 4, 3.5), later)
+        for index, delivery in enumerate(deliveries):
+            observer.observe(delivery.source.record, delivery.source.book)
+            if index == 3:
+                assert journal.checkpoint("alpha") is not None
+                assert len(journal.paper_traces("paper")) == 1
+        codec = DomainCodec()
+        retained = tuple(
+            codec.decode_json(line, SharedBookDelivery)
+            for line in (tmp_path / "timed.jsonl").read_bytes().splitlines()
+        )
+        assert tuple(item.matched for item in retained) == (False, True, False, False, False, True)
+        (group,) = retained[3].decisions
+        assert group.at == self.at + timedelta(milliseconds=2500)
+        assert group.quote.at == times[2]
+        assert group.coordinated_at == group.at + timedelta(microseconds=1)
+        assert not retained[4].decisions and not retained[5].decisions
+        assert len(journal.paper_traces("paper")) == 2
+        assert AccountLedger(journal.accounts()[0].ledger).snapshot().positions == (
+            self._quantity("1"),
+        )
+
+        replay, recovered = self._observer(
+            tmp_path / "replay.sqlite3", cadence_us=3_000_000, deciding=True
+        )
+        assert recovered.reconcile(self._opening())
+        for delivery in retained:
+            replay.deliver(delivery)
+        assert recovered.orders() == journal.orders()
+        assert recovered.paper_traces("paper") == journal.paper_traces("paper")
+        assert recovered.checkpoint("alpha") == journal.checkpoint("alpha")
+        fresh, opened = self._observer(
+            tmp_path / "unmatched.sqlite3", cadence_us=3_000_000, deciding=True
+        )
+        assert opened.reconcile(self._opening())
+        for delivery in retained[:5]:
+            fresh.deliver(delivery)
+        with pytest.raises(ValueError, match="replayed decision grid"):
+            fresh.deliver(replace(retained[5], matched=False))
+
+    def test_a_stale_book_decides_nothing_on_a_clock(self, tmp_path: Path) -> None:
+        """A clock past the market's freshness neither crosses nor decides."""
+        times = tuple(self.at + timedelta(seconds=value) for value in (0, 1, 7))
+        observer, journal = self._observer(
+            tmp_path / "stale.sqlite3",
+            clock=_SequenceClock(times),
+            cadence_us=3_000_000,
+            retain=True,
+            deciding=True,
+        )
+        assert journal.reconcile(self._opening())
+        deliveries = (
+            *self._markets()[:2],
+            self._delivery(
+                2,
+                seconds=7,
+                kind="clock",
+                outcome="clock",
+                status="degraded",
+                reason="visible_depth_only",
+            ),
+        )
+        for delivery in deliveries:
+            observer.observe(delivery.source.record, delivery.source.book)
+        retained = (tmp_path / "stale.jsonl").read_bytes().splitlines()
+        last = DomainCodec().decode_json(retained[-1], SharedBookDelivery)
+        assert not last.decisions and not last.matched
+        assert journal.checkpoint("alpha") is None
+        assert journal.accounts()[0].operator_block == "public_input_invalid"
+
     def test_mixed_grids_read_shared_sources_in_instant_order(self, tmp_path: Path) -> None:
         """Two instants crossed by one book decide in instant order, not binding order.
 
@@ -1071,7 +1181,7 @@ class TestSharedPublicPaper:
             inputs=(SharedStrategyInput(instance_id="alpha", inputs=inputs, quote=quote),),
             coordinated_at=instant + timedelta(microseconds=1),
         )
-        with pytest.raises(ValueError, match="also matches"):
+        with pytest.raises(ValueError, match="decides an instant matches"):
             replace(second, decisions=(group,), matched=False)
         with pytest.raises(ValueError, match="out of order"):
             replace(group, coordinated_at=instant)
@@ -1179,7 +1289,7 @@ class TestSharedPublicPaper:
             "public-input-fault:"
             + hashlib.sha256(DomainCodec().encode_json(first.source)).hexdigest()
         )
-        observer._apply(first, None, replayed=False)
+        observer._apply(first, None, timed=False, crossed=False, replayed=False)
         assert worker.controls() == controls
         assert worker.accounts()[0].phase == "faulted"
 

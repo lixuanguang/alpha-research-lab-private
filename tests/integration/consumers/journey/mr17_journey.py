@@ -37,9 +37,9 @@ import msgspec
 
 Step = Literal["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8"]
 STEPS: tuple[Step, ...] = ("J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8")
-# The steps this driver implements; J6 and J7 land with M3e.
-IMPLEMENTED: frozenset[Step] = frozenset({"J1", "J2", "J3", "J4", "J5", "J6", "J8"})
 EXTENSION = "mr17-extensions"
+# The inactive instance services v2 activates in J7.
+LATE = "rule-okx-btc-late"
 # Top-level platform packages whose names a QR may import only through ``__all__``.
 PLATFORM_PACKAGES = frozenset(
     {
@@ -104,6 +104,10 @@ class JourneyDeclaration(msgspec.Struct, frozen=True, forbid_unknown_fields=True
     capacity_records: tuple[str, ...] = ()
     # J6 supervisor lives in seconds: P-A, P-B and S (rehearsals shorten them).
     phases: tuple[int, int, int] = (1800, 600, 600)
+    # J7 supervisor lives in seconds: resume R, upgrade U and rollback B.
+    operations: tuple[int, int, int] = (300, 300, 300)
+    # J3 runs its independent studies at most this many at a time.
+    research_workers: int = 4
     schema_version: Literal["mr17-journey-declaration"] = "mr17-journey-declaration"
 
     def __post_init__(self) -> None:
@@ -133,6 +137,10 @@ class JourneyDeclaration(msgspec.Struct, frozen=True, forbid_unknown_fields=True
             raise ValueError("journey declares distinct feeds and at least one holdout")
         if len(self.phases) != 3 or any(not 120 <= item <= 3000 for item in self.phases):
             raise ValueError("J6 phases are three supervisor lives of 120 to 3000 seconds")
+        if len(self.operations) != 3 or any(not 120 <= item <= 3000 for item in self.operations):
+            raise ValueError("J7 phases are three supervisor lives of 120 to 3000 seconds")
+        if not 1 <= self.research_workers <= 16:
+            raise ValueError("J3 research workers are 1 to 16")
         if len(f"{self.temporary_root}/{self.attempt}/s/supervisor.sock".encode()) > 100:
             raise ValueError("temporary root leaves no room for bounded socket paths")
 
@@ -180,6 +188,20 @@ class CommandRecord(msgspec.Struct, frozen=True):
     returncode: int
     stdout_sha256: str
     stderr_sha256: str
+
+
+class ControlWindow(msgspec.Struct, frozen=True):
+    """One supervisor control sent during a paper phase, and when it ran."""
+
+    label: str
+    started_at: datetime
+    ended_at: datetime
+
+
+class ControlWindows(msgspec.Struct, frozen=True):
+    """Every supervisor control sent during the paper phases."""
+
+    controls: tuple[ControlWindow, ...]
 
 
 class StepRecord(msgspec.Struct):
@@ -341,6 +363,50 @@ class Commands:
             returncode,
             background.paths,
         )
+
+    def run_pool(
+        self,
+        step: Step,
+        commands: tuple[tuple[str, tuple[str, ...]], ...],
+        *,
+        cwd: Path,
+        environment: dict[str, str],
+        workers: int,
+        timeout: float,
+    ) -> tuple[CommandRecord, ...]:
+        """Run labelled commands at most ``workers`` at a time; return records in input order."""
+        overrides = {**os.environ, **environment}
+        waiting = list(commands)
+        running: list[
+            tuple[subprocess.Popen[bytes], int, str, tuple[str, ...], tuple[Path, Path], datetime]
+        ] = []
+        records: dict[str, CommandRecord] = {}
+        deadline = time.monotonic() + timeout
+        while waiting or running:
+            while waiting and len(running) < workers:
+                label, argv = waiting.pop(0)
+                ordinal, stdout_path, stderr_path = self._paths(label)
+                with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+                    child = subprocess.Popen(  # nosec B603  # [owner=runtime; rationale=explicit argv of declared journey commands; expires=2027-03-01]
+                        argv, cwd=cwd, env=overrides, stdout=stdout, stderr=stderr
+                    )
+                running.append(
+                    (child, ordinal, label, argv, (stdout_path, stderr_path), datetime.now(UTC))
+                )
+            time.sleep(0.5)
+            for item in tuple(running):
+                child, ordinal, label, argv, paths, started_at = item
+                returncode = child.poll()
+                if returncode is None and time.monotonic() < deadline:
+                    continue
+                if returncode is None:
+                    child.terminate()
+                    returncode = child.wait(timeout=60)
+                running.remove(item)
+                records[label] = self._record(
+                    ordinal, step, label, argv, cwd, environment, started_at, returncode, paths
+                )
+        return tuple(records[label] for label, _ in commands)
 
     def run_concurrently(
         self,
@@ -564,29 +630,62 @@ class Journey:
         for gate in gates:
             self.require(f"{prefix}{gate.name}", gate.passed, gate.observed)
 
-    def qr_script(self, label: str, script: str, *arguments: str, timeout: float = 7200) -> None:
-        """Run one QR script with ``--result`` and retain its criteria and findings."""
-        result = self.output / self.current.lower() / f"{label}.result.json"
-        self.command(
-            label,
-            (
-                str(self.research_python),
-                "-I",
-                str(self.qr / "studies" / script),
-                *arguments,
-                "--result",
-                str(result),
-            ),
-            # Only paths: the QR script opens the private lakeFS and ClearML keys itself.
-            environment={
-                "ALPHA_LAKEFS_CREDENTIALS": self.declaration.lakefs_credentials,
-                "ALPHA_CLEARML_LOCAL_ENV": self.declaration.local_services_env,
-            },
-            timeout=timeout,
+    @property
+    def qr_environment(self) -> dict[str, str]:
+        """Name the private key files; the QR script opens the lakeFS and ClearML keys itself."""
+        return {
+            "ALPHA_LAKEFS_CREDENTIALS": self.declaration.lakefs_credentials,
+            "ALPHA_CLEARML_LOCAL_ENV": self.declaration.local_services_env,
+        }
+
+    def qr_argv(self, label: str, script: str, *arguments: str) -> tuple[str, ...]:
+        """Return one QR script's command line, writing its result beside the step's outputs."""
+        return (
+            str(self.research_python),
+            "-I",
+            str(self.qr / "studies" / script),
+            *arguments,
+            "--result",
+            str(self.output / self.current.lower() / f"{label}.result.json"),
         )
+
+    def qr_result(self, label: str) -> None:
+        """Retain the criteria and findings a QR script reported."""
+        result = self.output / self.current.lower() / f"{label}.result.json"
         reported = msgspec.json.decode(result.read_bytes(), type=QRResult)
         self.records[self.current].findings.extend(reported.findings)
         self.gates(reported.criteria, f"{label}:")
+
+    def qr_script(self, label: str, script: str, *arguments: str, timeout: float = 7200) -> None:
+        """Run one QR script with ``--result`` and retain its criteria and findings."""
+        self.command(
+            label,
+            self.qr_argv(label, script, *arguments),
+            environment=self.qr_environment,
+            timeout=timeout,
+        )
+        self.qr_result(label)
+
+    def qr_pool(self, scripts: tuple[tuple[str, tuple[str, ...]], ...]) -> None:
+        """Run independent QR scripts in the declared bounded pool, then retain each result."""
+        if self.commands is None:
+            raise RuntimeError("journey commands run only inside an attempt")
+        records = self.commands.run_pool(
+            self.current,
+            tuple((label, self.qr_argv(label, *arguments)) for label, arguments in scripts),
+            cwd=self.output,
+            environment=self.qr_environment,
+            workers=self.declaration.research_workers,
+            timeout=4 * 3600,
+        )
+        for record in records:
+            self.records[self.current].commands.append(record.ordinal)
+            self.require(
+                f"{record.label}_exit_zero",
+                record.returncode == 0,
+                {"returncode": record.returncode},
+            )
+            self.qr_result(record.label)
 
     def check(self, name: str, *arguments: str) -> None:
         """Run one independent check under the research interpreter and retain its gates."""
@@ -933,10 +1032,11 @@ class Journey:
         universes = msgspec.json.decode(
             (self.qr / "data/universes.json").read_bytes(), type=dict[str, list[str]]
         )
-        for kind in ("rule", "learned", "holdout"):
-            for instrument in universes["research"]:
-                self.qr_script(
-                    f"{kind}-{instrument[:8]}",
+        # The studies are independent; the attempt store serializes their records.
+        studies = tuple(
+            (
+                f"{kind}-{instrument[:8]}",
+                (
                     "j3_study.py",
                     kind,
                     "--snapshots",
@@ -945,11 +1045,13 @@ class Journey:
                     attempts,
                     "--instrument",
                     instrument,
-                )
-            if kind == "learned":
-                self.qr_script(
-                    "grid", "j3_study.py", "grid", "--snapshots", snapshots, "--attempts", attempts
-                )
+                ),
+            )
+            for kind in ("rule", "learned", "holdout")
+            for instrument in universes["research"]
+        )
+        grid = ("j3_study.py", "grid", "--snapshots", snapshots, "--attempts", attempts)
+        self.qr_pool((*studies, ("grid", grid)))
         self.qr_script("publish", "j3_publish.py", "--attempts", attempts)
         self.qr_script("reopen", "j3_reopen.py", "--attempts", attempts)
         self.qr_script(
@@ -1043,8 +1145,8 @@ class Journey:
         self.install_accounts(paper, "paper", policy, requests["paper-account"], root)
         self.claim_accounts(paper, "paper", policy, research=True)
         self.run_phase("P-A", paper, services, policy, first, scenarios=True)
-        self.recover_accounts(paper, policy, paper / "service-P-A")
-        self.run_phase("P-B", paper, services, policy, second, scenarios=False)
+        self.recover_accounts(paper, policy, paper / "service-p-a", "P-B")
+        self.run_phase("P-B", paper, services, policy, second, shutdown=True)
         shadow = root / "shadow"
         self.plan_phase(shadow, "shadow", shadow_seconds)
         shadow_services = self.install_services(
@@ -1052,7 +1154,270 @@ class Journey:
         )
         self.install_accounts(shadow, "shadow", policy, requests["shadow-account"], root)
         self.claim_accounts(shadow, "shadow", policy, research=False)
-        self.run_phase("S", shadow, shadow_services, policy, shadow_seconds, scenarios=False)
+        self.run_phase("S", shadow, shadow_services, policy, shadow_seconds)
+
+    def operations(self) -> None:
+        """J7: quiesce, back up, restore and check, then resume, upgrade and roll back."""
+        root = self.output / "j7"
+        root.mkdir()
+        j6 = self.output / "j6"
+        paper, policy = j6 / "paper", j6 / "policy.json"
+        services = paper / "services"
+        resume, upgrade, rollback = self.declaration.operations
+        signed = ("--launcher", self.launcher, "--targets", paper / "targets", "--policy", policy)
+        accounts = self.accounts(paper)
+        worker = str(self.checkout / "configs/development/research-worker/.venv/bin/python")
+        # 1. Quiesce: no J6 process holds a fence, and every paper account is stopped.
+        self.paper_gates("quiesce", "quiesce", "--plan", paper, *signed)
+        # 2. Back up into one set beside the attempt: a backup cannot sit inside its source.
+        backup = Path(self.declaration.evidence_root) / f"{self.declaration.attempt}.j7-backup"
+        backup.mkdir()
+        (root / "backup").symlink_to(backup)
+        self.qr_script(
+            "backup",
+            "j7_backup.py",
+            "--workspace",
+            str(self.output),
+            "--backup",
+            str(backup / "research"),
+            "--record",
+            str(root / "research-backup.json"),
+            "--worker",
+            worker,
+        )
+        self.paper_step(
+            "paper-backup",
+            "backup",
+            "--plan",
+            paper,
+            *signed,
+            "--backup",
+            backup,
+            "--record",
+            root / "paper-backup.json",
+        )
+        manifests = {
+            name: hashlib.sha256((backup / name / "manifest.json").read_bytes()).hexdigest()
+            for name in ("research", "paper", *(f"accounts/{item}" for item in accounts))
+        }
+        (backup / "backup-set.json").write_bytes(msgspec.json.encode(manifests))
+        # 3. Restore into absent roots. The research sources move aside while the QR
+        # checks, so a hidden path into them fails instead of passing.
+        restored = root / "restored"
+        restored.mkdir()
+        aside = self.output / "j7-aside"
+        aside.mkdir()
+        moved = ("j2", "j3", "j4", "j5")
+        try:
+            for name in moved:
+                (self.output / name).rename(aside / name)
+            self.qr_script(
+                "restore",
+                "j7_restore.py",
+                "--backup",
+                str(backup / "research"),
+                "--root",
+                str(restored / "research"),
+                "--record",
+                str(root / "research-backup.json"),
+                "--worker",
+                worker,
+            )
+        finally:
+            for name in moved:
+                if (aside / name).exists():
+                    (aside / name).rename(self.output / name)
+            aside.rmdir()
+        self.paper_gates(
+            "paper-restore",
+            "restore",
+            "--plan",
+            paper,
+            *signed,
+            "--backup",
+            backup,
+            "--restored",
+            restored,
+            "--record",
+            root / "paper-backup.json",
+        )
+        # 4. Resume from the retained journals as the runbook's step 5, on services v1.
+        self.recover_accounts(paper, policy, paper / "service-p-b", "R")
+        self.run_phase("R", paper, services, policy, resume, shutdown=True)
+        # 5. Upgrade to services v2, which activates the inactive instance.
+        previous = self.receipt(services)
+        upgraded = paper / "services-upgraded.json"
+        self.paper_step(
+            "services-upgrade", "upgrade", "--plan", paper, "--instance", LATE, "--output", upgraded
+        )
+        release = self.release(
+            "paper-services-upgrade",
+            j6 / "paper-services-request.json",
+            policy,
+            j6,
+            "--configuration",
+            upgraded,
+            "--candidates",
+            paper / "candidates",
+            "--extensions",
+            j6 / "extensions",
+        )
+        self.command(
+            "services-upgrade-install",
+            (
+                self.launcher,
+                "install",
+                "--release",
+                release,
+                "--policy",
+                str(policy),
+                "--target",
+                str(services),
+            ),
+        )
+        installed = self.receipt(services)
+        self.require(
+            "upgrade_names_previous_release",
+            installed["previous_release"] == previous["release"]
+            and installed["release"] != previous["release"],
+            {"release": installed["release"], "previous": installed["previous_release"]},
+        )
+        self.recover_accounts(paper, policy, paper / "service-r", "U")
+        self.run_phase("U", paper, services, policy, upgrade, shutdown=True, stop_late=LATE)
+        self.paper_gates(
+            "U-late",
+            "late",
+            "--plan",
+            paper,
+            *signed,
+            "--root",
+            paper / "service-u",
+            "--instance",
+            LATE,
+            "--services",
+            upgraded,
+        )
+        # 6. Roll back to services v1, keeping every retained fact.
+        self.paper_step(
+            "B-facts-before",
+            "facts",
+            "--plan",
+            paper,
+            *signed,
+            "--output",
+            root / "facts-before.json",
+        )
+        self.command(
+            "services-rollback",
+            (
+                self.launcher,
+                "rollback",
+                "--release",
+                str(j6 / "registry" / str(previous["release"])),
+                "--policy",
+                str(policy),
+                "--target",
+                str(services),
+            ),
+        )
+        rolled = self.receipt(services)
+        checked = self.command(
+            "B-services-check",
+            (
+                self.launcher,
+                "run",
+                "--target",
+                str(services),
+                "--policy",
+                str(policy),
+                "--",
+                "deployment-check",
+            ),
+        )
+        self.require(
+            "rollback_selects_previous_release",
+            rolled["release"] == previous["release"]
+            and rolled["previous_release"] == installed["release"]
+            and checked == (paper / "deployment-check.json").read_bytes(),
+            {"release": rolled["release"], "previous": rolled["previous_release"]},
+        )
+        self.recover_accounts(paper, policy, paper / "service-u", "B")
+        self.run_phase("B", paper, services, policy, rollback, shutdown=True)
+        self.paper_step(
+            "B-facts-after",
+            "facts",
+            "--plan",
+            paper,
+            *signed,
+            "--output",
+            root / "facts-after.json",
+        )
+        self.paper_gates(
+            "B-rollback-check",
+            "rollback-check",
+            "--plan",
+            paper,
+            "--before",
+            root / "facts-before.json",
+            "--after",
+            root / "facts-after.json",
+            "--instance",
+            LATE,
+            "--root",
+            paper / "service-u",
+            "--services",
+            upgraded,
+        )
+        # 7. Inherited: every paper decision is within its study's modelled entry delay.
+        self.paper_gates(
+            "entry-delays",
+            "delays",
+            "--plan",
+            paper,
+            "--attempts",
+            self.output / "j3/attempts",
+            "--roots",
+            ",".join(str(paper / f"service-{name}") for name in ("p-a", "p-b", "r", "u", "b")),
+            "--output",
+            root / "delays.json",
+        )
+        # 8. Inherited: paper refuses only for account rules research does not model, or
+        # for an operator control running at the decision's instant.
+        controls = ControlWindows(
+            controls=tuple(
+                ControlWindow(
+                    label=record.label, started_at=record.started_at, ended_at=record.ended_at
+                )
+                for line in (self.output / "commands.jsonl").read_bytes().splitlines()
+                for record in (msgspec.json.decode(line, type=CommandRecord),)
+                if record.step in ("J6", "J7")
+                and any(part in record.label for part in ("-stop-", "-restart-", "-shutdown"))
+            )
+        )
+        (root / "controls.json").write_bytes(msgspec.json.encode(controls))
+        self.paper_gates(
+            "budget-refusals",
+            "refusals",
+            "--plan",
+            paper,
+            *signed,
+            "--controls",
+            root / "controls.json",
+            "--output",
+            root / "refusals.json",
+        )
+
+    def paper_gates(self, label: str, *arguments: str | Path) -> None:
+        """Run one operator step that prints criteria, and retain them."""
+        stdout = self.paper_step(label, *arguments)
+        # A failed step has already been retained as its step's failure.
+        if stdout:
+            self.gates(msgspec.json.decode(stdout, type=tuple[Gate, ...]), f"{label}:")
+
+    @staticmethod
+    def receipt(target: Path) -> dict[str, object]:
+        """Read an installed target's current installation receipt."""
+        return msgspec.json.decode((target / "current.json").read_bytes(), type=dict[str, object])
 
     def plan_phase(self, plan: Path, mode: str, seconds: int) -> None:
         """Author a mode's services and account definitions from the J5 candidates."""
@@ -1255,11 +1620,11 @@ class Journey:
                 )
         self.paper_step(f"{mode}-owners", "owners", "--plan", plan)
 
-    def recover_accounts(self, plan: Path, policy: Path, service_root: Path) -> None:
-        """P-B: settle and reclaim every account after P-A, then write fresh owners."""
+    def recover_accounts(self, plan: Path, policy: Path, service_root: Path, phase: str) -> None:
+        """Settle and reclaim every account after a phase, then write fresh owners."""
         for account_id in self.accounts(plan):
             self.paper_step(
-                f"{account_id}-reclaim",
+                f"{phase}-{account_id}-reclaim",
                 "reclaim",
                 "--plan",
                 plan,
@@ -1274,19 +1639,30 @@ class Journey:
                 "--root",
                 service_root,
             )
-        self.paper_step("paper-owners-recovered", "owners", "--plan", plan)
+        self.paper_step(f"{phase}-owners", "owners", "--plan", plan)
 
     def control(
-        self, plan: Path, services: Path, policy: Path, name: str, request: dict[str, object] | Path
-    ) -> None:
-        """Send one supervisor control through the signed launcher."""
+        self,
+        plan: Path,
+        services: Path,
+        policy: Path,
+        name: str,
+        request: dict[str, object] | Path,
+        *,
+        required: bool = True,
+    ) -> dict[str, object]:
+        """Send one supervisor control through the signed launcher and return its answer.
+
+        The command exits 0 even when the supervisor refuses, so a required control
+        must also answer ``ok``.
+        """
         if isinstance(request, Path):
             path = request
         else:
             path = plan / "controls" / f"{name}.json"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(msgspec.json.encode(request))
-        self.command(
+        stdout = self.command(
             name,
             (
                 self.launcher,
@@ -1303,6 +1679,10 @@ class Journey:
                 str(path),
             ),
         )
+        answer = msgspec.json.decode(stdout, type=dict[str, object]) if stdout.strip() else {}
+        if required:
+            self.require(f"{name}_accepted", answer.get("ok") is True, answer)
+        return answer
 
     def settle(
         self, pending: list[Background], background: Background, timeout: float
@@ -1314,12 +1694,27 @@ class Journey:
         return self.commands.finish(background, cwd=self.output, timeout=timeout)
 
     def run_phase(
-        self, name: str, plan: Path, services: Path, policy: Path, seconds: int, *, scenarios: bool
+        self,
+        name: str,
+        plan: Path,
+        services: Path,
+        policy: Path,
+        seconds: int,
+        *,
+        scenarios: bool = False,
+        shutdown: bool = False,
+        stop_late: str | None = None,
     ) -> None:
-        """Serve every account, run the publisher and supervisor for one phase, then verify it."""
+        """Serve every account, run the publisher and supervisor for one phase, then verify it.
+
+        P-A runs the declared scenarios and ends with its configured life. A phase run
+        on a longer-lived configuration ends by a ``shutdown`` control, and
+        ``stop_late`` stops that instance 30 s before it.
+        """
         if self.commands is None:
             raise RuntimeError("journey commands run only inside an attempt")
-        service_root = plan / f"service-{name}"
+        # Workspace component names are lower case, so J7 can back up each root.
+        service_root = plan / f"service-{name.lower()}"
         sockets = self.temporary / "s"
         alerts = plan / f"alerts-{name}.jsonl"
         receiver = AlertReceiver(sockets / "alert.sock", alerts)
@@ -1435,25 +1830,50 @@ class Journey:
                     },
                 )
                 time.sleep(20)
-                restart = plan / "controls" / f"{name}-restart-{subject}.json"
-                self.paper_step(
-                    f"{name}-restart-observation",
-                    "observation",
-                    "--plan",
-                    plan,
-                    "--root",
-                    service_root,
-                    "--account",
-                    "okx-shared",
-                    "--instance",
-                    subject,
-                    "--output",
-                    restart,
-                )
-                self.control(plan, services, policy, f"{name}-restart-{subject}", restart)
+                # A decision landing between the observation and the restart makes the
+                # observation stale, which the account refuses; observe again and resend.
+                for attempt in range(1, 4):
+                    restart = plan / "controls" / f"{name}-restart-{subject}-{attempt}.json"
+                    self.paper_step(
+                        f"{name}-restart-observation-{attempt}",
+                        "observation",
+                        "--plan",
+                        plan,
+                        "--root",
+                        service_root,
+                        "--account",
+                        "okx-shared",
+                        "--instance",
+                        subject,
+                        "--output",
+                        restart,
+                    )
+                    answer = self.control(
+                        plan,
+                        services,
+                        policy,
+                        f"{name}-restart-{subject}-{attempt}",
+                        restart,
+                        required=attempt == 3,
+                    )
+                    if answer.get("ok") is True:
+                        break
                 time.sleep(max(0.0, started + seconds - 90 - time.monotonic()))
                 scenario["owner_death"] = self.owner_death(serves["okx-isolated"], service_root)
-            elif name == "P-B":
+            elif shutdown:
+                if stop_late is not None:
+                    time.sleep(max(0.0, started + seconds - 30 - time.monotonic()))
+                    self.control(
+                        plan,
+                        services,
+                        policy,
+                        f"{name}-stop-{stop_late}",
+                        {
+                            "action": "stop_instance",
+                            "identity": f"stop-{stop_late}-{name}",
+                            "subject": stop_late,
+                        },
+                    )
                 time.sleep(max(0.0, started + seconds - time.monotonic()))
                 self.control(
                     plan,
@@ -1537,8 +1957,6 @@ class Journey:
         """Run the declared steps once, stopping at the first failure."""
         declaration = self.declaration
         through = STEPS.index(declaration.through)
-        if any(step not in IMPLEMENTED for step in STEPS[: through + 1]):
-            raise ValueError(f"this driver implements {sorted(IMPLEMENTED)} only")
         self.output.mkdir(parents=True, exist_ok=False)
         self.temporary.mkdir(parents=True, exist_ok=False)
         (self.output / "declaration.json").write_bytes(self.declaration_bytes)
@@ -1550,6 +1968,7 @@ class Journey:
             "J4": self.features,
             "J5": self.candidates,
             "J6": self.paper,
+            "J7": self.operations,
             "J8": self.capacity,
         }
         started = datetime.now(UTC)

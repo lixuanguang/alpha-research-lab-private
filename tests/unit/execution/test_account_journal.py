@@ -282,9 +282,10 @@ class TestAccountJournal:
             "rejected",
             "decision_precedes_account_state",
         )
-        assert not uncertain.reconcile(
-            self._observation("observation-before-cancel", stale_at, self._opening_snapshot())
-        )
+        with pytest.raises(ValueError, match="observation_precedes_account_state"):
+            uncertain.reconcile(
+                self._observation("observation-before-cancel", stale_at, self._opening_snapshot())
+            )
         assert uncertain.reconcile(
             self._observation(
                 "observation-after-cancel", at + timedelta(seconds=7), self._opening_snapshot()
@@ -773,9 +774,10 @@ class TestAccountJournal:
         assert not journal.reconcile(self._observation("mismatch", later, changed))
         assert journal.accounts()[0].fault == "account_break"
         assert journal.accounts()[0].operator_block == "operator-stop"
-        assert not journal.reconcile(
-            self._observation("stale", self.opening_at - timedelta(microseconds=1), snapshot)
-        )
+        with pytest.raises(ValueError, match="observation_precedes_account_state"):
+            journal.reconcile(
+                self._observation("stale", self.opening_at - timedelta(microseconds=1), snapshot)
+            )
         assert journal.reconcile(self._observation("clean", later + timedelta(seconds=1), snapshot))
         assert journal.accounts()[0].fault is None
         assert journal.accounts()[0].operator_block == "operator-stop"

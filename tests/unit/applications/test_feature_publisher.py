@@ -62,6 +62,12 @@ class OKXJournal:
         self.journal.append(record)
         self.records.append(record)
 
+    def clock(self, milliseconds: int) -> None:
+        """Append an idle clock at a receipt offset."""
+        self.append(
+            CaptureRecord(kind="clock", epoch=0, received_ns=_BASE_NS + milliseconds * 1_000_000)
+        )
+
     def book(self, milliseconds: int, bid: str) -> None:
         """Append a snapshot first, then single-level bid updates, at a receipt offset."""
         action = "snapshot" if self.sequence == 1 else "update"
@@ -264,6 +270,25 @@ class TestStreamSchedule:
             _AT + timedelta(seconds=15),
             _AT + timedelta(seconds=16),
         ]
+
+    def test_a_quiet_feed_passes_instants_on_its_clocks(self, tmp_path: Path) -> None:
+        """Clocks on a quiet feed let each instant publish with the saved inputs."""
+        schedule, publication, book, other = self._schedule(tmp_path)
+        book.book(100, "1")
+        other.book(200, "4")
+        book.book(2_100, "2")
+        assert schedule.advance(_AT + timedelta(seconds=3))
+        assert [at for at, _ in publication.published] == [_AT]
+        for milliseconds in (450, 700, 950, 1_200, 1_450, 1_700, 1_950, 2_200):
+            other.clock(milliseconds)
+        assert schedule.advance(_AT + timedelta(seconds=3))
+        cutoffs = (_AT, _AT + timedelta(seconds=1), _AT + timedelta(seconds=2))
+        assert [at for at, _ in publication.published] == list(cutoffs)
+        expected = zip(book.saved("book", cutoffs), other.saved("other", cutoffs), strict=True)
+        assert [inputs.observations for _, inputs in publication.published] == [
+            (first.observations[0], second.observations[0]) for first, second in expected
+        ]
+        assert publication.published[-1][1].observations[1].value is not None
 
     def test_failed_publication_is_retried(self, tmp_path: Path) -> None:
         """A failed publication keeps its instant due until it succeeds."""

@@ -38,12 +38,12 @@ class SharedDecisionGroup(WireRecord, frozen=True):
     """Retain one grid instant's causal inputs, observed quote and coordination clock.
 
     The quote is the latest eligible market known at coordination: the instant's
-    own market when it decides on the crossing book, a later one when a served
-    feature was awaited.
+    own market when it decides on the delivery that crosses the instant, a later one
+    when a served feature was awaited.
 
     Coordination is the logical boundary at which the account learns the decision:
-    one microsecond after the instant when it decides on the crossing book, or one
-    microsecond after the preceding delivery when a served feature was awaited.
+    one microsecond after the instant when it decides on the crossing delivery, or
+    one microsecond after the preceding delivery when a served feature was awaited.
     It is never after the deciding delivery, so net orders and the account's
     knowledge stay before the book that is matched next.
     """
@@ -75,7 +75,11 @@ class SharedDecisionGroup(WireRecord, frozen=True):
 
 
 class SharedBookDelivery(WireRecord, frozen=True):
-    """Retain original source clocks, decided grid instants and account matching."""
+    """Retain original source clocks, decided grid instants and account matching.
+
+    Only a snapshot or update matches, and one that decides an instant always does.
+    A clock, heartbeat or control may decide without matching.
+    """
 
     source: LiveBookDelivery
     decisions: tuple[SharedDecisionGroup, ...]
@@ -107,8 +111,9 @@ class SharedBookDelivery(WireRecord, frozen=True):
             ):
                 raise ValueError("shared decision instants must precede their delivery in order")
             previous = group.at
-        if self.decisions and not self.matched:
-            raise ValueError("a delivery that decides an instant also matches its market")
+        priced = self.source.book.outcome in ("snapshot", "update")
+        if (self.decisions and priced and not self.matched) or (self.matched and not priced):
+            raise ValueError("a book that decides an instant matches; only books match")
 
 
 class ObservedLiveBookDelivery(LiveBookDelivery, frozen=True):
@@ -162,16 +167,21 @@ class _ProjectedRowObserver:
 
 
 class SharedPaperCaptureObserver:
-    """Decide candidates on their UTC grids and match each instant's crossing book.
+    """Decide candidates on their UTC grids and match the next book after each decision.
 
     Native reconstruction, freshness and control invalidation remain owned by
     ``LiveBookDecisionSource`` and ``BookRegistry``. Each candidate decides at
-    ``starts_at + k * cadence``. When the first eligible book after an instant
-    arrives, the instant opens if an eligible market at or before it exists; the
-    due candidates decide at that instant, quoted at that latest market, then the
-    arriving book matches orders. Books between instants update monitoring only, unless they
-    decide an awaited served instant. An instant without a fresh market or complete
-    inputs is skipped, which the candidate's gap rule then governs. The fsynced
+    ``starts_at + k * cadence``. Time and market are separate axes. Any delivery
+    advances the grid while the source's market is current: an eligible book, or a
+    clock, heartbeat or control that leaves the retained market current. At the
+    first such delivery after an instant, the instant opens if an eligible market at
+    or before it exists, and the due candidates decide at that instant, quoted at
+    that latest market. Only an eligible book matches orders: the first one at or
+    after each crossing or decision, so an instant crossed or decided on another
+    delivery is matched by the next eligible book.
+    Deliveries between instants update monitoring only, unless they decide an
+    awaited served instant. An instant without a fresh market or complete inputs
+    is skipped, which the candidate's gap rule then governs. The fsynced
     delivery log retains decided inputs before effects; replay uses its clocks.
     A fresh observer rebuilds source state from the beginning of its recording.
     Account transactions and candidate retry identities survive process restart.
@@ -185,7 +195,7 @@ class SharedPaperCaptureObserver:
     A feature-served candidate reads its pinned stream's snapshot exactly at each
     instant through ``features`` instead of the native sources. While that snapshot
     is ``feature-pending`` the instant stays open and is retried on each later
-    eligible book, coordinated after the preceding delivery; it is skipped as
+    delivery that advances the grid, coordinated after the preceding delivery; it is skipped as
     ``feature-not-published`` when a delivery that opens the candidate's next
     instant cannot decide it either. Any other
     pause reason (missing, expired, future, changed version or unavailable service)
@@ -267,6 +277,8 @@ class SharedPaperCaptureObserver:
         self.measurements = measurements
         self._crossed: dict[str, datetime] = {}
         self._pending: PaperMarket | None = None
+        # An instant crossed or decided on a non-market delivery is matched by the next book.
+        self._match_due = False
         # Each instance's open grid instants, ascending.
         self._open: dict[str, list[datetime]] = {}
         self._previous_at: datetime | None = None
@@ -343,12 +355,15 @@ class SharedPaperCaptureObserver:
         source = ObservedLiveBookDelivery(record=record, book=row, available_at=self._now())
         market = self._market(source)
         bbo_observed_ns = time.monotonic_ns() if self.measurements is not None else 0
-        crossed = market is not None and self._crosses(source.available_at)
+        timed = self._timed(source, market)
+        crossed = timed and self._crosses(source.available_at)
         if crossed:
             self._open_crossed(source.available_at)
-        groups = self._groups(source.available_at) if market is not None else ()
+        groups = self._groups(source.available_at) if timed else ()
         delivery = ObservedSharedBookDelivery(
-            source=source, decisions=groups, matched=crossed or bool(groups)
+            source=source,
+            decisions=groups,
+            matched=market is not None and (crossed or bool(groups) or self._match_due),
         )
         offset, length = self._retain(delivery, self._row_payload(row))
         if self.index is not None:
@@ -361,7 +376,7 @@ class SharedPaperCaptureObserver:
             self._phases["retained_ns"] = started_ns
         prior_decisions = len(self.decisions)
         try:
-            self._apply(delivery, market, replayed=False)
+            self._apply(delivery, market, timed=timed, crossed=crossed, replayed=False)
         finally:
             finished_ns = time.monotonic_ns()
             self.processing_ns = finished_ns - started_ns
@@ -396,12 +411,15 @@ class SharedPaperCaptureObserver:
         """Replay one retained envelope into a fresh source and an existing account journal."""
         SharedBookDelivery.__post_init__(delivery)
         market = self._market(delivery.source)
-        crossed = market is not None and self._crosses(delivery.source.available_at)
+        timed = self._timed(delivery.source, market)
+        crossed = timed and self._crosses(delivery.source.available_at)
         if crossed:
             self._open_crossed(delivery.source.available_at)
-        if delivery.matched != (market is not None and (crossed or bool(delivery.decisions))):
+        if delivery.matched != (
+            market is not None and (crossed or bool(delivery.decisions) or self._match_due)
+        ):
             raise ValueError("retained delivery differs from the replayed decision grid")
-        self._apply(delivery, market, replayed=True)
+        self._apply(delivery, market, timed=timed, crossed=crossed, replayed=True)
 
     def _instant(self, binding: SharedStrategyBinding, before: datetime) -> datetime | None:
         """Return the binding's latest grid instant strictly before ``before``."""
@@ -601,22 +619,52 @@ class SharedPaperCaptureObserver:
             ask_quantity=Quantity(value=ask.quantity, dimension=dimension),
         )
 
+    def _timed(self, delivery: LiveBookDelivery, market: PaperMarket | None) -> bool:
+        """Report whether a delivery advances the decision grid.
+
+        Time and market are separate: a priced book advances the grid and matches,
+        while any other delivery (a clock, heartbeat or control) advances the grid
+        only while the retained market is still current at it, and never matches.
+        """
+        if market is not None:
+            return True
+        return (
+            self._pending is not None
+            and self.source.current_book(str(self.scenario.instrument_id), delivery.available_at)
+            is not None
+        )
+
     def _apply(
-        self, delivery: SharedBookDelivery, market: PaperMarket | None, *, replayed: bool
+        self,
+        delivery: SharedBookDelivery,
+        market: PaperMarket | None,
+        *,
+        timed: bool,
+        crossed: bool,
+        replayed: bool,
     ) -> None:
         """Apply one delivery, then make it the preceding delivery for coordination."""
         try:
-            self._apply_delivery(delivery, market, replayed=replayed)
+            self._apply_delivery(delivery, market, timed=timed, replayed=replayed)
         finally:
             self._previous_at = delivery.source.available_at
+        if delivery.matched:
+            self._match_due = False
+        elif market is None and (crossed or delivery.decisions):
+            self._match_due = True
 
     def _apply_delivery(
-        self, delivery: SharedBookDelivery, market: PaperMarket | None, *, replayed: bool
+        self,
+        delivery: SharedBookDelivery,
+        market: PaperMarket | None,
+        *,
+        timed: bool,
+        replayed: bool,
     ) -> None:
         """Validate retained decision lineage and compose existing atomic public operations."""
-        if market is None:
-            if delivery.matched or delivery.decisions:
-                raise ValueError("ineligible native input cannot decide or match")
+        if market is None and (delivery.matched or (delivery.decisions and not timed)):
+            raise ValueError("ineligible native input cannot decide or match")
+        if not timed:
             if not self._public_faulted and self._source_invalidated(delivery):
                 if self.journal.paper_owner is None:
                     self.journal.block(self.account_id, "public_input_invalid")
@@ -635,7 +683,8 @@ class SharedPaperCaptureObserver:
                         raise ValueError("public input fault was not applied")
                 self._public_faulted = True
             return
-        self._ineligible_book = False
+        if market is not None:
+            self._ineligible_book = False
         pending = self._pending
         for group in delivery.decisions:
             if group.coordinated_at != self._coordination(group.at):
@@ -666,6 +715,8 @@ class SharedPaperCaptureObserver:
         self._close_open()
         if self._phases is not None and delivery.decisions:
             self._phases["evaluated_ns"] = time.monotonic_ns()
+        if market is None:
+            return
         self.last_market = market
         self._pending = market
         if not delivery.matched:
