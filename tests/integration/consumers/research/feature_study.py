@@ -94,7 +94,7 @@ class _StudyFixture:
                 ts_received=_START + timedelta(days=1),
                 ts_ingested=_START + timedelta(days=1),
             )
-            self.raw.publish(source, descriptor=origin, request=request.binding)
+            self.raw.publish(source, descriptor=origin, request=request.binding, compress=False)
             descriptors.append(origin)
         acquisition = AcquisitionManifest(run=run, completed=tuple(descriptors))
         corrections: list[Correction] = []

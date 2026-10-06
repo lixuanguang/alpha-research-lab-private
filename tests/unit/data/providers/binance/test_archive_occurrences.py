@@ -86,7 +86,7 @@ class TestBinanceArchiveOccurrences:
             ts_ingested=datetime(2026, 9, 16, tzinfo=UTC),
         )
         store = _TrackingRawStore(root)
-        store.publish(source, descriptor=descriptor, request=request.binding)
+        store.publish(source, descriptor=descriptor, request=request.binding, compress=False)
         return BinanceArchiveRows(request=request, descriptor=descriptor), store
 
     def test_decodes_invalid_row_after_research_endpoint(

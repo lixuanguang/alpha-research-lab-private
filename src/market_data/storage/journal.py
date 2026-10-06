@@ -162,7 +162,10 @@ class CaptureJournal:
             ts_ingested=max(timestamp, datetime.now(UTC)),
         )
         RawStore(self.root).publish(
-            self.root / "journal.jsonl", descriptor=descriptor, request=self.request.binding
+            self.root / "journal.jsonl",
+            descriptor=descriptor,
+            request=self.request.binding,
+            compress=True,
         )
         self._write_new(self.root / "manifest.pending", self.codec.encode_json(descriptor))
         os.replace(self.root / "manifest.pending", self.root / "manifest.json")
@@ -213,7 +216,9 @@ class CaptureJournal:
             ts_received=timestamp,
             ts_ingested=max(timestamp, datetime.now(UTC)),
         )
-        RawStore(self.root).publish(prefix, descriptor=descriptor, request=self.request.binding)
+        RawStore(self.root).publish(
+            prefix, descriptor=descriptor, request=self.request.binding, compress=True
+        )
         with NamedTemporaryFile(dir=self.root, prefix="manifest-", delete=False) as output:
             output.write(self.codec.encode_json(descriptor))
             output.flush()

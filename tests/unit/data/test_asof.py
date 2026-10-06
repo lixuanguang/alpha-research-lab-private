@@ -715,7 +715,7 @@ class TestAsOfSelector:
             ts_received=_START + timedelta(days=1),
             ts_ingested=_START + timedelta(days=1),
         )
-        raw.publish(source, descriptor=origin, request=request.binding)
+        raw.publish(source, descriptor=origin, request=request.binding, compress=False)
         acquisition = AcquisitionManifest(run=request.manifest, completed=(origin,))
         policy = QualityPolicy(use="exploratory", known_at=_START, max_gap=timedelta(hours=1))
         corrections = {acquisition.run.identity: (self._correction(original, revised),)}

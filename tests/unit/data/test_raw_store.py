@@ -107,6 +107,62 @@ class TestRawStore:
             ts_ingested=datetime(2026, 9, 14, tzinfo=UTC),
         )
 
+    def test_compressed_objects_reopen_as_original_bytes_and_copy_as_stored(
+        self, tmp_path: Path, source_request: SourceRequest
+    ) -> None:
+        """A compressed object reads back exactly, and a copy keeps its stored encoding."""
+        payload = b'{"kind":"frame"}\n' * 200_000
+        source = tmp_path / "source"
+        source.write_bytes(payload)
+        descriptor = self._describe(source, source_request)
+        first, second = tmp_path / "first", tmp_path / "second"
+        first.mkdir()
+        second.mkdir()
+        binding = source_request.binding
+        published = RawStore(first).publish(
+            source, descriptor=descriptor, request=binding, compress=True
+        )
+        assert published == first / f"{descriptor.sha256}.zst"
+        stored = RawStore(first).stored_bytes(descriptor=descriptor, request=binding)
+        assert stored < len(payload) // 10
+        with RawStore(first).open(descriptor=descriptor, request=binding) as reopened:
+            assert reopened.read() == payload
+        copied = RawStore(second).copy(RawStore(first), descriptor=descriptor, request=binding)
+        assert copied == second / f"{descriptor.sha256}.zst"
+        assert copied.read_bytes() == published.read_bytes()
+        # An object present in either encoding is reused, not stored twice.
+        assert (
+            RawStore(first).publish(source, descriptor=descriptor, request=binding, compress=False)
+            == published
+        )
+
+    def test_compressed_objects_refuse_damage_and_a_second_encoding(
+        self, tmp_path: Path, source_request: SourceRequest
+    ) -> None:
+        """Damage is refused before any byte is read, and two encodings are ambiguous."""
+        source = tmp_path / "source"
+        source.write_bytes(b"original bytes\n" * 1_000)
+        descriptor = self._describe(source, source_request)
+        root = tmp_path / "store"
+        root.mkdir()
+        binding = source_request.binding
+        published = RawStore(root).publish(
+            source, descriptor=descriptor, request=binding, compress=True
+        )
+        published.chmod(0o644)
+        published.write_bytes(published.read_bytes()[:-4])
+        with pytest.raises(ValueError, match="corrupt or truncated"):
+            RawStore(root).open(descriptor=descriptor, request=binding)
+        (root / descriptor.sha256).write_bytes(source.read_bytes())
+        with pytest.raises(ValueError, match="two encodings"):
+            RawStore(root).open(descriptor=descriptor, request=binding)
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        with pytest.raises(ValueError, match="absent from origin"):
+            RawStore(tmp_path / "other").copy(
+                RawStore(empty), descriptor=descriptor, request=binding
+            )
+
     @pytest.mark.parametrize(
         "payload", [b"", b"\x00\xff\r\n" * 262_145], ids=["empty", "multiple-chunks"]
     )
@@ -121,7 +177,9 @@ class TestRawStore:
         root = tmp_path / "store"
         root.mkdir()
         store = RawStore(root)
-        published = store.publish(source, descriptor=descriptor, request=source_request.binding)
+        published = store.publish(
+            source, descriptor=descriptor, request=source_request.binding, compress=False
+        )
         original_stat = published.stat()
         assert published == root / descriptor.sha256
         assert stat.S_IMODE(original_stat.st_mode) == 0o444
@@ -129,7 +187,10 @@ class TestRawStore:
         source.unlink()
         restored = _CODEC.decode_json(encoded, RawObject)
         assert (
-            store.publish(source, descriptor=restored, request=source_request.binding) == published
+            store.publish(
+                source, descriptor=restored, request=source_request.binding, compress=False
+            )
+            == published
         )
         assert published.stat().st_ino == original_stat.st_ino
         assert published.stat().st_mtime_ns == original_stat.st_mtime_ns
@@ -156,14 +217,18 @@ class TestRawStore:
         for changed, message in ((payload[:-1], "size mismatch"), (b"X" + payload[1:], "SHA-256")):
             source.write_bytes(changed)
             with pytest.raises(ValueError, match=message):
-                store.publish(source, descriptor=descriptor, request=source_request.binding)
+                store.publish(
+                    source, descriptor=descriptor, request=source_request.binding, compress=False
+                )
             assert not list(root.iterdir())
         source.write_bytes(payload)
         destination = root / descriptor.sha256
         destination.write_bytes(b"conflict")
         inode = destination.stat().st_ino
         with pytest.raises(ValueError, match="size mismatch"):
-            store.publish(source, descriptor=descriptor, request=source_request.binding)
+            store.publish(
+                source, descriptor=descriptor, request=source_request.binding, compress=False
+            )
         assert destination.read_bytes() == b"conflict"
         assert destination.stat().st_ino == inode
         with pytest.raises(ValueError, match="size mismatch"):
@@ -186,7 +251,9 @@ class TestRawStore:
             destination.symlink_to(source if kind == "symlink" else tmp_path / "missing")
         store = RawStore(root)
         with pytest.raises(ValueError, match="regular file"):
-            store.publish(source, descriptor=descriptor, request=source_request.binding)
+            store.publish(
+                source, descriptor=descriptor, request=source_request.binding, compress=False
+            )
         with pytest.raises(ValueError, match="regular file"):
             store.open(descriptor=descriptor, request=source_request.binding)
         assert destination.is_dir() if kind == "directory" else destination.is_symlink()
@@ -206,16 +273,22 @@ class TestRawStore:
             replace(source_request, instrument=source_request.manifest.instruments[1]),
         ):
             with pytest.raises(ValueError, match="request identity"):
-                store.publish(source, descriptor=descriptor, request=request.binding)
+                store.publish(
+                    source, descriptor=descriptor, request=request.binding, compress=False
+                )
             with pytest.raises(ValueError, match="request identity"):
                 store.open(descriptor=descriptor, request=request.binding)
         msgspec.structs.force_setattr(source_request, "offset_minutes", True)
         with pytest.raises(ValueError, match="offset"):
-            store.publish(source, descriptor=descriptor, request=source_request.binding)
+            store.publish(
+                source, descriptor=descriptor, request=source_request.binding, compress=False
+            )
         msgspec.structs.force_setattr(source_request, "offset_minutes", 0)
         msgspec.structs.force_setattr(descriptor, "sha256", "../escape")
         with pytest.raises(ValueError, match="sha256"):
-            store.publish(source, descriptor=descriptor, request=source_request.binding)
+            store.publish(
+                source, descriptor=descriptor, request=source_request.binding, compress=False
+            )
         with pytest.raises(ValueError, match="sha256"):
             store.open(descriptor=descriptor, request=source_request.binding)
         assert not (tmp_path / "absent-store").exists()
@@ -234,12 +307,15 @@ class TestRawStore:
         with patch("market_data.storage.raw.os.link", publisher.link):
             if competitor == b"abc":
                 RawStore(root).publish(
-                    source, descriptor=descriptor, request=source_request.binding
+                    source, descriptor=descriptor, request=source_request.binding, compress=False
                 )
             else:
                 with pytest.raises(ValueError, match="SHA-256"):
                     RawStore(root).publish(
-                        source, descriptor=descriptor, request=source_request.binding
+                        source,
+                        descriptor=descriptor,
+                        request=source_request.binding,
+                        compress=False,
                     )
         assert (root / descriptor.sha256).read_bytes() == competitor
         assert not list(root.glob(".staging-*"))
@@ -258,15 +334,22 @@ class TestRawStore:
         store = RawStore(root)
         with patch("market_data.storage.raw.os.fsync", failure.fsync):
             with pytest.raises(OSError, match="synchronization failure"):
-                store.publish(source, descriptor=descriptor, request=source_request.binding)
+                store.publish(
+                    source, descriptor=descriptor, request=source_request.binding, compress=False
+                )
         assert (root / descriptor.sha256).exists() == is_directory
         assert not list(root.glob(".staging-*"))
         if is_directory:
             source.unlink()
             with patch("market_data.storage.raw.os.fsync", failure.fsync):
                 with pytest.raises(OSError, match="synchronization failure"):
-                    store.publish(source, descriptor=descriptor, request=source_request.binding)
-        store.publish(source, descriptor=descriptor, request=source_request.binding)
+                    store.publish(
+                        source,
+                        descriptor=descriptor,
+                        request=source_request.binding,
+                        compress=False,
+                    )
+        store.publish(source, descriptor=descriptor, request=source_request.binding, compress=False)
         with store.open(descriptor=descriptor, request=source_request.binding) as stream:
             assert stream.read() == b"abc"
 
@@ -313,7 +396,9 @@ class TestRawStore:
             with store.open(descriptor=descriptor, request=source_request.binding) as stream:
                 assert stream.read() == b"abc"
             source.unlink()
-        published = store.publish(source, descriptor=descriptor, request=source_request.binding)
+        published = store.publish(
+            source, descriptor=descriptor, request=source_request.binding, compress=False
+        )
         assert published.read_bytes() == b"abc"
         assert list(root.glob(".staging-*")) == [staging]
         staging.unlink()  # The interrupted child has exited; no writer owns this orphan.

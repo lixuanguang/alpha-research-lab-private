@@ -24,6 +24,7 @@ import shutil
 import signal
 import socket
 import subprocess  # nosec B404  # [owner=runtime; rationale=declared journey commands; expires=2027-03-01]
+import sys
 import tarfile
 import threading
 import time
@@ -79,6 +80,36 @@ class CaptureWindow(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
             raise ValueError("capture window needs a lead of 30-900 s and readiness inside it")
         if self.duration_seconds > 6 * 3600:
             raise ValueError("journey captures are at most six hours")
+
+
+class HostAwake:
+    """Hold a macOS sleep assertion for this process's lifetime; elsewhere, do nothing.
+
+    ``caffeinate -i -s -w PID`` prevents idle and system sleep (on AC power) until
+    this process exits, so a crash cannot leave the assertion behind.
+    """
+
+    def __init__(self) -> None:
+        """Start without an assertion."""
+        self._process: subprocess.Popen[bytes] | None = None
+
+    def __enter__(self) -> HostAwake:
+        """Take the assertion on macOS; refuse to run without it there."""
+        if sys.platform == "darwin":
+            executable = shutil.which("caffeinate")
+            if executable is None:
+                raise RuntimeError("the journey requires caffeinate to keep the host awake")
+            self._process = subprocess.Popen(  # nosec B603  # [owner=runtime; rationale=fixed system tool; expires=2027-03-01]
+                [executable, "-i", "-s", "-w", str(os.getpid())]
+            )
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        """Release the assertion."""
+        if self._process is not None:
+            self._process.terminate()
+            self._process.wait(timeout=10)
+            self._process = None
 
 
 class JourneyDeclaration(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
@@ -1147,6 +1178,7 @@ class Journey:
         self.run_phase("P-A", paper, services, policy, first, scenarios=True)
         self.recover_accounts(paper, policy, paper / "service-p-a", "P-B")
         self.run_phase("P-B", paper, services, policy, second, shutdown=True)
+        self.require_alerts(paper, ("P-A", "P-B"), "paper_alert_received")
         shadow = root / "shadow"
         self.plan_phase(shadow, "shadow", shadow_seconds)
         shadow_services = self.install_services(
@@ -1343,6 +1375,7 @@ class Journey:
         )
         self.recover_accounts(paper, policy, paper / "service-u", "B")
         self.run_phase("B", paper, services, policy, rollback, shutdown=True)
+        self.require_alerts(paper, ("R", "U", "B"), "operations_alert_received")
         self.paper_step(
             "B-facts-after",
             "facts",
@@ -1693,6 +1726,20 @@ class Journey:
         pending.remove(background)
         return self.commands.finish(background, cwd=self.output, timeout=timeout)
 
+    def require_alerts(self, plan: Path, phases: tuple[str, ...], name: str) -> None:
+        """Require the local receiver to have observed an alert across a step's phases.
+
+        P-A injects order uncertainty, so J6 always alerts; a single later phase may
+        not, depending on its market (AL-1).
+        """
+        counts = {
+            phase: (plan / f"alerts-{phase}.jsonl").read_bytes().count(b"\n")
+            if (plan / f"alerts-{phase}.jsonl").is_file()
+            else 0
+            for phase in phases
+        }
+        self.require(name, sum(counts.values()) > 0, counts)
+
     def run_phase(
         self,
         name: str,
@@ -1954,6 +2001,15 @@ class Journey:
         )
 
     def run(self) -> Summary:
+        """Run the declared steps once, holding the host awake, stopping at the first failure.
+
+        An idle-sleeping host freezes every capture and paper service; rehearsal
+        development run 120 lost 18 of 60 captured minutes that way.
+        """
+        with HostAwake():
+            return self._steps()
+
+    def _steps(self) -> Summary:
         """Run the declared steps once, stopping at the first failure."""
         declaration = self.declaration
         through = STEPS.index(declaration.through)

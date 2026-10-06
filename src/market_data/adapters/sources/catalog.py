@@ -222,6 +222,45 @@ class SourceAdapters:
             raise ValueError("trades input lacks a completed capture boundary")
 
     @staticmethod
+    def _captured_books(selection: CaptureInput, store: ByteReader) -> Iterator[BookObservation]:
+        """Replay a book capture chain in one pass, predecessors first.
+
+        Positions count every record of the chain from zero, as the trades replay
+        does. The last segment is bounded by ``max_records`` and must end with a
+        structural capture boundary unless it is itself a rolled-over segment.
+        """
+        capture = selection.capture
+        if capture is None:
+            raise ValueError("captured books require a capture input")
+        replay = CaptureReplay(capture.config, book_factory=BookAdapters.create)
+        codec = DomainCodec()
+        position = 0
+        record: CaptureRecord | None = None
+        for ancestor in (*selection.capture_chain()[:-1], None):
+            descriptor = selection.raw if ancestor is None else ancestor.raw
+            binding = selection.request.binding if ancestor is None else ancestor.capture.binding
+            limit = selection.max_records if ancestor is None else None
+            with store.open(descriptor=descriptor, request=binding) as source:
+                count = 0
+                while limit is None or count < limit:
+                    line = source.readline(capture.config.max_bytes + 1)
+                    if not line:
+                        break
+                    if not line.endswith(b"\n"):
+                        raise ValueError("incomplete capture message")
+                    record = codec.decode_json(line, CaptureRecord)
+                    outcome = replay.apply(record)
+                    yield BookProjection.capture(position, record, outcome, replay)
+                    position += 1
+                    count += 1
+                if ancestor is None:
+                    # Completion is structural; unselected native events remain outside admission.
+                    for line in source:
+                        record = codec.decode_json(line, CaptureRecord)
+        if record is None or (record.kind != "end" and capture.segment is None):
+            raise ValueError("book input lacks a completed capture boundary")
+
+    @staticmethod
     def books(selection: CaptureInput, store: ByteReader) -> Iterator[BookObservation]:
         """Reconstruct validated native input in original position order.
 
@@ -242,34 +281,11 @@ class SourceAdapters:
             != selection.archive.url
         ):
             raise ValueError("book archive discovery differs from retained request")
+        if selection.capture is not None:
+            yield from SourceAdapters._captured_books(selection, store)
+            return
         with store.open(descriptor=selection.raw, request=selection.request.binding) as source:
-            if selection.capture is not None:
-                replay = CaptureReplay(selection.capture.config, book_factory=BookAdapters.create)
-                codec = DomainCodec()
-                for ancestor in selection.capture_chain()[:-1]:
-                    with store.open(
-                        descriptor=ancestor.raw, request=ancestor.capture.binding
-                    ) as prior:
-                        while line := prior.readline(ancestor.capture.config.max_bytes + 1):
-                            if not line.endswith(b"\n"):
-                                raise ValueError("incomplete capture predecessor message")
-                            replay.apply(codec.decode_json(line, CaptureRecord))
-                record: CaptureRecord | None = None
-                for position in range(selection.max_records):
-                    line = source.readline(selection.capture.config.max_bytes + 1)
-                    if not line:
-                        break
-                    if not line.endswith(b"\n"):
-                        raise ValueError("incomplete capture message")
-                    record = codec.decode_json(line, CaptureRecord)
-                    outcome = replay.apply(record)
-                    yield BookProjection.capture(position, record, outcome, replay)
-                # Completion is structural; unselected native events remain outside admission.
-                for line in source:
-                    record = codec.decode_json(line, CaptureRecord)
-                if record is None or (record.kind != "end" and selection.capture.segment is None):
-                    raise ValueError("book input lacks a completed capture boundary")
-            elif selection.archive is not None:
+            if selection.archive is not None:
                 config = selection.archive.config
                 name: object = source.name
                 if not isinstance(name, str):

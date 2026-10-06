@@ -1197,6 +1197,7 @@ class _Workload:
                 assert len(economics.ledger.fills) == 2
                 # Buy at 100.99 + 0.01 adverse, sell at 99.01 - 0.01;
                 # rounded 0.2% fees are 0.20 each: 99 - 101 - 0.40.
+                assert economics.mark is not None
                 assert economics.mark.net.value == Decimal("-2.40"), economics.mark
         self.m.checkpoint("studies-and-control")
         started = time.perf_counter()

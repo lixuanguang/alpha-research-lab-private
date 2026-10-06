@@ -158,6 +158,7 @@ class StudyComponents:
                     window=window,
                     ledger=result.economics.ledger,
                     terminal_mark=result.economics.mark,
+                    terminal_missing_reason=result.economics.unvalued_reason,
                     curve=(
                         LedgerPoint(
                             at=window.start,
@@ -168,7 +169,11 @@ class StudyComponents:
                                 )
                             ).mark(None),
                         ),
-                        LedgerPoint(at=window.end, mark=result.economics.mark),
+                        LedgerPoint(
+                            at=window.end,
+                            mark=result.economics.mark,
+                            missing_reason=result.economics.unvalued_reason,
+                        ),
                     ),
                     diagnostics=result.prediction_errors(window),
                 )
@@ -195,9 +200,17 @@ class StudyComponents:
         )
         store.retain(attempt, "study-report", codec.encode_json(report))
         store.retain(attempt, "report-html", report.render())
+        unvalued = [r.economics for r in results if r.economics.mark is None]
+        if unvalued:
+            return TrialEvaluation(
+                net_return=None,
+                missing_reason=f"{len(unvalued)} of {len(results)} folds unvalued: "
+                + str(unvalued[0].unvalued_reason),
+            )
         returns = tuple(
             Fraction(r.economics.mark.net.value) / Fraction(run.economics.initial_cash.value)
             for r in results
+            if r.economics.mark is not None
         )
         return TrialEvaluation(
             net_return=ExactRatio.from_fraction(sum(returns, Fraction()) / len(returns))
@@ -263,7 +276,6 @@ class StudyComponents:
         store.retain(attempt, f"split-{index:04d}", codec.encode_json(split))
         store.retain(attempt, f"outcomes-{index:04d}", codec.encode_json(outcomes))
         excluded = list(split.exclusions())
-        store.retain(attempt, f"fit-exclusions-{index:04d}", codec.encode_json(tuple(excluded)))
         transform_version = None
         model_version = None
         if self.transform is not None:
@@ -283,6 +295,21 @@ class StudyComponents:
                 transform_version=transform_version,
             )
             store.retain(attempt, f"model-{index:04d}", codec.encode_json(model_version))
+        fitted = (
+            model_version.fit_rows
+            if model_version is not None
+            else transform_version.fit_rows
+            if transform_version is not None
+            else None
+        )
+        if fitted is not None:
+            used = set(fitted)
+            excluded.extend(
+                (sample.row_id, "incomplete training row")
+                for sample in split.fitting_rows()
+                if sample.row_id not in used
+            )
+        store.retain(attempt, f"fit-exclusions-{index:04d}", codec.encode_json(tuple(excluded)))
         policy = DecisionSession(
             self.policy,
             run_identity=run.identity,
@@ -491,6 +518,9 @@ class StudyComparisonEvaluator:
         components = self._bindings[run.identity]
         components.admit(run)
         result = components.evaluate(run, store=store, attempt=attempt_id)
+        if result.net_return is None:
+            # No objective to report or prune on; the search rejects it with its reason.
+            return result
         trial.report(
             int(result.net_return.numerator) / int(result.net_return.denominator),
             step=len(run.folds),

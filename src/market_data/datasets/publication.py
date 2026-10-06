@@ -78,15 +78,17 @@ class DatasetPublication:
     ) -> CapturePublication:
         """Retain captured or archived native inputs and publish them by stream kind.
 
-        Book captures and archives publish together as one book snapshot. Each trades
-        capture chain publishes as its own public-trade snapshot, replayed through the
-        same tape the live trade source uses.
+        Book captures and archives publish together as one book snapshot, with one
+        partition per capture chain. Each trades capture chain publishes as its own
+        public-trade snapshot, replayed through the same tape the live trade source
+        uses. A chain is selected by its last segment, which carries the whole chain.
 
         Args:
             directories: Completed capture/archive directories; no network access is performed.
             store: Provisioned immutable raw store retaining copied original inputs.
             destination: Provisioned directory shared with the existing snapshot store.
-            max_records: Explicit per-input raw-position prefix ceiling, at most 1,000,000.
+            max_records: Explicit raw-position ceiling for each selected last segment, at
+                most 1,000,000; its predecessors are replayed whole.
             max_bytes: Positive per-file raw/canonical byte bound.
             report: Optional book quality sink called before each partition's publication gate.
 
@@ -104,19 +106,24 @@ class DatasetPublication:
         )
         if len({selected.request.identity for selected in selections}) != len(selections):
             raise ValueError("duplicate capture source selection")
+        ancestors = {
+            ancestor.capture.identity
+            for selected in selections
+            for ancestor in selected.capture_chain()[:-1]
+        }
+        if any(selected.request.identity in ancestors for selected in selections):
+            raise ValueError("a capture chain is published by its last segment only")
         for directory, selected in zip(directories, selections, strict=True):
             if type(max_bytes) is not int or not 0 < selected.raw.size_bytes <= max_bytes:
                 raise ValueError("capture raw input exceeds max_bytes")
-            store.publish(
-                directory / selected.raw.sha256,
-                descriptor=selected.raw,
-                request=selected.request.binding,
+            store.copy(
+                RawStore(directory), descriptor=selected.raw, request=selected.request.binding
             )
             for ancestor in selected.capture_chain()[:-1]:
                 if not 0 <= ancestor.raw.size_bytes <= max_bytes:
                     raise ValueError("capture predecessor raw input exceeds max_bytes")
-                store.publish(
-                    directory.parent / ancestor.capture.recording_id / ancestor.raw.sha256,
+                store.copy(
+                    RawStore(directory.parent / ancestor.capture.recording_id),
                     descriptor=ancestor.raw,
                     request=ancestor.capture.binding,
                 )

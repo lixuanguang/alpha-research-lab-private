@@ -134,6 +134,10 @@ class EstimatorLifecycle:
         for row in rows:
             if labels[row.identity].sample(row) != samples[row.identity]:
                 raise ValueError("split differs from actual feature/label bytes")
+        # A row whose label is missing is left out, as one missing a feature is.
+        admitted = tuple(r for r in admitted if labels[r.identity].value is not None)
+        if not admitted:
+            raise ValueError("fitting requires at least one labelled complete training row")
         selected = tuple(labels[r.identity] for r in admitted)
         if any(
             o.value is None
@@ -149,7 +153,7 @@ class EstimatorLifecycle:
         if transform is not None and transform_version is not None:
             if (
                 transform_version.split_identity != split.identity
-                or transform_version.fit_rows != tuple(r.identity for r in admitted)
+                or not {r.identity for r in admitted} <= set(transform_version.fit_rows)
                 or transform_version.available_at > available_at
             ):
                 raise ValueError("transform fit or availability differs from model training")

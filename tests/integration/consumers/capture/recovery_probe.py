@@ -99,7 +99,8 @@ def main() -> None:
     )
     changed_root = output / "divergence"
     changed_root.mkdir()
-    for name in ("request.json", "manifest.json", selected.raw.sha256):
+    # A sealed capture's raw object is stored compressed under its digest.
+    for name in ("request.json", "manifest.json", f"{selected.raw.sha256}.zst"):
         shutil.copyfile(source / name, changed_root / name)
     for index, record in enumerate(CaptureJournal(source, selected.capture).records()):
         changed.apply(replace(record, received_ns=record.received_ns + 1) if index == 0 else record)

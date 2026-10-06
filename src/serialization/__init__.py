@@ -3,6 +3,14 @@
 # project library imports
 from serialization.codec import DomainCodec
 from serialization.durable import DurableDirectory, SqliteLayout
+from serialization.frames import FrameReader, FrameWriter
 from serialization.records import WireRecord
 
-__all__ = ["DomainCodec", "DurableDirectory", "SqliteLayout", "WireRecord"]
+__all__ = [
+    "DomainCodec",
+    "DurableDirectory",
+    "FrameReader",
+    "FrameWriter",
+    "SqliteLayout",
+    "WireRecord",
+]

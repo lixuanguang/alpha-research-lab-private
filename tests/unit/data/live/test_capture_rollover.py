@@ -6,12 +6,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from functools import partial
 from pathlib import Path
-from typing import Protocol
+from typing import ClassVar, Protocol
 from unittest.mock import patch
 
 # third party library imports
@@ -24,7 +24,14 @@ from applications.collect import collect_run
 from configuration import CaptureConfig, CaptureRunConfig, UniverseSelection
 from market_data.adapters.sources import BookAdapters, SourceAdapters
 from market_data.adapters.transport import VenueTransport
-from market_data.contracts import CaptureRecord, CaptureRequest, CaptureRunRequest, FeedSocket
+from market_data.contracts import (
+    BookObservation,
+    ByteReader,
+    CaptureRecord,
+    CaptureRequest,
+    CaptureRunRequest,
+    FeedSocket,
+)
 from market_data.datasets import BookSnapshot, CaptureInput, DatasetPublication
 from market_data.replay import SavedCaptureRun
 from market_data.storage import CaptureJournal, CaptureRunJournal, RawStore
@@ -244,22 +251,30 @@ class TestCaptureRollover:
         raw_root.mkdir()
         snapshot_root.mkdir()
         readers, raw = SourceAdapters(), RawStore(raw_root)
-        identity = (
-            DatasetPublication(readers, "b" * 64)
-            .publish_captures(
+        publication = DatasetPublication(readers, "b" * 64)
+        with pytest.raises(ValueError, match="last segment only"):
+            publication.publish_captures(
                 tuple(journal.root for journal in journals),
                 raw,
                 snapshot_root,
                 max_records=32,
                 max_bytes=1_048_576,
             )
-            .book
-        )
+        identity = publication.publish_captures(
+            (journals[-1].root,), raw, snapshot_root, max_records=32, max_bytes=1_048_576
+        ).book
         snapshot = BookSnapshot.read(
             snapshot_root, raw, readers=readers, identity=identity, max_bytes=1_048_576
         )
         suffix = CaptureInput.read(journals[1].root, max_records=32)
+        assert snapshot.request_identities == (suffix.request.identity,)
         rows = tuple(snapshot.observations(suffix.request.identity))
+        # One partition carries the whole chain, positions counted across it.
+        assert tuple(row.position for row in rows) == tuple(range(len(records)))
+        assert tuple(row.received_ns for row in rows) == tuple(
+            record.received_ns for record in records
+        )
+        assert sum(row.outcome == "snapshot" for row in rows) == 1
         updates = tuple(row for row in rows if row.outcome == "update")
         assert len(updates) == 2
         assert updates[0].sequence == 3 and updates[1].sequence == 5
@@ -268,6 +283,38 @@ class TestCaptureRollover:
         )
         assert updates[1].orders[0].size == Decimal("0.25")
         assert len(suffix.capture_chain()) == 2
+        self._reopen_checks_digests_and_rederives_on_request(
+            snapshot_root, raw_root, identity, suffix
+        )
+
+    @staticmethod
+    def _reopen_checks_digests_and_rederives_on_request(
+        snapshot_root: Path, raw_root: Path, identity: str, suffix: CaptureInput
+    ) -> None:
+        """A reopen checks digests without replaying raw input; an audit re-derives."""
+        readers, raw = _CountedReaders(), RawStore(raw_root)
+        _CountedReaders.replays.clear()
+        BookSnapshot.read(
+            snapshot_root, raw, readers=readers, identity=identity, max_bytes=1_048_576
+        )
+        assert _CountedReaders.replays == []
+        BookSnapshot.read(
+            snapshot_root,
+            raw,
+            readers=readers,
+            identity=identity,
+            max_bytes=1_048_576,
+            rederive=True,
+        )
+        assert _CountedReaders.replays == [suffix.request.identity]
+        predecessor = suffix.capture_chain()[0].raw
+        damaged = raw_root / f"{predecessor.sha256}.zst"
+        damaged.chmod(0o644)
+        damaged.write_bytes(damaged.read_bytes()[:-8])
+        with pytest.raises(ValueError, match="corrupt or truncated"):
+            BookSnapshot.read(
+                snapshot_root, raw, readers=readers, identity=identity, max_bytes=1_048_576
+            )
 
     def test_okx_trades_become_ready_at_their_acknowledgement(self, tmp_path: Path) -> None:
         """A tape with no snapshot is ready at its acknowledgement and publishes as trades."""
@@ -551,3 +598,15 @@ class TestCaptureRollover:
         with pytest.raises(ValueError, match="typed"):
             invalid: dict[str, str] = {}
             replace(request, config=invalid)
+
+
+class _CountedReaders(SourceAdapters):
+    """Record each book replay, so a reopen can be shown not to re-derive."""
+
+    replays: ClassVar[list[str]] = []
+
+    @staticmethod
+    def books(selection: CaptureInput, store: ByteReader) -> Iterator[BookObservation]:
+        """Record the replayed request, then replay as the shipped readers do."""
+        _CountedReaders.replays.append(selection.request.identity)
+        return SourceAdapters.books(selection, store)

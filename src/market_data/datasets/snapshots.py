@@ -111,7 +111,7 @@ class SnapshotStore[
                 for partition, payload in zip(selected, payloads, strict=True):
                     self._write(staging / partition.sha256, payload, max_bytes)
                 self._write(staging / "manifest.json", self._codec.encode_json(manifest), max_bytes)
-                self._read(staging, identity, max_bytes)
+                self._read(staging, identity, max_bytes, rederive=True)
                 # False: a concurrent publisher won; its snapshot is verified below.
                 published = DurableDirectory.publish(
                     staging, destination, sync=self._sync_directory
@@ -172,7 +172,7 @@ class SnapshotStore[
             identity = manifest.identity
             self._write(staging / "manifest.json", self._codec.encode_json(manifest), max_bytes)
             # Reproduce the saved bytes from raw input before they can become visible.
-            self._read(staging, identity, max_bytes)
+            self._read(staging, identity, max_bytes, rederive=True)
             destination = self._root / identity
             if not DurableDirectory.publish(staging, destination, sync=self._sync_directory):
                 # A concurrent publisher won; verify and durably name its snapshot.
@@ -186,8 +186,15 @@ class SnapshotStore[
         *,
         max_bytes: int,
         report: Callable[[str, QualityReport], None] | None = None,
+        rederive: bool = False,
     ) -> Manifest:
         """Reopen a complete snapshot by explicit content identity, never a mutable tag.
+
+        Publication re-derives every partition from raw input before the snapshot
+        becomes visible. A book or public-trade reopen then checks the manifest
+        identity and every partition and raw object digest; ``rederive`` audits by
+        re-deriving every partition again. The original trade format always re-derives,
+        because its quality reports come from that reproduction.
 
         Args:
             identity: Independently retained lowercase dataset SHA-256.
@@ -195,6 +202,7 @@ class SnapshotStore[
             report: Optional synchronous sink for verified partition quality, using the
                 admission already reproduced during this read. Failures propagate and
                 no whole-snapshot success follows unless every partition verifies.
+            rederive: Re-derive every partition from raw input, as publication does.
 
         Returns:
             Manifest after every referenced canonical and raw input verifies.
@@ -205,7 +213,9 @@ class SnapshotStore[
         """
         if type(identity) is not str or re.fullmatch(r"[0-9a-f]{64}", identity) is None:
             raise ValueError("snapshot requires an explicit lowercase SHA-256 identity")
-        return self._read(self._root / identity, identity, max_bytes, report=report)
+        return self._read(
+            self._root / identity, identity, max_bytes, report=report, rederive=rederive
+        )
 
     def _read(
         self,
@@ -214,6 +224,7 @@ class SnapshotStore[
         max_bytes: int,
         *,
         report: Callable[[str, QualityReport], None] | None = None,
+        rederive: bool,
     ) -> Manifest:
         """Verify staging or published bytes through the existing manifest boundary."""
         if not stat.S_ISDIR(directory.lstat().st_mode):
@@ -229,6 +240,7 @@ class SnapshotStore[
             max_bytes=max_bytes,
             report=report,
             readers=self._readers,
+            rederive=rederive,
         )
         return cast(Manifest, manifest)
 

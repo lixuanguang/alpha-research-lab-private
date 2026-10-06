@@ -118,7 +118,7 @@ class _SavedEconomy:
         (output / "raw").mkdir()
         (output / "snapshots").mkdir()
         raw = RawStore(output / "raw")
-        raw.publish(source, descriptor=origin, request=request.binding)
+        raw.publish(source, descriptor=origin, request=request.binding, compress=False)
         acquisition = AcquisitionManifest(run=run, completed=(origin,))
         publisher = DatasetPublication(SourceAdapters(), "a" * 64)
         occurrences = tuple(publisher.occurrences(acquisition, raw, max_bytes=2_000_000))

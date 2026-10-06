@@ -69,7 +69,7 @@ class TestResearchAccess:
             ts_received=_START + timedelta(days=1),
             ts_ingested=_START + timedelta(days=1),
         )
-        raw.publish(source, descriptor=origin, request=request.binding)
+        raw.publish(source, descriptor=origin, request=request.binding, compress=False)
         acquisition = AcquisitionManifest(run=request.manifest, completed=(origin,))
         identity = publisher.publish(
             (acquisition,),
@@ -206,7 +206,7 @@ class TestResearchAccess:
         book = selection.inputs[1]
         assert isinstance(book, BookSelection)
         selected = CaptureInput.read(tmp_path / "capture", max_records=16)
-        (tmp_path / "raw" / selected.raw.sha256).unlink()
+        (tmp_path / "raw" / f"{selected.raw.sha256}.zst").unlink()
         assert catalog.discover(max_entries=3, max_bytes=_LIMIT) == entries
         with pytest.raises(ValueError, match="publication refused"):
             self._reader(tmp_path).read(selection)

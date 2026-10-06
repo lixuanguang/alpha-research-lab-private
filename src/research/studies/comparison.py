@@ -339,6 +339,8 @@ class ParameterComparison[Variant: SearchVariant]:
                     result = DomainCodec().decode_json(
                         store.artifact(attempt, "trial-evaluation"), TrialEvaluation
                     )
+                    if result.net_return is None:
+                        raise ValueError("a completed trial lacks its exact objective")
                     study.tell(
                         trial.number,
                         int(result.net_return.numerator) / int(result.net_return.denominator),
@@ -444,6 +446,8 @@ class _ComparisonObjective[Variant: SearchVariant]:
             )
             result = self._evaluator.evaluate(run, trial, self._store, attempt)
             self._store.retain(attempt, "trial-evaluation", DomainCodec().encode_json(result))
+            if result.net_return is None:
+                raise _RejectedError(f"No exact validation objective: {result.missing_reason}")
             actual = Fraction(int(result.net_return.numerator), int(result.net_return.denominator))
             threshold = self._definition.minimum_return
             accepted = actual >= Fraction(int(threshold.numerator), int(threshold.denominator))

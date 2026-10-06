@@ -1,6 +1,7 @@
 """Expose the market data datasets public contract."""
 
 # project library imports
+from market_data.datasets.book_frames import BookFrameDecoder, BookFrameEncoder, StoredBookRow
 from market_data.datasets.books import (
     BookAdmissionReport,
     BookDatasetManifest,
@@ -24,6 +25,8 @@ from market_data.datasets.snapshots import SnapshotStore
 __all__ = [
     "BookAdmissionReport",
     "BookDatasetManifest",
+    "BookFrameDecoder",
+    "BookFrameEncoder",
     "BookHistory",
     "BookPartition",
     "BookSnapshot",
@@ -40,4 +43,5 @@ __all__ = [
     "PublicTradeObservation",
     "SnapshotCatalog",
     "SnapshotStore",
+    "StoredBookRow",
 ]

@@ -297,7 +297,7 @@ class PublicIngestion:
                     ts_received=pending.received,
                     ts_ingested=clock(),
                 )
-                self._store.publish(saved, descriptor=raw, request=request.binding)
+                self._store.publish(saved, descriptor=raw, request=request.binding, compress=False)
                 ingested = clock()
                 if ingested < raw.ts_ingested:
                     raise ValueError("public ingestion clock regressed during publication")

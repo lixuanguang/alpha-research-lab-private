@@ -68,7 +68,9 @@ class TestDatasetManifest:
             ts_received=datetime(2026, 9, 16, tzinfo=UTC),
             ts_ingested=datetime(2026, 9, 16, tzinfo=UTC),
         )
-        RawStore(root).publish(source, descriptor=descriptor, request=request.binding)
+        RawStore(root).publish(
+            source, descriptor=descriptor, request=request.binding, compress=False
+        )
         return AcquisitionManifest(run=run, completed=(descriptor,))
 
     @staticmethod

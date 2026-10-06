@@ -4078,6 +4078,486 @@ environment, so editable and non-editable installs could not race.
 closure), M5 (MR15 stage 2b) and M6 (the counted journey). For M6, the six-hour
 capture makes J7's backup about 60 GB, and backup plus restore double that on disk.
 
+## M4a design note: compact market-data storage (direction approved 2026-10-06)
+
+The owner chose this direction on 2026-10-06, over re-basing R1's limits (a named
+profile R1b) and over a shallow R1 corpus. The details below follow the standing rule:
+the most scalable and maintainable option, with no backward compatibility.
+
+**Problem.**
+- **The R1 corpus is gone.** Neither `data/okx/research-corpus-20260930/` nor
+  `logs/capacity-closure/` exists on the host. Under owner decision 2, M4 needs a
+  fresh 72-hour acquisition. The owner decided to arm it only after the rehearsals
+  pass.
+- **Book publication expands about 24 times.** A canonical book partition stores the
+  whole visible book, as JSON, on every update (`BookStream`). On rehearsal-6, 23 MB
+  of raw capture over 30 minutes published as 1.1 GB, of which two OKX partitions
+  were 519 and 465 MB.
+  - A 72-hour OKX BTC/ETH corpus projects to about 140 GB canonical. R1's workspace
+    limit is 10 GiB, and the host has 350 GiB free.
+  - M6's six-hour J2 makes J7's backup about 60 GB for the same reason, and 2b
+    replays the same format.
+- **Raw journals are uncompressed JSONL.** A sealed OKX book segment compresses about
+  8 times with zlib. At the uncompressed rate, 72 hours of raw OKX capture projects to
+  about 4.7 GB, against R1's 2 GiB source limit.
+
+**The change.**
+1. **A compressed frame container** (`FrameWriter` and `FrameReader`, in
+   `serialization`). A book partition becomes:
+   - a header record binding the partition to its complete source selection, as now;
+   - then a sequence of independently decodable zstd frames (`compression.zstd`,
+     standard library). Each frame holds at most 4,096 records and closes once it
+     reaches 8 MiB. A record is at most 16 MiB, and a reader refuses a frame above
+     64 MiB, compressed or not, before it allocates.
+   A reader holds one frame and one book at most.
+   - **Trade partitions are not changed.** On rehearsal-6 they were about 3 MB of the
+     1.1 GB of canonical output; for the 72-hour two-instrument corpus they project to
+     about 270 MB. Such a partition is still one in-memory history. If R1's 8 GiB
+     memory limit is missed because of it, it moves to the same container, with a
+     streamed reader.
+2. **Book rows are stored as deltas.**
+   - The first row of every frame is stored whole.
+   - Every later row stores its coordinates (position, epoch, clocks, sequence,
+     outcome, status, reason, state identity) and only its change from the row
+     before it:
+     - for L2, the levels set and the prices removed on each side;
+     - for L3, the orders upserted and the order identities removed.
+   - A row whose representation differs from the previous row's (no visible state,
+     or a change between L2 and L3) is stored whole. An empty state on a control or
+     invalid boundary therefore never reads as an empty book.
+   - `BookSnapshot.observations()` rebuilds every `BookObservation` exactly. Every
+     consumer reads through it: replay, query and the captured study market.
+3. **One digest, of the stored file.**
+   - A partition's `sha256` names the stored file, as now, and a reader checks it
+     before it exposes a row.
+   - Verification decodes every row and compares it with fresh normalization of the
+     raw source. It never re-compresses, so it does not depend on the zstd build.
+   - Publication is deterministic for one installed build. A different zstd build may
+     publish the same rows under another identity. Nothing republishes to reproduce an
+     identity: restores copy files, and reopening verifies rows.
+   - A delta rebuilds its sides in ascending price order and its orders in
+     ascending identity order. A row is therefore a delta only when it and its base
+     are both in that order. Both book producers sort, so every published row
+     qualifies. A derived row, such as the study market's best-first bounded depth,
+     is stored whole. Ascending order is not made a `BookObservation` invariant,
+     because derived rows rely on best-first order.
+4. **Sealed raw captures are compressed.**
+   - `RawStore.publish` takes an explicit `compress`. A compressed object is stored
+     as zstd under its original bytes' `sha256` with `.zst` appended; `RawObject` is
+     unchanged.
+   - Capture journals (sealed or interrupted) are compressed. Archive downloads,
+     already compressed and replayed by path, and REST pages are stored as they are.
+   - `open` verifies the original digest by streaming decompression, then returns a
+     stream of the original bytes. An object present in both encodings is refused.
+   - Publication copies an object between stores in its stored encoding
+     (`RawStore.copy`), so it is never decompressed and compressed again.
+   - The live `journal.jsonl` stays plain, because the paper services follow it by
+     byte offset. Whether the sealed copy can be the only retained raw copy is
+     measured in M4a and decided with its result, not assumed.
+5. **Limits.**
+   - A dataset's `max_bytes` applies to stored bytes.
+   - The frame bound applies to uncompressed bytes.
+   - R1's source and workspace limits count stored bytes. Their measured
+     uncompressed sizes are reported beside them.
+6. **Release and records.**
+   - This changes the book partition format and `RawStore` objects in place. It touches the collector, research and
+     paper-services releases.
+   - No reader for the old formats is kept. Existing captures and evidence stay
+     valid at their own commits.
+   - lakeFS publication copies the stored files unchanged.
+   - M4a changes J2–J7's code path. The rehearsal after it therefore reruns J1–J7,
+     and stage 2b qualifies the result.
+
+**Tests.**
+- Exact round trips, including decimal text (`100` and `100.0` differ): L2 sets
+  and removals, L3 upserts and removals, control and gap rows, a change between L2
+  and L3, a frame boundary in the middle of a book, and a best-first row stored
+  whole.
+- Refusal of a delta without its base: at a frame start, after an absent state,
+  removing an absent entry, emptying the state, or mixing L2 and L3 changes.
+- A corrupted frame, a truncated file and an oversized frame are each refused before
+  any row is exposed.
+- Raw objects: a compressed round trip, a copy in its stored encoding, refusal of a
+  truncated object and of two encodings, and reuse across encodings.
+- The existing replay, query, captured-market and publication suites, unchanged in
+  expectation.
+
+**Measurement before acceptance.** Republish one rehearsal's J2 capture (30 minutes
+or more, eight feeds) on the new code. Report:
+- stored and uncompressed bytes, per partition and for raw objects;
+- publication, verification and reopen times;
+- row-for-row equality with the old format's observations, using a one-off script
+  outside `src/`;
+- the 72-hour projection against R1's 2 GiB, 10 GiB and 100 GiB limits.
+
+If raw storage still misses 2 GiB, the result goes back to the owner as a named
+profile. R1's limits are not raised here.
+
+**Addenda (2026-10-06).** While M4a was being implemented, two more scaling
+defects and R1's volume question came up. The owner delegated all three under the
+standing rule, and they are decided as follows.
+
+- **CH-1: one book partition per capture chain.**
+  - *Defect.* A rolled-over capture run publishes one book partition per segment, and
+    each later segment's reader replays every earlier segment to rebuild its book
+    (`SourceAdapters.books`). Publication, and every verification, is therefore
+    quadratic in segment count. A 72-hour run may have 150 segments per source.
+  - *QR gap found with it.* The QR's J3–J5 scripts select the first book partition
+    for each instrument (`next(...)`). With per-segment partitions they study only a
+    run's first segment.
+  - *Change.*
+    - A book partition is selected by its chain's last segment, as a trades partition
+      already is.
+    - Its rows cover every record of the chain, in one pass, with positions counted
+      from zero across the chain.
+    - `max_records` bounds the last segment, as for trades. The stored-bytes limit
+      bounds the whole partition.
+    - Publication refuses two selections from one chain.
+    - The guide and the QR's `j2_publish.py` select each book run's last segment, as
+      they already do for trades. This is a QR workspace commit.
+- **RV-1: reopening checks digests; re-derivation is explicit.**
+  - *Defect.* Every `SnapshotStore.read`, and so every study open, re-derives every
+    book and trade partition from raw. That took about 49 s for 30 minutes of eight
+    feeds, and the cost grows with corpus length on every open.
+  - *Change.*
+    - Publication still re-derives every partition before the snapshot becomes
+      visible.
+    - Reopening checks the manifest identity, each partition file's SHA-256 and
+      each raw object's SHA-256. It does not re-derive.
+    - The manifest's `normalization_identity` stays as provenance. Comparing it with
+      the installed normalizer at reopen was considered and rejected: market_data
+      would have to import `runtime` for the identity, and every development build
+      would re-derive on every open.
+    - The original REST trade format (`DatasetManifest`) still re-derives on every
+      read. Its quality reports come from that reproduction, and its inputs are
+      bounded in memory.
+    - An explicit audit (`SnapshotStore.read(..., rederive=True)`, also on
+      `BookSnapshot.read`) always re-derives. The QR's J2 reopen script uses it.
+  - *What still holds.* Any byte change to a manifest, partition or raw object is
+    refused. The only thing no longer repeated on every open is re-derivation. A
+    snapshot published under an earlier normalizer is read as it was published; an
+    audit shows whether the installed normalizer would derive the same rows.
+- **R1b: a named profile on the full-rate corpus.**
+  - *Finding.* R1's publication (300 s for all inputs), study (600 s) and reopen
+    (60 s) limits fit its stated minimum of about 100,000 records. The fresh corpus
+    is full-rate OKX BTC/ETH books and trades: about 7 book messages a second per
+    instrument, so about 4 million records in 72 hours. Rehearsal-6 published about
+    79,000 records in 56 s, about 1,400 a second.
+  - *Decision.* M4 qualifies a new named profile, **R1b**, on the full-rate 72-hour
+    corpus, because that corpus is what the journey and the runtime actually
+    consume.
+    - R1b keeps R1's inputs, provenance, decisions, features, retention, correctness
+      and recovery rules.
+    - It re-bases throughput, reopen and storage limits on M4a's measured rates, with
+      the rationale recorded beside each limit.
+    - R1 and its failed evidence stay as recorded.
+  - *When.* R1b is declared after M4a's measurement, before the acquisition is
+    armed.
+  - *Owner decision (2026-10-06).* The corpus stays 72 consecutive UTC hours. A
+    24-hour window was offered and declined. The acquisition is armed right after
+    rehearsal-9 passes, and M5 preparation overlaps it.
+  - *Superseded the same day (owner, 2026-10-06).*
+    - The armed acquisition was disarmed before its window opened (all four runs
+      `stopped_before_start`). The host is a laptop that sleeps in transit, and no
+      always-on machine is available.
+    - The owner decided not to run the 72-hour acquisition for now. R1b is qualified
+      from measured runs on the one-hour corpora, with throughput, storage and
+      retention extrapolated to 72 hours by a stated linear model.
+    - Linear extrapolation is defensible because the paths that grew faster than
+      linearly are gone:
+      - full-state storage, replaced by the compact store;
+      - per-segment chain replay, replaced by CH-1;
+      - re-derivation on every reopen, replaced by RV-1.
+    - The extrapolation is recorded beside each limit as an extrapolation, not a
+      measurement. A full-length acquisition stays possible later, on an always-on host,
+      as confirmation.
+
+## UV-1 design note: an unvalued fold is an outcome, not a crash (2026-10-06)
+
+The owner asked for the most scalable and maintainable option, with no backward
+compatibility, and this is it.
+
+**Defect (development run rehearsal-121).**
+- J3's first learned study raised *"open intent holding requires a fresh terminal
+  bid"* and aborted the whole study.
+- At fold 2's end (05:28:22 UTC), OKX BTC's latest valid update was 2.9 s old. A
+  network outage at 05:28:10 had left the reconnected stream sparse. The QR's
+  `max_book_age_us` is 2 s, and the learned policy held a position.
+- `IntentExecution.run` refuses a stale terminal price, which is right. But it raises,
+  so one fold's missing valuation ends every fold and the study.
+- Longer corpora (R1b's 72 hours, M6's six hours) make such fold ends certain.
+
+**Options considered.**
+1. *An explicit unvalued outcome* (chosen).
+2. *A separate, looser valuation-age bound.* Rejected: it moves the cliff, and a long
+   stale period still aborts a study.
+3. *Marking at the last then-known bid of any age.* Rejected: it weakens the
+   fresh-quote rule of `Ledger.mark`.
+
+**The change.**
+1. **`IntentSimulationResult`.**
+   - `mark` and `net_return` become optional, beside a new `unvalued_reason`.
+   - With an open holding and no fresh terminal bid, both are absent and the reason is
+     `"no fresh terminal bid for an open holding"`. Otherwise both are present and the
+     reason is absent.
+   - The result check enforces exactly that, and recomputes a present mark from the
+     ledger as now.
+   - The run no longer raises at the terminal mark.
+2. **`FoldSummary`.** `terminal_mark` becomes optional, with
+   `terminal_missing_reason`. The curve's last point carries the same missing mark and
+   reason. The report already renders a missing period ("Missing return periods").
+3. **`TrialEvaluation`.**
+   - `net_return` becomes optional, with `missing_reason`.
+   - A trial with any unvalued fold has no objective. A mean over the valued folds is
+     not used, because valued folds differ between trials, so it would compare
+     different opportunity sets (study protocol, "common opportunity set").
+4. **Search (`compare_studies`).**
+   - A trial without an objective is rejected with its reason, through the existing
+     rejection path, and told to Optuna as `FAIL`.
+   - Selection proceeds among the other trials. If none is accepted, the existing
+     no-selection outcome applies.
+   - Tracking publishes the exact return only when present.
+5. **A single study (`evaluate_study`).** It completes. It retains every fold, the
+   report with the missing period, and the trial evaluation with its reason.
+6. **Unchanged.**
+   - `Ledger.mark` still refuses an open holding without a price.
+   - Entry still requires a fresh book.
+   - The candidate replay and paper paths do not use the terminal fold mark.
+
+**Tests.**
+- A fold ending inside a gap with an open holding yields the unvalued result, and
+  every other fold still runs.
+- A forged result is refused: a mark without a valuation price, or a reason with a
+  mark.
+- A search with one unvalued trial selects among the rest; with all unvalued, nothing
+  is selected.
+- A report renders the missing period.
+- A trial evaluation cannot have both a return and a reason.
+
+## HS-1: the journey holds the host awake (2026-10-06)
+
+- **Finding.** Development runs 120–122 failed J3: an unvalued terminal fold, then
+  singular least-squares fits. The cause was not the code. The power log shows the
+  Mac went into idle sleep at 05:21:57 UTC for 358 s and again at 05:30:55 for 693 s,
+  waking at 05:42:28.
+  - Every collector froze: no frame and no receipt clock was written for about 18 of
+    the 60 captured minutes.
+  - The disconnects at 05:28 and 05:42 were reconnects after wake.
+  - Neither the driver nor the development harness held a sleep assertion.
+    Rehearsals 7 and 8 stayed awake only through other activity on the host.
+- **Change.** `Journey.run` holds `caffeinate -i -s -w <driver pid>` for the whole
+  attempt on macOS, and refuses to run there without it. The assertion dies with the
+  driver. Owner decision 11 already required this for long runs.
+- **What stands from these runs.**
+  - QR abstention (`f66aef4`) and UV-1 remain: real gaps happen, and both fix
+    fragilities those runs exposed.
+  - The gapped capture itself is not used as evidence.
+
+## Rehearsal 7 (uncounted, 2026-10-06): stopped, temporary root deleted
+
+- **Declared run.** Rehearsal-7 ran the real driver from a clean tree at `e34d56a`, with
+  QR commit `58773b2`, through J7: a 60-minute J2 window, J6 phases of 600/300/300 s and
+  J7 phases of 300/300/300 s. It started at 03:04 UTC.
+- **J1 passed.**
+- **Why it was stopped.** During the J2 capture, `/private/tmp` was cleared in Finder:
+  the folder was opened at 03:05:43 and the Trash emptied at 03:19:30. This deleted
+  the attempt's temporary root `/private/tmp/mr17/rehearsal-7`, which held its build
+  and research environments. The collectors kept running from memory, but every later
+  J2 command named a deleted binary.
+- **What was done.** At the owner's request the attempt was stopped at 04:00 UTC with
+  SIGTERM, before any step could fail on the missing environment. Its summary was
+  never finalized and still reads `running`. No criterion failed, and no code defect
+  was found.
+- **Change for later attempts.** The temporary root moves off `/private/tmp`:
+  rehearsal-8 declares `/Users/lxg/mr17t` (outside iCloud, short enough for socket
+  paths) and sets `TMPDIR` under it.
+
+## Rehearsal 8 (uncounted, 2026-10-06): J2 failed, fixed by M4a
+
+- **Declared run.** As rehearsal-7, at the same commits, with the new temporary root.
+  It started at 04:01 UTC.
+- **J1 passed.**
+- **J2 failed** at `publish:capture_publish_succeeded`: *"book canonical stream exceeds
+  max_bytes"*.
+  - The QR publishes with the guide's `--max-bytes 1000000000`.
+  - In the old format, 60 minutes of OKX BTC-USDT publishes as a 1,043,422,033-byte
+    partition (measured below), because every update stores the whole 400-level book.
+  - Rehearsals 3–6 passed J2 with 30-minute windows, at about 500 MB a partition.
+    With the old format, no J2 of 60 minutes or more could pass. M6's six hours
+    could not either.
+- **Fix.** M4a's compact book store, below. The next attempt, rehearsal-9, runs on
+  M4a.
+
+## M4a measurement (2026-10-06, uncounted, not evidence)
+
+Rehearsal-8's J2 capture (60 minutes, eight feeds, one segment per run) was cloned and
+republished on the M4a worktree. The new code first stored the raw objects compressed,
+then published each run's last segment through `DatasetPublication.publish_captures`.
+
+| Book partition | Rows | M4a stored | Old format | Ratio |
+| --- | ---: | ---: | ---: | ---: |
+| OKX BTC-USDT | 28,992 | 3,420,863 | 1,043,422,033 | 305 |
+| OKX ETH-USDT | 28,416 | 3,318,641 | 974,280,952 | 294 |
+| Bitfinex BTC/USD | 64,650 | 3,708,544 | 232,940,925 | 63 |
+| Bitfinex ETH/USD | 58,125 | 3,152,618 | 190,779,655 | 61 |
+
+- **Exactness.** Every stored row of every partition equals a fresh normalization of
+  the raw input, byte for byte in the codec's exact encoding (180,183 rows). The old
+  sizes are those rows' old encodings.
+- **Raw.** 56,908,924 bytes are stored as 5,950,590, a ratio of 9.6, compressed in
+  0.68 s.
+- **Trades.** Four trade snapshots, unchanged in format, take 10.4 MB.
+- **Times** (one process, M1 Max, host shared with other work):
+  - Publication, including full verification: 120 s, 162 MB peak RSS.
+  - Reopen with digest checks: 0.09 s. The old full re-derivation took about 49 s for
+    30 minutes on rehearsal-6.
+  - Audit with `rederive=True`: 59 s.
+  - Reading every book row: 28.6 s, about 6,300 rows a second.
+- **72-hour projection** for OKX BTC/ETH books and trades, scaling the OKX shares
+  linearly. This is an extrapolation from one hour, not a measurement:
+  - about 0.5 GB of book partitions;
+  - about 0.3 GB of stored raw;
+  - about 0.7 GB of trades;
+  - publication taking about 2 to 2.5 hours on one process.
+  Storage fits R1's 2 GiB source and 10 GiB workspace limits. Publication time is the
+  measured rate that R1b's throughput limit will be based on.
+- **Not covered by this capture.** No run rolled over, so it exercised one-segment
+  chains only. Multi-segment chains are covered by the rollover unit test (CH-1).
+- **Validation on the M4a tree.**
+  - `make check`, integration (40 passed), performance and Linux strict mypy passed.
+  - One `make check` test failed only because the recreated lane directory had group
+    `wheel`, which drops setgid; it passed after the group was fixed.
+  - One performance timing-ratio test failed under host load and passed when rerun
+    alone.
+
+## M4a result (2026-10-06)
+
+M4a lands as one commit: the compact book store, compressed raw captures, CH-1, RV-1,
+UV-1 and HS-1, with the guides. The QR's changes are on its `m4a-compact-storage`
+branch: `76c3643` (J2 publication and audit), `f66aef4` (the rule abstains without a
+touch) and `7a7f28e` (an unvalued fold is missing in the metric and chart).
+
+**Development run rehearsal-123** ran on a fresh 60-minute J2 with the host held
+awake.
+- J1, J2 and J3 passed every criterion: eight captures, publication, reopen,
+  lakeFS, every rule, learned, holdout and grid study, publication and the extension
+  check.
+- It went on to J4–J7 unattended and passed every criterion there too: J4 16, J5 15,
+  J6 83 and J7 84. That makes 291 criteria with none failed, on a 60-minute J2, the
+  window that failed rehearsal-8 under the old format.
+
+**Fault-injection development runs (uncounted, not evidence).**
+- *Rehearsal-124* had a 30-minute J2 with 300 s segments.
+  - Every run rolled over into 6 segments.
+  - One collector was frozen for 40 s.
+  - A real Bitfinex disconnect occurred at 08:41:45.
+  - J2 passed: each chain published as one partition.
+  - J3 failed on FX-1, the incomplete training row.
+- *Rehearsal-125* reused that J2, with FX-1 applied.
+  - J1–J5 and J7 passed every criterion: J3 47, J4 16, J5 15, J7 84.
+  - J6 passed 82 of 83. Its one failure, `P-B:alert_received`, is fixed by AL-1: phase
+    A alerted, and J7's phases received 26, 27 and 26 datagrams.
+
+**Validation (as run on the committed tree, 2026-10-06).** The four lanes ran in
+parallel; `make check` kept the project environment, and each other lane had its own.
+
+| Lane | Result |
+| --- | --- |
+| `make check` | Passed: 2,611 passed, 4 skipped, 25 deselected; wheel smoke passed |
+| Integration (`-m integration`, Feast worker selected) | Passed: 40 passed |
+| Performance (`-m performance`) | Passed: 25 passed |
+| Linux strict mypy | Passed: no issues in 715 source files |
+
+**Plan change (owner, 2026-10-06).**
+- The 72-hour acquisition is armed right after this commit, not after another
+  rehearsal. It depends only on the collector, which J2 has now exercised.
+- Hour-long development rehearsals give way to a fault-injection journey of about 80
+  minutes: a 30-minute J2 with 300 s segments, which forces rollover chains, and one
+  collector frozen for 40 s.
+- R1b is assessed on sealed segments while the acquisition runs.
+- One full rehearsal runs on the frozen commit, before the counted M6.
+- Stage 2b's gates are brought to the owner as a trim list.
+
+## FX-1: an incomplete training row is left out and named (2026-10-06)
+
+- **Defect** (fault-injection run rehearsal-124).
+  - Bitfinex ETH's learned study raised *"fitting requires complete matching
+    feature signatures"* and aborted.
+  - Its trades capture really disconnected at 08:41:45 UTC. One training row's
+    trade-flow feature was then missing, and `FittingRows.select` refused the whole
+    fold.
+  - A missing label failed the same way.
+- **Precedent.** Inference already excludes a decision whose feature is missing, and
+  records it as `"missing inference feature"`.
+- **Change.**
+  - Transform and model fitting leave out a training row with a missing feature or
+    label. Nothing is imputed.
+  - Each fitted version's `fit_rows` names exactly the rows used.
+  - The model's rows must be a subset of the transform's.
+  - The fold's retained exclusions add each left-out row with
+    `"incomplete training row"`.
+  - A fit with no complete row still raises.
+  - Mismatched feature signatures still raise.
+- **Tests.**
+  - A gapped feature row and an unlabelled row are left out and named.
+  - No complete row raises.
+
+## AL-1: the alert criterion is per step, not per phase (2026-10-06)
+
+- **Defect** (fault-injection rerun rehearsal-125). J6 failed `P-B:alert_received`:
+  0 datagrams.
+- **The criterion depended on market outcomes, not on the platform.**
+  - Phase B issues no control and injects no fault.
+  - On rehearsal-123 its alerts came from the paper net-P&L rule (`paper.net_pnl < 0`)
+    and the QR metric's warning band, because those positions lost money within the
+    120 s phase.
+  - On rehearsal-125 they did not lose, so no rule tripped.
+- **The approved J6 criterion** is "alert observed by the local receiver".
+- **Change.**
+  - Each phase records its received datagrams as `alerts_observed`, which does not
+    gate.
+  - The driver requires at least one alert across J6's paper phases
+    (`paper_alert_received`; P-A's injected order uncertainty makes it deterministic).
+  - It likewise requires one across J7's R, U and B (`operations_alert_received`).
+
+## Owner decision: stage 2b trims (2026-10-06)
+
+The owner approved six trims to stage 2b's sequencing. Its targets, budgets and
+requirements are unchanged and not waived (runtime capacity, owner decisions of
+2026-10-02 and 2026-10-04).
+
+1. **Both grant denial trials in one short session.**
+   - Denial after expiry is shown with a grant of the same signed form but a
+     minutes-long life.
+   - Denial after revocation is shown on a 26-hour grant.
+   - It is one session, not separately declared trials.
+2. **Shorter uncounted rehearsals.** They run about 2 hours: rollover, the 25-hour
+   lifetime caps, the order-light mix, and a 4× replay of the 2-hour corpus. Only the
+   counted attempt runs 24 hours.
+3. **The 4× replay of the counted 24-hour corpus** starts right after the counted
+   run, while the 72-hour retention elapses.
+4. **M6, the counted journey, may run while 2b's 72-hour retention elapses.**
+   - J8 is evaluated once retention has passed.
+   - J8 takes no new measurement; it links the accepted R1b and 2b records.
+   - A retention failure still fails J8, and with it M6.
+5. **The repository moves out of iCloud-synced Documents before 2b starts,** so the
+   quiet-host gate needs no iCloud waiver. Recorded paths are updated at the move.
+6. **Checkpoint percentiles** (at least 1,000 per account) come from the counted
+   24-hour run itself.
+
+Free disk was 470 GiB on 2026-10-06. 2b needs at least 512 GiB at its start.
+
+## FX-1 and AL-1 validation (2026-10-06)
+
+The four lanes ran on the tree with FX-1 and AL-1 and the day's record updates.
+
+| Lane | Result |
+| --- | --- |
+| `make check` | Passed: 2,612 passed, 4 skipped, 25 deselected; wheel smoke passed |
+| Integration (`-m integration`, Feast worker selected) | Passed: 40 passed |
+| Performance (`-m performance`) | Passed: 25 passed |
+| Linux strict mypy | Passed: no issues in 715 source files |
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design

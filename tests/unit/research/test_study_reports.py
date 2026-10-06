@@ -26,6 +26,7 @@ from research.reports import (
     ReportContext,
     ReportObservation,
 )
+from research.studies import TrialEvaluation
 from research.studies.extensions import (
     LedgerCurveChart,
     NetReturnMetric,
@@ -376,6 +377,7 @@ class TestStudyReports:
         assert result.missing_reason == "at least one fold has zero initial cash"
         assert result.observations[0].missing_reason == "initial cash is zero"
         original = self._fold("first", 0)
+        assert original.terminal_mark is not None
         forged = replace(
             original.terminal_mark,
             nav=Money(value=Decimal("1020"), currency=self.currency),
@@ -395,6 +397,65 @@ class TestStudyReports:
             ReportObservation(
                 fold_id="first", name="missing", at=self.start, units="ratio", value=None
             )
+
+    def test_unvalued_fold_withholds_returns_and_still_reports(self) -> None:
+        """An open holding without a fresh terminal bid is reported, not valued."""
+        reason = "no fresh terminal bid for an open holding"
+        valued = self._fold("first", 0)
+        held = self._fold("second", 3)
+        unvalued = FoldSummary(
+            fold_id=held.fold_id,
+            window=held.window,
+            ledger=held.ledger,
+            terminal_mark=None,
+            terminal_missing_reason=reason,
+            curve=(
+                *held.curve[:-1],
+                LedgerPoint(at=held.window.end, mark=None, missing_reason=reason),
+            ),
+            diagnostics=held.diagnostics,
+        )
+        context = ReportContext(study_identity="a" * 64, folds=(valued, unvalued))
+        result = NetReturnMetric().evaluate(context)
+        assert result.value is None
+        assert result.missing_reason == "at least one fold is unvalued"
+        assert result.observations[0].value is not None
+        assert result.observations[1].missing_reason == reason
+        report = StudyReportBuilder.build(
+            context,
+            expected_metrics=(NetReturnMetric.identity,),
+            expected_charts=(LedgerCurveChart.identity,),
+            metrics=(NetReturnMetric(),),
+            charts=(LedgerCurveChart(),),
+        )
+        assert b"at least one fold is unvalued" in report.render()
+        with pytest.raises(ValueError, match="open holding and a reason"):
+            replace(unvalued, terminal_missing_reason=None)
+        valued_end = held.curve[-1]
+        with pytest.raises(ValueError, match="terminal mark"):
+            replace(unvalued, curve=(held.curve[0], valued_end))
+        with pytest.raises(ValueError, match="cannot have a missing reason"):
+            replace(valued, terminal_missing_reason=reason)
+        flat = LedgerState(
+            initial_cash=Money(value=Decimal("1000"), currency=self.currency),
+            dimension=self.dimension,
+        )
+        with pytest.raises(ValueError, match="open holding and a reason"):
+            FoldSummary(
+                fold_id="flat",
+                window=valued.window,
+                ledger=flat,
+                terminal_mark=None,
+                terminal_missing_reason=reason,
+                curve=(LedgerPoint(at=valued.window.end, mark=None, missing_reason=reason),),
+            )
+        with pytest.raises(ValueError, match="requires a reason"):
+            TrialEvaluation(net_return=None)
+        with pytest.raises(ValueError, match="cannot have a missing reason"):
+            TrialEvaluation(
+                net_return=ExactRatio.from_fraction(Fraction(1, 2)), missing_reason=reason
+            )
+        assert TrialEvaluation(net_return=None, missing_reason=reason).net_return is None
 
     def test_selected_definitions_cannot_be_replaced_or_omitted(self) -> None:
         """Require both implementation and evaluated output identities to match selection."""

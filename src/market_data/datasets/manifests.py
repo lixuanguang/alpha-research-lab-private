@@ -332,6 +332,7 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
         max_bytes: int,
         readers: DatasetReaders,
         report: Callable[[str, QualityReport], None] | None = None,
+        rederive: bool = True,
     ) -> DatasetManifest:
         """Verify a selected manifest, canonical files and raw inputs before returning it.
 
@@ -345,6 +346,8 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             report: Optional synchronous sink for each reproduced, byte-matched partition's
                 run identity and quality report. Callback failures propagate; earlier
                 partition reports do not certify a later partition or the whole snapshot.
+            rederive: Accepted for the shared snapshot interface. This bounded format
+                always reproduces its partitions, because its reports come from that.
 
         Returns:
             Validated manifest after every partition reproduces its declared quality scope.
@@ -354,6 +357,7 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             ValueError: Size, version, identity, bytes or reproduced admission disagrees.
             OSError: A required file is missing or unreadable.
         """
+        del rederive  # Always reproduced; see the argument's description.
         if type(max_bytes) is not int or max_bytes <= 0:
             raise ValueError("dataset max_bytes must be a positive integer")
         with path.open("rb") as source:

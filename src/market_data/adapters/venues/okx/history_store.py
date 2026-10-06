@@ -68,8 +68,12 @@ class OKXArchiveStore:
             ts_received=received,
             ts_ingested=max(received, datetime.now(UTC)),
         )
+        # The archive is already compressed, and its reader replays it by path.
         RawStore(self.root).publish(
-            self.root / "download.part", descriptor=descriptor, request=request.binding
+            self.root / "download.part",
+            descriptor=descriptor,
+            request=request.binding,
+            compress=False,
         )
         descriptor = replace(descriptor, ts_ingested=max(received, datetime.now(UTC)))
         self._write("manifest.pending", self.codec.encode_json(descriptor))

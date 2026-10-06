@@ -85,7 +85,7 @@ class TestAcquisitionManifest:
             AcquisitionManifest.read(path, run=run, store=store)
         source = tmp_path / "empty"
         source.write_bytes(b"")
-        store.publish(source, descriptor=descriptor, request=requests[0].binding)
+        store.publish(source, descriptor=descriptor, request=requests[0].binding, compress=False)
         restored = AcquisitionManifest.read(path, run=run, store=store)
         assert restored == completed
         assert _CODEC.encode_json(restored) == path.read_bytes()
