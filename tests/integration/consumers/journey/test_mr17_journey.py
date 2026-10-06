@@ -115,6 +115,8 @@ class TestDeclaration:
             ({"temporary_root": "/" + "t" * 90}, "socket"),
             ({"phases": (1800, 60, 600)}, "J6 phases"),
             ({"phases": (1800, 600, 3600)}, "J6 phases"),
+            ({"operations": (300, 60, 300)}, "J7 phases"),
+            ({"research_workers": 0}, "research workers"),
         ],
     )
     def test_refusals(self, tmp_path: Path, changes: dict[str, object], message: str) -> None:
@@ -172,6 +174,39 @@ class TestCommands:
             "0001-echo.stderr",
             "0001-echo.stdout",
         ]
+
+
+class TestPool:
+    """Run independent commands in a bounded pool and record each in input order."""
+
+    def test_pool_bounds_concurrency(self, tmp_path: Path) -> None:
+        """No more than the declared workers run at once; each keeps its own exit."""
+        probe = (
+            "import os, sys, time; from pathlib import Path; "
+            "root = Path(sys.argv[1]); mark = root / str(os.getpid()); mark.touch(); "
+            "(root / f'seen-{os.getpid()}').write_text(str(len(list(root.glob('[0-9]*'))))); "
+            "time.sleep(1); mark.unlink(); raise SystemExit(int(sys.argv[2]))"
+        )
+        running = tmp_path / "running"
+        running.mkdir()
+        (tmp_path / "attempt").mkdir()
+        commands = Commands(tmp_path / "attempt")
+        labels = tuple(f"study-{index}" for index in range(5))
+        records = commands.run_pool(
+            "J3",
+            tuple(
+                (label, (sys.executable, "-c", probe, str(running), str(index % 2)))
+                for index, label in enumerate(labels)
+            ),
+            cwd=tmp_path,
+            environment={},
+            workers=2,
+            timeout=60,
+        )
+        assert [record.label for record in records] == list(labels)
+        assert [record.returncode for record in records] == [0, 1, 0, 1, 0]
+        seen = [int(path.read_text()) for path in running.glob("seen-*")]
+        assert len(seen) == 5 and max(seen) <= 2
 
 
 class TestBackground:
@@ -252,14 +287,7 @@ class TestGuideCoverage:
 
 
 class TestSequence:
-    """Stop at the first failure and summarize it, and refuse unimplemented steps."""
-
-    def test_unimplemented_steps_refused(self, tmp_path: Path) -> None:
-        """J6 and J7 land with M3e; a declaration through them is refused before any work."""
-        declaration = JourneyFixture.declaration(tmp_path, through="J7")
-        with pytest.raises(ValueError, match="implements"):
-            Journey(declaration, msgspec.json.encode(declaration)).run()
-        assert not (tmp_path / "evidence").exists()
+    """Stop at the first failure and summarize it."""
 
     def test_dirty_repository_fails_first(self, tmp_path: Path) -> None:
         """A checkout that differs from the declared commit fails J1 before any build."""

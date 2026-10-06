@@ -662,7 +662,13 @@ class SharedAccountConsumer:
             posting_ids=final_expected.posting_ids,
         )
         assert not self._observe("mismatch", correction_at + timedelta(seconds=2), mismatch)
-        assert not self._observe("stale", correction_at - timedelta(seconds=1), final_expected)
+        # A stale observation is refused unrecorded; it is no evidence of a break.
+        try:
+            self._observe("stale", correction_at - timedelta(seconds=1), final_expected)
+        except ValueError as error:
+            assert "observation_precedes_account_state" in str(error)
+        else:
+            raise AssertionError("a stale observation was reconciled")
         assert self._observe("recovered", correction_at + timedelta(seconds=3), final_expected)
         stopped = self._admission(
             self._apply(

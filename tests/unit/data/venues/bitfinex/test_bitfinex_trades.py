@@ -43,6 +43,7 @@ class TestBitfinexTrades:
             max_orders=1,
             retries=0,
             idle_seconds=30,
+            clock_interval_ms=250,
         )
 
     def tape(self) -> BitfinexTrades:

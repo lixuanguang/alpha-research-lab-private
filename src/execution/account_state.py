@@ -665,6 +665,12 @@ class _HistoryTables:
         for row in cast(Iterator[tuple[object, ...]], cursor):
             yield self.codec.decode_json(self._blob(row[0]), AccountPaperTrace)
 
+    def iter_decisions(self) -> Iterator[SavedDecision]:
+        """Yield committed decisions in commit order."""
+        cursor = self.connection.execute("SELECT payload FROM decisions ORDER BY seq ASC")
+        for row in cast(Iterator[tuple[object, ...]], cursor):
+            yield self.codec.decode_json(self._blob(row[0]), SavedDecision)
+
     def iter_traces_after(
         self, account_id: str, after_seq: int
     ) -> Iterator[tuple[int, AccountPaperTrace]]:
@@ -822,6 +828,11 @@ class _AccountSnapshot:
             ):
                 return saved
         return None
+
+    def iter_decisions(self) -> Iterator[SavedDecision]:
+        """Yield saved decisions in commit order, committed rows before staged ones."""
+        yield from self.tables.iter_decisions()
+        yield from self.state.decisions
 
     def latest_checkpoint(self, instance_id: str) -> bytes | None:
         """Return the continuation of the instance's latest admitted or rejected decision."""

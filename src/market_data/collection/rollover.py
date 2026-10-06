@@ -15,7 +15,7 @@ from websockets.exceptions import WebSocketException
 # project library imports
 from configuration import CaptureConfig, CaptureRunConfig
 from market_data.books import CaptureReplay, NativeBook
-from market_data.collection.receipt import CaptureQueue, ReceiptStream
+from market_data.collection.receipt import CaptureQueue, ReceiptClock, ReceiptStream
 from market_data.collection.runner import CaptureTransport
 from market_data.collection.segments import CaptureSegmentWriter
 from market_data.contracts import CaptureRecord, CaptureRunRequest, FeedSocket
@@ -139,6 +139,7 @@ class CaptureRunRunner:
                         return {"run_identity": request.identity, "stop_reason": stop.reason}
                     run.progress(status="waiting_start", expected_completion=request.window.stop_at)
                     await asyncio.sleep(min(1.0, max(0, (start_ns - time.time_ns()) / 1e9)))
+            receipts = ReceiptClock(replay.finished_ns or 0)
             current = await asyncio.to_thread(run.start_segment, journals[-1] if journals else None)
             writer = CaptureSegmentWriter(
                 run, current, previous_bytes=total_bytes, previous_records=total_records
@@ -148,7 +149,7 @@ class CaptureRunRunner:
                     await self._append(
                         writer,
                         replay,
-                        CaptureRecord(kind="session", epoch=0, received_ns=time.time_ns()),
+                        CaptureRecord(kind="session", epoch=0, received_ns=receipts.stamp()),
                     )
                 await self._append(
                     writer,
@@ -156,7 +157,7 @@ class CaptureRunRunner:
                     CaptureRecord(
                         kind="gap",
                         epoch=replay.epoch,
-                        received_ns=time.time_ns(),
+                        received_ns=receipts.stamp(),
                         reason="interrupted_persistence_unknown_tail"
                         if interrupted
                         else "resume_unknown_loss",
@@ -172,12 +173,12 @@ class CaptureRunRunner:
                     await self._append(
                         writer,
                         replay,
-                        CaptureRecord(kind="session", epoch=epoch, received_ns=time.time_ns()),
+                        CaptureRecord(kind="session", epoch=epoch, received_ns=receipts.stamp()),
                     )
                 except OverflowError as error:
                     reason = self._limit_reason(error)
                     break
-                reason = await self._session(writer, replay, stop, epoch, deadline)
+                reason = await self._session(writer, replay, stop, epoch, deadline, receipts)
                 if reason in (
                     "duration_limit",
                     "message_limit",
@@ -198,21 +199,21 @@ class CaptureRunRunner:
                 await self._append(
                     writer,
                     replay,
-                    CaptureRecord(kind="session", epoch=0, received_ns=time.time_ns()),
+                    CaptureRecord(kind="session", epoch=0, received_ns=receipts.stamp()),
                 )
             if reason not in ("stop_deadline", "duration_limit") or not replay.book.ready:
                 await self._append(
                     writer,
                     replay,
                     CaptureRecord(
-                        kind="gap", epoch=replay.epoch, received_ns=time.time_ns(), reason=reason
+                        kind="gap", epoch=replay.epoch, received_ns=receipts.stamp(), reason=reason
                     ),
                 )
             await self._append(
                 writer,
                 replay,
                 CaptureRecord(
-                    kind="end", epoch=replay.epoch, received_ns=time.time_ns(), reason=reason
+                    kind="end", epoch=replay.epoch, received_ns=receipts.stamp(), reason=reason
                 ),
             )
             run.progress(status="sealing", messages=replay.messages, source_stop_reason=reason)
@@ -245,10 +246,12 @@ class CaptureRunRunner:
         stop: CaptureRunStop,
         epoch: int,
         deadline: float,
+        receipts: ReceiptClock,
     ) -> str:
         """Receive one native connection while the durable writer rotates independently."""
         socket: FeedSocket | None = None
         reader: asyncio.Task[None] | None = None
+        clock: asyncio.Task[None] | None = None
         ending: CaptureRecord | None = None
         queue = CaptureQueue(writer.run.request.config.queue_capacity)
         reason = "connect_failed_unknown_loss"
@@ -279,6 +282,16 @@ class CaptureRunRunner:
                         deadline,
                         writer.run.request.window.max_messages - replay.messages,
                         stop_requested=stop.requested,
+                        receipts=receipts,
+                    )
+                )
+                clock = asyncio.create_task(
+                    ReceiptStream.clock(
+                        queue,
+                        epoch,
+                        writer.run.request.config.clock_interval_ms,
+                        receipts,
+                        reader,
                     )
                 )
                 while not queue.empty() or not reader.done():
@@ -312,10 +325,11 @@ class CaptureRunRunner:
                 if reason == "supervisor_stop":
                     reason = stop.reason
         finally:
-            if reader is not None:
-                reader.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await reader
+            for task in (reader, clock):
+                if task is not None:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
             if socket is not None:
                 await socket.close()
         if (
@@ -335,7 +349,7 @@ class CaptureRunRunner:
                 CaptureRecord(
                     kind="gap",
                     epoch=epoch,
-                    received_ns=time.time_ns() if ending is None else ending.received_ns,
+                    received_ns=receipts.stamp() if ending is None else ending.received_ns,
                     reason=reason,
                 ),
             )
@@ -345,7 +359,7 @@ class CaptureRunRunner:
             CaptureRecord(
                 kind="session_end",
                 epoch=epoch,
-                received_ns=time.time_ns() if ending is None else ending.received_ns,
+                received_ns=receipts.stamp() if ending is None else ending.received_ns,
                 reason=reason,
             ),
         )

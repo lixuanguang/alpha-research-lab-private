@@ -2,7 +2,7 @@
 
 # project library imports
 from market_data.collection.canonical import BookCapture
-from market_data.collection.receipt import ReceiptStream
+from market_data.collection.receipt import CaptureQueue, ReceiptClock, ReceiptStream
 from market_data.collection.rollover import CaptureRunRunner
 from market_data.collection.runner import (
     CaptureChainResult,
@@ -17,10 +17,12 @@ __all__ = [
     "BookCapture",
     "CaptureChainResult",
     "CaptureObserver",
+    "CaptureQueue",
     "CaptureRunResult",
     "CaptureRunRunner",
     "CaptureRunner",
     "CaptureSegmentWriter",
     "CaptureTransport",
+    "ReceiptClock",
     "ReceiptStream",
 ]

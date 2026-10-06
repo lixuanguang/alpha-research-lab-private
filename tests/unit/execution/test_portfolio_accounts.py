@@ -23,6 +23,7 @@ from execution import (
     AccountJournal,
     AccountObservation,
     AccountQuote,
+    EventKind,
     NetFeeCorrection,
     OrderDecision,
     OrderEvent,
@@ -353,6 +354,30 @@ class TestPortfolioAccounts:
         assert (abstained.status, abstained.reason) == ("committed", "no_intent")
         (replaced,) = journal.net_orders()
         assert replaced.order.identity == parent and replaced.order.status == "cancel_requested"
+        # The replaced child ends with its parent: it is never a residual to reissue,
+        # so another instance's next decision needs no newer reconciliation.
+        journal.apply_net_event(
+            OrderEvent(
+                identity="replaced-cancel-confirmed",
+                order_id=parent,
+                at=second_at + timedelta(microseconds=3),
+                kind="cancelled",
+            )
+        )
+        assert [item.order.status for item in journal.orders() if item.instance_id == "alpha"] == [
+            "cancelled"
+        ]
+        other_at = second_at + timedelta(milliseconds=500)
+        journal.observe(AccountQuote(price=self._price(), at=other_at))
+        other = journal.coordinate(
+            PortfolioBatch(
+                identity="beta-after-replacement",
+                at=other_at + timedelta(microseconds=1),
+                decisions=(self._decision(instance="beta", identity="beta-1", at=other_at),),
+            )
+        )
+        assert other.status == "committed", other.reason
+        assert len(journal.net_orders()) == 2
         target_at = second_at + timedelta(seconds=1)
         journal.observe(AccountQuote(price=self._price(), at=target_at))
         target = self._decision(instance="alpha", identity="alpha-target", at=target_at)
@@ -373,6 +398,59 @@ class TestPortfolioAccounts:
             )
         )
         assert held.status == "committed", held.reason
+
+    @pytest.mark.parametrize(
+        "ending",
+        [("request_ack", "accepted", "cancelled"), ("request_ack", "rejected")],
+        ids=["immediate-expiry", "post-only-rejection"],
+    )
+    def test_order_ended_on_its_own_terms_ends_its_child(
+        self, tmp_path: Path, ending: tuple[EventKind, ...]
+    ) -> None:
+        """A parent ended without a cancel request leaves no residual awaiting reissue."""
+        journal = self._ready(tmp_path / "immediate.sqlite3")
+        at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=at))
+        decision = self._decision(instance="alpha", identity="alpha-ioc", at=at)
+        intent = decision.request.decision.intent
+        assert isinstance(intent, OrderIntent)
+        decision = replace(
+            decision,
+            request=replace(
+                decision.request,
+                decision=replace(
+                    decision.request.decision, intent=replace(intent, time_in_force="ioc")
+                ),
+            ),
+        )
+        sent = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-immediate", at=at + timedelta(microseconds=1), decisions=(decision,)
+            )
+        )
+        assert sent.status == "committed" and len(sent.net_orders) == 1
+        # Paper matching expires an unfilled IOC order, or rejects a crossing post-only one.
+        for step, kind in enumerate(ending, start=2):
+            journal.apply_net_event(
+                OrderEvent(
+                    identity=f"immediate-{kind}",
+                    order_id=sent.net_orders[0].order.identity,
+                    at=at + timedelta(microseconds=step),
+                    kind=kind,
+                )
+            )
+        assert [item.order.is_terminal for item in journal.orders()] == [True]
+        later = at + timedelta(milliseconds=500)
+        journal.observe(AccountQuote(price=self._price(), at=later))
+        other = journal.coordinate(
+            PortfolioBatch(
+                identity="beta-after-immediate",
+                at=later + timedelta(microseconds=1),
+                decisions=(self._decision(instance="beta", identity="beta-1", at=later),),
+            )
+        )
+        assert other.status == "committed", other.reason
+        assert len(journal.net_orders()) == 2
 
     def test_reconciliation_projection_states_the_accounts_knowledge_clock(
         self, tmp_path: Path
@@ -403,11 +481,15 @@ class TestPortfolioAccounts:
         ]
         snapshot = AccountLedger(facts.accounts[0].ledger).snapshot()
         open_orders = tuple(parent.order for parent in facts.net_orders)
-        assert not journal.reconcile(
-            AccountObservation(
-                identity="at-market", at=market_at, snapshot=snapshot, open_orders=open_orders
+        # Stamped before the account's knowledge clock, an observation is stale: it is
+        # refused without recording a mismatch or faulting the account.
+        with pytest.raises(ValueError, match="observation_precedes_account_state"):
+            journal.reconcile(
+                AccountObservation(
+                    identity="at-market", at=market_at, snapshot=snapshot, open_orders=open_orders
+                )
             )
-        )
+        assert journal.accounts()[0].fault is None
         assert journal.reconcile(
             AccountObservation(
                 identity="at-knowledge",
@@ -499,6 +581,38 @@ class TestPortfolioAccounts:
                     identity,
                     outcome,
                 )
+        # One read returns every decision's outcome, with its reason and dropped legs.
+        request = AccountExecutionRequest(
+            action="inspect", account_id="shared", projection="decisions"
+        )
+        request_path.write_bytes(codec.encode_json(request))
+        for inspected in (
+            journal.result_snapshot(request),
+            AccountExecutionApplication().run(
+                config_path=config_path,
+                journal_path=tmp_path / "quote.sqlite3",
+                request_path=request_path,
+            ),
+        ):
+            assert [
+                (
+                    item.instance_id,
+                    item.decision_identity,
+                    item.status,
+                    item.reason,
+                    [(leg.leg, leg.reason) for leg in item.dropped],
+                )
+                for item in inspected.decision_outcomes
+            ] == [
+                (
+                    "alpha",
+                    "alpha-quote",
+                    "committed",
+                    "reserved",
+                    [("ask", "insufficient_owned_inventory")],
+                ),
+                ("alpha", "alpha-unfunded", "rejected", refused.reason, []),
+            ]
 
     def test_conflicting_physical_facts_persist_and_block_new_batches(self, tmp_path: Path) -> None:
         """Physical receipt and fill conflicts survive restart without new economics."""

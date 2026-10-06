@@ -50,8 +50,13 @@ class CapturedMarketFixture:
         ).encode()
 
     @classmethod
-    def records(cls, *, updates: int, spacing_ns: int) -> tuple[CaptureRecord, ...]:
-        """Author the session, snapshot, size updates and end, ``spacing_ns`` apart."""
+    def records(
+        cls, *, updates: int, spacing_ns: int, clocks: bool = False
+    ) -> tuple[CaptureRecord, ...]:
+        """Author the session, snapshot, size updates and end, ``spacing_ns`` apart.
+
+        With ``clocks``, an idle capture clock follows each update half a spacing later.
+        """
         bids = '[["100","1","0","1"],["99","1","0","1"],["98","1","0","1"]]'
         asks = '[["101","1","0","1"],["102","1","0","1"],["103","1","0","1"]]'
         records = [
@@ -76,16 +81,26 @@ class CapturedMarketFixture:
                     ),
                 )
             )
+            if clocks:
+                received_ns = _START_NS + spacing_ns * (index + 1) + spacing_ns // 2
+                records.append(CaptureRecord(kind="clock", epoch=0, received_ns=received_ns))
         end = _START_NS + spacing_ns * (updates + 2)
         records.append(CaptureRecord(kind="end", epoch=0, received_ns=end, reason="message_limit"))
         return tuple(records)
 
     @classmethod
-    def capture(cls, root: Path, *, updates: int = _UPDATES, spacing_ns: int = 1_000_000) -> Path:
+    def capture(
+        cls,
+        root: Path,
+        *,
+        updates: int = _UPDATES,
+        spacing_ns: int = 1_000_000,
+        clocks: bool = False,
+    ) -> Path:
         """Write the OKX books capture with ``updates`` size changes ``spacing_ns`` apart."""
         config = replace(
             CaptureConfig.read(_ROOT / "configs/live/okx-btc-usdt.json"),
-            max_messages=20_000,
+            max_messages=20_000 if not clocks else 40_000,
             max_bytes=_LIMIT,
         )
         selected = (config.instrument_id,)
@@ -100,15 +115,17 @@ class CapturedMarketFixture:
         capture = root / "capture"
         journal = CaptureJournal(capture, request)
         journal.start()
-        for record in cls.records(updates=updates, spacing_ns=spacing_ns):
+        for record in cls.records(updates=updates, spacing_ns=spacing_ns, clocks=clocks):
             journal.append(record)
         journal.finish(_START_NS)
         return capture
 
     @classmethod
-    def publish(cls, root: Path) -> tuple[Path, RawStore, str, str]:
+    def publish(
+        cls, root: Path, *, updates: int = _UPDATES, clocks: bool = False
+    ) -> tuple[Path, RawStore, str, str]:
         """Publish the capture and return its snapshot and request identities."""
-        capture = cls.capture(root)
+        capture = cls.capture(root, updates=updates, clocks=clocks)
         (root / "raw").mkdir()
         (root / "snapshots").mkdir()
         raw = RawStore(root / "raw")
@@ -171,6 +188,35 @@ class TestCapturedStudyMarket:
         )
         assert full.identity != market.identity
         assert len(self.book(full.read(window)[0]).bids) == 3
+
+    def test_capture_clocks_are_no_market_boundaries(self, tmp_path: Path) -> None:
+        """Interleaved clocks leave the simulator's market rows unchanged."""
+        markets: list[list[tuple[object, ...]]] = []
+        for clocks in (False, True):
+            root = tmp_path / str(clocks)
+            root.mkdir()
+            snapshots, raw, snapshot_id, request_identity = CapturedMarketFixture.publish(
+                root, updates=200, clocks=clocks
+            )
+            market = CapturedStudyMarket(
+                snapshots,
+                raw,
+                readers=SourceAdapters(),
+                snapshot_id=snapshot_id,
+                request_identity=request_identity,
+                max_bytes=_LIMIT,
+                clock_assumption="receipt-as-matching",
+            )
+            start = CapturedMarketFixture.at(_START_NS)
+            window = TimeWindow(start=start, end=start + timedelta(milliseconds=150))
+            markets.append(
+                [
+                    (row.known_at, book.outcome, book.status, book.bids, book.asks)
+                    for row in market.read(window)
+                    for book in (self.book(row),)
+                ]
+            )
+        assert markets[0] == markets[1] and len(markets[0]) > 100
 
     def test_refuses_an_undeclared_depth_bound(self, tmp_path: Path) -> None:
         """A depth bound must be positive; it is refused before any snapshot I/O."""

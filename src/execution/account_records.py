@@ -12,7 +12,7 @@ from typing import Literal
 from accounting import AccountSnapshot, AccountState, Fill
 from configuration import PaperExecutionScenario
 from execution.paper import PaperLiquidityState, PaperMarket
-from execution.records import OrderDecision, OrderEvent, OrderState
+from execution.records import DroppedLeg, OrderDecision, OrderEvent, OrderState
 from financial_units import Currency, Dimension, Money, Price, Quantity
 from portfolio import PortfolioContext
 from serialization import DomainCodec, WireRecord
@@ -205,6 +205,22 @@ class AccountDecision(WireRecord, frozen=True):
         self.maximum_fee.model_copy()
         if self.maximum_fee.value < 0:
             raise ValueError("account fee reserve cannot be negative")
+
+
+class DecisionOutcome(WireRecord, frozen=True):
+    """Summarize one saved decision's admission outcome for an operator read.
+
+    ``dropped`` names the quote legs admission refused while the other leg was
+    admitted; a rejected decision carries the reason its whole batch was refused.
+    """
+
+    account_id: str
+    instance_id: str
+    decision_identity: str
+    decided_at: datetime
+    status: Literal["committed", "rejected"]
+    reason: str
+    dropped: tuple[DroppedLeg, ...] = ()
 
 
 class TaggedOrder(WireRecord, frozen=True):

@@ -18,7 +18,7 @@ from websockets.exceptions import WebSocketException
 from configuration import CaptureConfig, CaptureRunConfig
 from market_data.books import BookProjection, CaptureReplay, NativeBook
 from market_data.collection.canonical import BookCapture
-from market_data.collection.receipt import CaptureQueue, ReceiptStream
+from market_data.collection.receipt import CaptureQueue, ReceiptClock, ReceiptStream
 from market_data.collection.segments import CaptureSegmentWriter
 from market_data.contracts import (
     BookObservation,
@@ -293,10 +293,11 @@ class CaptureRunner:
     ) -> str:
         """Receive, persist and apply every connection epoch, then retain terminal controls."""
         reason = "not_started"
+        receipts = ReceiptClock()
         for epoch in range(config.retries + 1):
             if self._health is not None:
                 self._health.set(HealthMetric.RECONNECTS, epoch)
-            start = CaptureRecord(kind="session", epoch=epoch, received_ns=time.time_ns())
+            start = CaptureRecord(kind="session", epoch=epoch, received_ns=receipts.stamp())
             try:
                 await storage.append(start)
             except OverflowError:
@@ -308,7 +309,7 @@ class CaptureRunner:
                 # connection; it ends the run as the frame path's storage refusal does.
                 reason = "storage_limit_unknown_tail"
                 gap = CaptureRecord(
-                    kind="gap", epoch=replay.epoch, received_ns=time.time_ns(), reason=reason
+                    kind="gap", epoch=replay.epoch, received_ns=receipts.stamp(), reason=reason
                 )
                 await self._append_terminal(storage, replay, gap)
                 break
@@ -323,6 +324,7 @@ class CaptureRunner:
             socket: FeedSocket | None = None
             reader: asyncio.Task[None] | None = None
             snapshot: asyncio.Task[None] | None = None
+            clock: asyncio.Task[None] | None = None
             queue = CaptureQueue(config.queue_capacity, self._health, self._measurements)
             try:
                 budget = deadline - time.monotonic()
@@ -350,6 +352,16 @@ class CaptureRunner:
                             message_limit - replay.messages - (config.venue == "coinbase"),
                             self._health,
                             stop_requested,
+                            receipts=receipts,
+                        )
+                    )
+                    clock = asyncio.create_task(
+                        ReceiptStream.clock(
+                            queue,
+                            epoch,
+                            config.clock_interval_ms,
+                            receipts,
+                            reader,
                         )
                     )
                     reason = "message_limit"
@@ -440,10 +452,10 @@ class CaptureRunner:
                             and snapshot is None
                         ):
                             snapshot = asyncio.create_task(
-                                ReceiptStream.snapshot(self._transport, queue, epoch)
+                                ReceiptStream.snapshot(self._transport, queue, epoch, receipts)
                             )
             finally:
-                for task in (reader, snapshot):
+                for task in (reader, snapshot, clock):
                     if task is not None:
                         task.cancel()
                         with contextlib.suppress(asyncio.CancelledError):
@@ -461,7 +473,7 @@ class CaptureRunner:
                     and not replay.invalid
                 ):
                     gap = CaptureRecord(
-                        kind="gap", epoch=epoch, received_ns=time.time_ns(), reason=reason
+                        kind="gap", epoch=epoch, received_ns=receipts.stamp(), reason=reason
                     )
                     await storage.append(gap)
                     if self._health is not None:
@@ -472,7 +484,7 @@ class CaptureRunner:
                         self._health.set(HealthMetric.GAPS, len(replay.gaps))
                     self._observe(storage, replay, gap, outcome)
                 ending = CaptureRecord(
-                    kind="session_end", epoch=epoch, received_ns=time.time_ns(), reason=reason
+                    kind="session_end", epoch=epoch, received_ns=receipts.stamp(), reason=reason
                 )
                 await storage.append(ending)
                 if self._health is not None:
@@ -503,12 +515,12 @@ class CaptureRunner:
                 gap = CaptureRecord(
                     kind="gap",
                     epoch=replay.epoch,
-                    received_ns=time.time_ns(),
+                    received_ns=receipts.stamp(),
                     reason="capture_ended_before_synchronization",
                 )
                 await self._append_terminal(storage, replay, gap)
             end = CaptureRecord(
-                kind="end", epoch=replay.epoch, received_ns=time.time_ns(), reason=reason
+                kind="end", epoch=replay.epoch, received_ns=receipts.stamp(), reason=reason
             )
             await self._append_terminal(storage, replay, end)
         except OSError, OverflowError:

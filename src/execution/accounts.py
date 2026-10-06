@@ -46,6 +46,7 @@ from execution.account_records import AccountPaperTrace as AccountPaperTrace
 from execution.account_records import AccountPhase as AccountPhase
 from execution.account_records import AccountQuote as AccountQuote
 from execution.account_records import AccountView as AccountView
+from execution.account_records import DecisionOutcome as DecisionOutcome
 from execution.account_records import NativeFeeAllocation as NativeFeeAllocation
 from execution.account_records import NativeFill as NativeFill
 from execution.account_records import NetAllocation as NetAllocation
@@ -461,6 +462,26 @@ class AccountJournal:
                 orders=(),
                 paper_fills=tuple(fill for fills, _ in report_facts for fill in fills),
                 paper_costs=tuple(cost for _, costs in report_facts for cost in costs),
+            )
+        if request.projection == "decisions":
+            # One compact outcome per saved decision, so an operator reads every
+            # refusal and dropped leg in one call.
+            return AccountExecutionResult(
+                accounts=(),
+                orders=(),
+                decision_outcomes=tuple(
+                    DecisionOutcome(
+                        account_id=saved.request.account_id,
+                        instance_id=saved.request.instance_id,
+                        decision_identity=saved.request.decision.identity,
+                        decided_at=saved.request.decision.at,
+                        status=saved.result.status,
+                        reason=saved.result.reason,
+                        dropped=saved.result.dropped,
+                    )
+                    for saved in snapshot.iter_decisions()
+                    if saved.request.account_id in selected_ids
+                ),
             )
         active_children = {
             child.order.identity for child in state.orders if not child.order.is_terminal

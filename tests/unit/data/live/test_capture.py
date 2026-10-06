@@ -6,10 +6,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import itertools
 import os
 import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from http.client import IncompleteRead
 from pathlib import Path
@@ -28,7 +30,7 @@ from market_data.adapters.sources import BookAdapters, SourceAdapters
 from market_data.adapters.transport import VenueSubscriptions, VenueTransport
 from market_data.adapters.venues.coinbase import CoinbaseAccessError, CoinbaseCredentials
 from market_data.books import CaptureReplay, NativeBook
-from market_data.collection import CaptureRunner, ReceiptStream
+from market_data.collection import CaptureQueue, CaptureRunner, ReceiptClock, ReceiptStream
 from market_data.contracts import (
     BookObservation,
     CaptureRecord,
@@ -789,7 +791,15 @@ class TestCapture:
         config = replace(self.config(), queue_capacity=1)
         queue: asyncio.Queue[CaptureRecord] = asyncio.Queue(1)
         task = asyncio.create_task(
-            ReceiptStream.frames(ScriptedSocket(_FRAMES), queue, config, 0, float("inf"), 5)
+            ReceiptStream.frames(
+                ScriptedSocket(_FRAMES),
+                queue,
+                config,
+                0,
+                float("inf"),
+                5,
+                receipts=ReceiptClock(),
+            )
         )
         for _ in range(5):
             await asyncio.sleep(0)
@@ -798,6 +808,230 @@ class TestCapture:
         ending = await queue.get()
         assert ending.reason == "overload_unknown_loss"
         await task
+
+
+class FixedSnapshot:
+    """Return one fixed REST snapshot body."""
+
+    def snapshot(self) -> bytes:
+        """Supply a constant body; its content is not decoded here."""
+        return b"{}"
+
+
+class TestReceiptClock:
+    """Keep every retained receipt in order and mark idle feeds with clocks."""
+
+    @staticmethod
+    def frame(receipts: ReceiptClock) -> CaptureRecord:
+        """Stamp one received frame on the recording's clock."""
+        received_ns = receipts.receive()
+        assert received_ns is not None
+        return CaptureRecord(kind="frame", epoch=0, received_ns=received_ns, raw=b"[]")
+
+    def test_local_stamps_never_regress(self) -> None:
+        """A wall-clock step back refuses a receipt and holds local stamps at the last one."""
+        receipts = ReceiptClock(after_ns=4_000_000_000_000_000_000)
+        assert receipts.receive() is None
+        assert receipts.stamp() == 4_000_000_000_000_000_000
+        assert ReceiptClock().stamp() > 0
+
+    def test_regressed_wall_clock_ends_the_session(self) -> None:
+        """The receiver stops on a regressed receipt and ends its session at the last one."""
+        config = TestCapture.config()
+        queue: asyncio.Queue[CaptureRecord] = asyncio.Queue(4)
+        receipts = ReceiptClock(after_ns=4_000_000_000_000_000_000)
+        asyncio.run(
+            ReceiptStream.frames(
+                ScriptedSocket(_FRAMES), queue, config, 0, float("inf"), 5, receipts=receipts
+            )
+        )
+        ending = queue.get_nowait()
+        assert queue.empty()
+        assert ending.kind == "session_end" and ending.reason == "receipt_clock_regressed"
+        assert ending.received_ns == 4_000_000_000_000_000_000
+
+    def test_idle_queue_receives_clocks_and_a_busy_one_none(self) -> None:
+        """Clocks follow the interval only while nothing else is queued."""
+        asyncio.run(self._idle_and_busy())
+
+    async def _idle_and_busy(self) -> None:
+        """Feed the queue faster than the interval, then let it fall idle."""
+        queue = CaptureQueue(64)
+        receipts = ReceiptClock()
+        receiver = asyncio.Future[None]()
+        clock = asyncio.create_task(ReceiptStream.clock(queue, 0, 50, receipts, receiver))
+        try:
+            for _ in range(20):
+                queue.put_received_nowait(self.frame(receipts), time.monotonic_ns())
+                await asyncio.sleep(0.005)
+            busy = [queue.get_nowait() for _ in range(queue.qsize())]
+            idle: list[CaptureRecord] = []
+            for _ in range(18):
+                await asyncio.sleep(0.01)
+                idle += [queue.get_nowait() for _ in range(queue.qsize())]
+        finally:
+            clock.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await clock
+        assert [record.kind for record in busy] == ["frame"] * 20
+        assert 2 <= len(idle) <= 4 and {record.kind for record in idle} == {"clock"}
+        stamps = [record.received_ns for record in (*busy, *idle)]
+        assert stamps == sorted(stamps)
+        assert all(
+            later.received_ns - earlier.received_ns >= 50_000_000
+            for earlier, later in itertools.pairwise(idle)
+        )
+
+    def test_clock_never_overtakes_a_stamped_snapshot(self) -> None:
+        """A snapshot stamped while the queue is full is retained before any later clock."""
+        asyncio.run(self._snapshot_race())
+
+    async def _snapshot_race(self) -> None:
+        """Hold the snapshot on a full queue while the clock waits for idleness."""
+        queue = CaptureQueue(1)
+        receipts = ReceiptClock()
+        queue.put_received_nowait(self.frame(receipts), time.monotonic_ns())
+        snapshot = asyncio.create_task(ReceiptStream.snapshot(FixedSnapshot(), queue, 0, receipts))
+        receiver = asyncio.Future[None]()
+        clock = asyncio.create_task(ReceiptStream.clock(queue, 0, 10, receipts, receiver))
+        taken: list[CaptureRecord] = []
+        try:
+            await asyncio.sleep(0.05)
+            for _ in range(3):
+                async with asyncio.timeout(1):
+                    record, _ = await queue.take()
+                queue.acknowledged()
+                taken.append(record)
+        finally:
+            for task in (snapshot, clock):
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        assert [record.kind for record in taken] == ["frame", "snapshot", "clock"]
+        stamps = [record.received_ns for record in taken]
+        assert stamps == sorted(stamps)
+
+    def test_a_woken_put_keeps_the_queue_unsettled(self) -> None:
+        """Space freed for a waiting put is not idleness: no clock may slip in ahead."""
+        asyncio.run(self._woken_put())
+
+    async def _woken_put(self) -> None:
+        """Free the queue's only slot while a stamped record waits for it."""
+        queue = CaptureQueue(1)
+        receipts = ReceiptClock()
+        queue.put_received_nowait(self.frame(receipts), time.monotonic_ns())
+        waiting = asyncio.create_task(queue.put(self.frame(receipts)))
+        await asyncio.sleep(0)
+        queue.get_nowait()
+        assert queue.empty() and not queue.settled
+        await waiting
+        assert not queue.empty() and not queue.settled
+        queue.get_nowait()
+        assert queue.settled
+
+    def test_clock_stops_with_its_receiver(self) -> None:
+        """No clock is queued once the receiver has ended its session."""
+        queue = CaptureQueue(4)
+        asyncio.run(self._ended_receiver(queue))
+        assert queue.empty()
+
+    @staticmethod
+    async def _ended_receiver(queue: CaptureQueue) -> None:
+        """Run the clock against a receiver that has already finished."""
+        receiver = asyncio.Future[None]()
+        receiver.set_result(None)
+        async with asyncio.timeout(1):
+            await ReceiptStream.clock(queue, 0, 10, ReceiptClock(), receiver)
+
+    def test_idle_capture_retains_clocks_with_replay_parity(self, tmp_path: Path) -> None:
+        """A held feed retains clocks after its last frame, observed and replayed exactly."""
+        asyncio.run(self._idle_capture(tmp_path))
+
+    async def _idle_capture(self, tmp_path: Path) -> None:
+        """Hold the feed quiet for several intervals, then stop it cooperatively."""
+        config = replace(
+            TestCapture.config(), max_messages=20, duration_seconds=5, clock_interval_ms=20
+        )
+        request = CaptureRequest(
+            config=config,
+            recording_id="22222222-2222-4222-8222-222222222222",
+            implementation_identity="a" * 64,
+        )
+        socket = HoldingSocket(_FRAMES)
+        observer = RecordingObserver()
+        stop = Event()
+        runner = CaptureRunner(
+            book_factory=BookAdapters.create,
+            transport=HoldingTransport(config, socket),
+            subscriptions=VenueSubscriptions(),
+            observer=observer,
+        )
+        task = asyncio.create_task(runner.run(request, tmp_path, stop_requested=stop.is_set))
+        try:
+            await asyncio.wait_for(socket.all_frames_received.wait(), 2)
+            await asyncio.sleep(0.15)
+            stop.set()
+            result = await asyncio.wait_for(task, 3)
+        finally:
+            stop.set()
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        retained = tuple(CaptureJournal(result.root, request).records())
+        assert tuple(observer.records) == retained
+        last_frame = max(i for i, record in enumerate(retained) if record.kind == "frame")
+        clocks = [record for record in retained[last_frame:] if record.kind == "clock"]
+        assert len(clocks) >= 3
+        assert all(
+            row.outcome == "clock"
+            for record, row in zip(observer.records, observer.rows, strict=True)
+            if record.kind == "clock"
+        )
+        stamps = [record.received_ns for record in retained]
+        assert stamps == sorted(stamps)
+        assert result.summary["replay_parity"] is True and result.summary["gaps"] == []
+
+
+class TestClockReconstruction:
+    """Clocks change no reconstructed book, outcome or market quality."""
+
+    def test_interleaved_clocks_reconstruct_the_same_books(self) -> None:
+        """Every non-clock record reconstructs identically with clocks between them."""
+        config = TestCapture.config()
+        records = [CaptureRecord(kind="session", epoch=0, received_ns=1_000)]
+        records += [
+            CaptureRecord(kind="frame", epoch=0, received_ns=2_000 + i * 1_000, raw=raw)
+            for i, raw in enumerate(_FRAMES)
+        ]
+        records.append(CaptureRecord(kind="session_end", epoch=0, received_ns=9_000))
+        clocked: list[CaptureRecord] = []
+        for record in records:
+            clocked.append(record)
+            if record.kind == "frame":
+                clocked.append(
+                    CaptureRecord(kind="clock", epoch=0, received_ns=record.received_ns + 500)
+                )
+        plain_replay = CaptureReplay(config, book_factory=BookAdapters.create)
+        plain = [
+            (plain_replay.apply(record), plain_replay.book.identity, plain_replay.quality.status)
+            for record in records
+        ]
+        clock_replay = CaptureReplay(config, book_factory=BookAdapters.create)
+        clocked_states = []
+        for record in clocked:
+            before = clock_replay.book.identity
+            outcome = clock_replay.apply(record)
+            if record.kind == "clock":
+                assert outcome == "clock" and clock_replay.book.identity == before
+            else:
+                clocked_states.append(
+                    (outcome, clock_replay.book.identity, clock_replay.quality.status)
+                )
+        assert clocked_states == plain
+        assert clock_replay.messages == plain_replay.messages
+        with pytest.raises(ValueError, match="clock after session end"):
+            clock_replay.apply(CaptureRecord(kind="clock", epoch=0, received_ns=10_000))
 
 
 class SnapshotSocket(ScriptedSocket):
@@ -849,7 +1083,11 @@ class CoinbaseScript(VenueTransport):
         )
 
     async def enqueue_snapshot(
-        self, transport: VenueTransport, queue: asyncio.Queue[CaptureRecord], epoch: int
+        self,
+        transport: VenueTransport,
+        queue: asyncio.Queue[CaptureRecord],
+        epoch: int,
+        receipts: ReceiptClock,
     ) -> None:
         """Signal the socket only after the real snapshot receiver has queued its input.
 
@@ -857,8 +1095,9 @@ class CoinbaseScript(VenueTransport):
             transport: The collector's selected synthetic REST source.
             queue: The collector's actual bounded persistence queue.
             epoch: Current connection epoch.
+            receipts: The recording's receipt clock.
         """
-        await self._receive_snapshot(transport, queue, epoch)
+        await self._receive_snapshot(transport, queue, epoch, receipts)
         self.snapshot_queued.set()
 
     async def open(self, timeout: float) -> FeedSocket:
@@ -890,7 +1129,7 @@ class TestCoinbaseCapture:
         queue: asyncio.Queue[CaptureRecord] = asyncio.Queue(1)
         transport = VenueTransport(config)
         with patch.object(transport, "snapshot", side_effect=IncompleteRead(b"partial")):
-            asyncio.run(ReceiptStream.snapshot(transport, queue, 2))
+            asyncio.run(ReceiptStream.snapshot(transport, queue, 2, ReceiptClock()))
         record = queue.get_nowait()
         assert record.kind == "gap" and record.epoch == 2
         assert record.reason == "snapshot_failed_unknown_loss" and not record.raw

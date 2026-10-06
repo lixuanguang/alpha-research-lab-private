@@ -296,11 +296,13 @@ class LiveBookDecisionSource:
                 self._market_lineage = None
         elif (
             row.status == "degraded"
-            and row.outcome in ("control", "heartbeat", "duplicate")
+            and row.outcome in ("control", "heartbeat", "duplicate", "clock")
             and self._latest_book is not None
             and self._latest_book.epoch == row.epoch
             and (
-                self._latest_book.state_identity == row.state_identity
+                # A clock changes no book state, so it carries any earlier boundary.
+                row.outcome == "clock"
+                or self._latest_book.state_identity == row.state_identity
                 or self._unchanged_bitfinex_boundary(record, row)
             )
             and self._history

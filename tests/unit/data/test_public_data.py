@@ -383,6 +383,7 @@ class TestPublicData:
             max_orders=1,
             retries=0,
             idle_seconds=30,
+            clock_interval_ms=250,
         )
         live = LiveTradeDecisionSource(
             CaptureRequest(
@@ -475,7 +476,7 @@ class TestPublicData:
         return (at - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(microseconds=1) * 1000
 
     def test_saved_book_features_keep_receipt_clock_and_invalidation(self, tmp_path: Path) -> None:
-        """Native L2 depth 3 versus 1 yields exactly 1/2; a later gap removes the value."""
+        """Native L2 depth 3 versus 1 yields exactly 1/2 across a clock; a later gap removes it."""
         config = CaptureConfig.read(Path("configs/live/okx-btc-usdt.json"))
         request = CaptureRequest(
             config=config,
@@ -503,6 +504,7 @@ class TestPublicData:
                 ),
             )
         )
+        journal.append(CaptureRecord(kind="clock", epoch=0, received_ns=3000))
         journal.append(CaptureRecord(kind="gap", epoch=0, received_ns=4000, reason="unknown_loss"))
         journal.append(CaptureRecord(kind="end", epoch=0, received_ns=5000, reason="message_limit"))
         journal.finish(1)
@@ -544,9 +546,10 @@ class TestPublicData:
             ResearchSelection(inputs=(BookSelection(name="depth", query=query),)),
             (requirement,),
         )
-        assert source.read(
-            str(config.instrument_id), epoch + timedelta(microseconds=3)
-        ).observations[0].value == ExactRatio(numerator="1", denominator="2")
+        carried = source.read(str(config.instrument_id), epoch + timedelta(microseconds=3))
+        assert carried.observations[0].value == ExactRatio(numerator="1", denominator="2")
+        assert carried.observations[0].available_at == epoch + timedelta(microseconds=2)
+        assert carried.observations[0].lineage.endswith(":2")
         gap = source.read(str(config.instrument_id), epoch + timedelta(microseconds=4))
         assert gap.observations[0].value is None
         assert gap.observations[0].reason == "invalid_book_control"

@@ -79,7 +79,7 @@ class CaptureJournal:
             raise OSError("capture writer is not active; start a new recording")
         record.__post_init__()
         encoded = self.codec.encode_json(record) + b"\n"
-        reserve = 4096 if record.kind in ("frame", "snapshot", "session") else 0
+        reserve = 4096 if record.kind in ("frame", "snapshot", "session", "clock") else 0
         if self.size + len(encoded) > self.request.config.max_bytes - reserve:
             raise OverflowError("capture storage limit")
         self._writable = False

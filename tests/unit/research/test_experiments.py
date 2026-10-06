@@ -8,6 +8,7 @@ import random
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -35,6 +36,19 @@ from serialization import DomainCodec
 _START = datetime(2024, 6, 1, tzinfo=UTC)
 _CODEC = DomainCodec()
 _FIT_MODES: tuple[Literal["labels", "features", "none"], ...] = ("labels", "features", "none")
+
+
+class _Starter:
+    """Start one attempt from another session, for a thread that may have to wait."""
+
+    def __init__(self, store: AttemptStore, spec: ExperimentSpec, at: datetime) -> None:
+        """Bind the session, specification and start time."""
+        self.store, self.spec, self.at = store, spec, at
+        self.started: list[str] = []
+
+    def run(self) -> None:
+        """Start the attempt and retain its identity."""
+        self.started.append(self.store.start(self.spec, at=self.at, invocation="second").attempt_id)
 
 
 class TestExperiments:
@@ -360,7 +374,7 @@ class TestExperiments:
             assert store.artifact(start.attempt_id, "report") == payload
             assert store.artifact(repeat.attempt_id, "report") == payload
         assert AttemptStore(tmp_path / "attempts").artifact(start.attempt_id, "report") == payload
-        with pytest.raises(RuntimeError, match="writer context"):
+        with pytest.raises(RuntimeError, match="open session"):
             store.export(start.attempt_id, "report", second)
 
     def test_corrupt_shared_artifacts_fail_closed(self, tmp_path: Path) -> None:
@@ -386,15 +400,54 @@ class TestExperiments:
                 store.retain(repeat.attempt_id, "report", b"original")
             assert store.artifacts(repeat.attempt_id) == ()
 
+    def test_concurrent_sessions_serialize_each_mutation(self, tmp_path: Path) -> None:
+        """Two sessions record into one history; a transaction holds the other's mutation."""
+        spec = self._spec()
+        with AttemptStore(tmp_path) as first, AttemptStore(tmp_path) as second:
+            starter = _Starter(second, spec, self._time(30))
+            started = starter.started
+            with first.transaction():
+                worker = threading.Thread(target=starter.run)
+                worker.start()
+                worker.join(timeout=0.3)
+                assert worker.is_alive() and not started
+                own = first.start(spec, at=self._time(30), invocation="first").attempt_id
+            worker.join(timeout=10)
+            assert not worker.is_alive() and len(started) == 1
+            assert {h.start.attempt_id for h in first.histories()} == {own, started[0]}
+
+    def test_concurrent_processes_record_one_holdout_history(self, tmp_path: Path) -> None:
+        """Separate processes start attempts concurrently; every start is retained once."""
+        script = (
+            "import sys; from datetime import UTC, datetime; from pathlib import Path; "
+            "from research.experiments import AttemptStore, ExperimentSpec; "
+            "from serialization import DomainCodec; "
+            "spec = DomainCodec().decode_json(Path(sys.argv[2]).read_bytes(), ExperimentSpec); "
+            "store = AttemptStore(Path(sys.argv[1]))\n"
+            "with store:\n"
+            "    for index in range(10):\n"
+            "        store.start(spec, at=datetime.now(UTC), invocation=f'{sys.argv[3]}-{index}')"
+        )
+        spec_path = tmp_path / "spec.json"
+        spec_path.write_bytes(DomainCodec().encode_json(self._spec()))
+        root = tmp_path / "attempts"
+        children = [
+            subprocess.Popen((sys.executable, "-c", script, str(root), str(spec_path), name))
+            for name in ("a", "b", "c")
+        ]
+        assert [child.wait(timeout=120) for child in children] == [0, 0, 0]
+        histories = AttemptStore(root).histories()
+        assert len(histories) == 30
+        assert len({h.start.invocation for h in histories}) == 30
+
     def test_attempt_identity_outcomes_and_reader_writer_boundary(self, tmp_path: Path) -> None:
         """Keep distinct executions and every terminal outcome without rewriting history."""
         spec = self._spec()
         assert spec.split is not None
         with AttemptStore(tmp_path) as store:
             first = store.start(spec, at=self._time(30), invocation="location/one", request=b"one")
-            with pytest.raises(BlockingIOError):
-                with AttemptStore(tmp_path):
-                    pytest.fail("a second writer was admitted")
+            with pytest.raises(RuntimeError, match="open session"):
+                AttemptStore(tmp_path).start(spec, at=self._time(30), invocation="reader")
             assert AttemptStore(tmp_path).read(first.attempt_id).status == "incomplete"
             second = store.start(spec, at=self._time(31), invocation="location/two", request=b"two")
             assert (
@@ -433,7 +486,7 @@ class TestExperiments:
             "abandoned",
             "completed",
         }
-        with pytest.raises(RuntimeError, match="writer"):
+        with pytest.raises(RuntimeError, match="open session"):
             store.start(spec, at=self._time(34), invocation="closed")
         with pytest.raises(ValueError, match="identity"):
             store.read("../escape")

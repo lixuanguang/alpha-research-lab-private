@@ -281,6 +281,7 @@ class PaperServiceWorkload:
             max_orders=800 if self.venue == "okx" else 100000,
             retries=0,
             idle_seconds=5,
+            clock_interval_ms=250,
         )
         scenario = PaperExecutionScenario(
             venue=self.venue,

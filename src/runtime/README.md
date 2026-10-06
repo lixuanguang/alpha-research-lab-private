@@ -253,17 +253,23 @@ public books through `LiveBookDecisionSource` and `BookRegistry`. The source
 projects every book field the bound candidates read (`imbalance`, `ask`, `bid`,
 `ask_size`, `bid_size`) from one canonical book under one name, clock and
 freshness. Each candidate decides at its own UTC grid instants,
-`starts_at + k * cadence`, as research studies and dedicated paper do. When the
-first eligible book after an instant arrives, the due candidates decide at that
-instant from the latest eligible market at or before it, whose quote the journal
-observes. The batch coordinates at the instant plus one microsecond, so the
-account's knowledge stays before the crossing book, and that book then matches
-orders. New orders therefore first meet the next book. Books between instants
-update monitoring only. An instant without a fresh market or complete inputs is
+`starts_at + k * cadence`, as research studies and dedicated paper do. Time and
+market are separate axes. Any delivery advances the grid while the source's market
+is current: an eligible book, or a capture `clock`, heartbeat or control that
+leaves the retained market current. At the first such delivery after an instant,
+the due candidates decide at that instant from the latest eligible market at or
+before it, whose quote the journal observes. The batch coordinates at the instant
+plus one microsecond, so the account's knowledge stays before that delivery. Only
+an eligible book matches orders: the first one at or after each crossing or
+decision. New orders therefore first meet the next book. A decision
+waits at most about one capture clock interval past its inputs' readiness,
+whatever the market's activity, and a study of the candidate should model at
+least that entry delay. Deliveries between instants update monitoring only. An instant without a fresh market or complete inputs is
 skipped, and the candidate's gap rule (`pause`, `reset` or `continue`) governs it.
 `SharedBookDelivery` (`shared-candidate-delivery`) is persisted before effects
 with each decided instant's inputs, quote and coordination clock, and whether the
-book matched. Replay recomputes the grid and refuses a retained delivery whose
+book matched; only a snapshot or update matches, and one that decides always
+does. Replay recomputes the grid and refuses a retained delivery whose
 matching or decided inputs differ. Native invalidation blocks new independent
 admission while preserving pending exposure.
 
@@ -271,7 +277,7 @@ Shared accounts also run feature-served candidates. `SharedStrategyInput` carrie
 either source `inputs` or a `served` feature, and both executors accept either. The
 observer serves such a candidate at each instant through `ServedFeatures`. While
 the instant's snapshot is `feature-pending` the instant stays open and is retried
-on each later eligible book. It decides once the snapshot is published, coordinated
+on each later delivery that advances the grid. It decides once the snapshot is published, coordinated
 one microsecond after the preceding delivery and quoted at the latest market known
 then; the account dates that decision when both its inputs and its quote were
 known. It is skipped as `feature-not-published` when the delivery that opens the

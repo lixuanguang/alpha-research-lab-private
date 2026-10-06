@@ -337,6 +337,39 @@ class StudyComponents:
         )
 
 
+class _StudyJobKey:
+    """Resolve a study job key against the attempts that already bound it."""
+
+    @staticmethod
+    def completed(
+        store: AttemptStore, key: str, spec: ExperimentSpec, publication: PublicationPolicy
+    ) -> AttemptHistory | None:
+        """Return the completed attempt a job key already bound, abandoning interrupted ones.
+
+        Call inside the store's transaction, before the start that binds the key.
+        """
+        for previous in store.histories():
+            previous_id = previous.start.attempt_id
+            if "job-key" not in store.artifacts(previous_id):
+                continue
+            if store.artifact(previous_id, "job-key") != key.encode():
+                continue
+            if previous.start.spec != spec or store.artifact(
+                previous_id, "publication-policy"
+            ) != DomainCodec().encode_json(publication):
+                raise ValueError("study job key already binds different inputs or publication")
+            if previous.status == "completed":
+                return previous
+            if previous.status == "incomplete":
+                store.finish(
+                    previous_id,
+                    status="abandoned",
+                    at=datetime.now(UTC),
+                    reason="interrupted job attempt retained before retry",
+                )
+        return None
+
+
 def evaluate_study(
     config: DecisionStudy | Path,
     *,
@@ -363,48 +396,42 @@ def evaluate_study(
     spec = run.specification(
         ImplementationIdentity.sha256(), ExperimentSpec.installed_environment()
     )
+    if idempotency_key is not None and (
+        not idempotency_key or idempotency_key != idempotency_key.strip()
+    ):
+        raise ValueError("study idempotency key must be nonempty trimmed text")
     with AttemptStore(attempts) as store:
-        if idempotency_key is not None:
-            if not idempotency_key or idempotency_key != idempotency_key.strip():
-                raise ValueError("study idempotency key must be nonempty trimmed text")
-            for previous in store.histories():
-                previous_id = previous.start.attempt_id
-                if "job-key" not in store.artifacts(previous_id):
-                    continue
-                if store.artifact(previous_id, "job-key") != idempotency_key.encode():
-                    continue
-                if previous.start.spec != spec or store.artifact(
-                    previous_id, "publication-policy"
-                ) != DomainCodec().encode_json(publication):
-                    raise ValueError("study job key already binds different inputs or publication")
-                if previous.status == "completed":
-                    StudyResult.read(store, previous_id)
-                    if publication.mode == "immediate" and publication.destination is not None:
-                        ClearMLPublication(store, publication.destination).publish(previous_id)
-                    return previous
-                if previous.status == "incomplete":
-                    store.finish(
-                        previous_id,
-                        status="abandoned",
-                        at=datetime.now(UTC),
-                        reason="interrupted job attempt retained before retry",
-                    )
-        start = store.start(
-            spec,
-            at=datetime.now(UTC),
-            invocation="applications.explore.evaluate_study",
-            request=DomainCodec().encode_json(run),
-        )
-        attempt = start.attempt_id
+        # Concurrent studies share the store: the key lookup and the start that binds
+        # the key commit together, so one key never starts two attempts.
+        with store.transaction():
+            previous = (
+                None
+                if idempotency_key is None
+                else _StudyJobKey.completed(store, idempotency_key, spec, publication)
+            )
+            if previous is None:
+                attempt = store.start(
+                    spec,
+                    at=datetime.now(UTC),
+                    invocation="applications.explore.evaluate_study",
+                    request=DomainCodec().encode_json(run),
+                ).attempt_id
+                store.retain(attempt, "publication-policy", DomainCodec().encode_json(publication))
+                if idempotency_key is not None:
+                    store.retain(attempt, "job-key", idempotency_key.encode())
+        if previous is not None:
+            StudyResult.read(store, previous.start.attempt_id)
+            if publication.mode == "immediate" and publication.destination is not None:
+                ClearMLPublication(store, publication.destination).publish(
+                    previous.start.attempt_id
+                )
+            return previous
         publisher = (
             None
             if publication.destination is None
             else ClearMLPublication(store, publication.destination)
         )
         try:
-            store.retain(attempt, "publication-policy", DomainCodec().encode_json(publication))
-            if idempotency_key is not None:
-                store.retain(attempt, "job-key", idempotency_key.encode())
             if publisher is not None:
                 publisher.enqueue(attempt)
             components.admit(run)

@@ -127,6 +127,8 @@ class CaptureReplay:
             self._stop_reason = record.reason
         elif record.kind == "session_end":
             self._session_ended = True
+        elif record.kind == "clock" and self._session_ended:
+            raise ValueError("clock after session end")
         if not self.quality.observe(
             record,
             outcome,

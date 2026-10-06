@@ -21,7 +21,7 @@ from serialization import DomainCodec, DurableDirectory, WireRecord
 
 _COMPONENT = re.compile(r"[a-z][a-z0-9_-]{0,63}\Z")
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
-_LOCK_FILES = frozenset({".workspace.lock", ".workers.lock", ".writer.lock"})
+_LOCK_FILES = frozenset({".workspace.lock", ".workers.lock", ".writer.lock", ".session.lock"})
 _SQLITE_AUXILIARY_SUFFIXES = (".sqlite3-wal", ".sqlite3-shm", ".sqlite3-journal")
 _IMMUTABLE_SQLITE_AUXILIARY_SUFFIXES = (".db-wal", ".db-shm", ".db-journal")
 # An account journal's live dispatch lease is marked by an OS-locked sibling file.
@@ -88,9 +88,10 @@ class WorkspaceBackup:
     """Copy explicit local stores after known writers stop, then verify each byte.
 
     The operation excludes volatile lock and SQLite WAL files. It acquires the
-    AttemptStore writer lock and job worker/queue locks when those components are
-    selected. Other component producers must be stopped by the caller; a second
-    source scan rejects observed mutation during copying.
+    AttemptStore session and writer locks, so it refuses while any study session
+    is open, and job worker/queue locks when those components are selected.
+    Other component producers must be stopped by the caller; a second source
+    scan rejects observed mutation during copying.
     """
 
     @classmethod
@@ -257,10 +258,14 @@ class WorkspaceBackup:
         databases: list[Path] = []
         for component in components:
             root = source_root / component
-            paths.extend(sorted(root.rglob(".writer.lock")))
+            # An attempt store's open sessions share its session lock; its writer
+            # lock is held only during a mutation.
+            paths.extend(sorted((*root.rglob(".session.lock"), *root.rglob(".writer.lock"))))
             databases.extend(sorted(root.rglob("*.sqlite3")))
-        if "attempts" in components and not (source_root / "attempts" / ".writer.lock").exists():
-            paths.append(source_root / "attempts" / ".writer.lock")
+        if "attempts" in components:
+            for name in (".session.lock", ".writer.lock"):
+                if not (source_root / "attempts" / name).exists():
+                    paths.append(source_root / "attempts" / name)
         for path in paths:
             if path.is_symlink():
                 raise ValueError("workspace writer lock path is unsafe")

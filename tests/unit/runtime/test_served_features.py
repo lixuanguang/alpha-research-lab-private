@@ -409,7 +409,7 @@ class TestServedSharedDecisions:
 
     @classmethod
     def _observer(
-        cls, path: Path, served: ServedFeatures, candidate: LoadedCandidate
+        cls, path: Path, served: ServedFeatures, candidate: LoadedCandidate, *, deliveries: int = 6
     ) -> tuple[SharedPaperCaptureObserver, AccountJournal]:
         """Bind the native book, a fresh account journal and the served candidate."""
         request = CaptureRequest(
@@ -475,7 +475,7 @@ class TestServedSharedDecisions:
                 gas_inapplicable_reason="public spot paper matching has no blockchain activity",
             ),
             delivery_path=path.with_suffix(".jsonl"),
-            clock=_Clock(tuple(_AT + timedelta(seconds=item) for item in range(6))),
+            clock=_Clock(tuple(_AT + timedelta(seconds=item) for item in range(deliveries))),
             features=served,
         )
         return observer, journal
@@ -583,6 +583,49 @@ class TestServedSharedDecisions:
                 fresh.deliver(delivery)
             with pytest.raises(ValueError, match=message):
                 fresh.deliver(replace(retained[5], decisions=(forged,)))
+
+    def test_a_published_snapshot_decides_on_the_next_clock(self, tmp_path: Path) -> None:
+        """An awaited instant decides on a clock, and the next book matches its order."""
+        setup = TestServedFeatures()
+        store, definition, _, bridge, served, _ = setup._setup(tmp_path)
+        candidate = TestServedFeatures._candidate(definition, "stream", starts_at=_AT)
+        observer, journal = self._observer(
+            tmp_path / "live.sqlite3", served, candidate, deliveries=7
+        )
+        assert journal.reconcile(self._opening())
+        for position in range(5):
+            observer.observe(*self._book(position, position))
+        assert observer.feature_pauses["served"] == "feature-pending"
+        store.append(definition, setup._row(definition, 3, "1/50"))
+        setup._publish(store, bridge, tmp_path, definition, "stream", 3)
+        record, book = self._book(5, 5)
+        observer.observe(
+            CaptureRecord(kind="clock", epoch=0, received_ns=record.received_ns),
+            replace(
+                book,
+                source_time=None,
+                outcome="clock",
+                bids=(),
+                asks=(),
+            ),
+        )
+        traces = len(journal.paper_traces("paper"))
+        observer.observe(*self._book(6, 6))
+        retained = tuple(
+            DomainCodec().decode_json(line, SharedBookDelivery)
+            for line in (tmp_path / "live.jsonl").read_bytes().splitlines()
+        )
+        (waited,) = retained[5].decisions
+        assert waited.at == _AT + timedelta(seconds=3)
+        assert waited.quote.at == _AT + timedelta(seconds=4)
+        assert not retained[5].matched and retained[6].matched and not retained[6].decisions
+        assert len(journal.paper_traces("paper")) == traces + 1
+        replay, recovered = self._observer(tmp_path / "replay.sqlite3", served, candidate)
+        assert recovered.reconcile(self._opening())
+        for delivery in retained:
+            replay.deliver(delivery)
+        assert recovered.checkpoint("served") == journal.checkpoint("served")
+        assert recovered.paper_traces("paper") == journal.paper_traces("paper")
 
 
 class _Clock:

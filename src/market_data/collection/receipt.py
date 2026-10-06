@@ -18,6 +18,33 @@ from market_data.contracts import CaptureRecord, FeedSocket, SnapshotTransport
 from telemetry import HealthMetric, HealthMetrics, RuntimeMeasurementJournal
 
 
+class ReceiptClock:
+    """Stamp one recording's receipts on a wall clock that never moves backwards.
+
+    Received messages use ``receive``, which refuses a wall-clock step back so the
+    capture can end its session with a visible gap instead of retaining a
+    regressed receipt. Locally made records (sessions, gaps, ends and clocks) use
+    ``stamp``, which never precedes an earlier receipt.
+    """
+
+    def __init__(self, after_ns: int = 0) -> None:
+        """Start after an already retained receipt, such as a resumed recording's last."""
+        self.last_ns = after_ns
+
+    def receive(self) -> int | None:
+        """Return the current receipt, or None when the wall clock moved backwards."""
+        now_ns = time.time_ns()
+        if now_ns < self.last_ns:
+            return None
+        self.last_ns = now_ns
+        return now_ns
+
+    def stamp(self) -> int:
+        """Return a local record's receipt, never earlier than the previous one."""
+        self.last_ns = max(self.last_ns, time.time_ns())
+        return self.last_ns
+
+
 class CaptureQueue(asyncio.Queue[CaptureRecord]):
     """Track actual queued bytes and monotonic age through the durable append."""
 
@@ -34,6 +61,22 @@ class CaptureQueue(asyncio.Queue[CaptureRecord]):
         self._receipts: deque[tuple[int, int]] = deque()
         self._put_clock: dict[int, int] = {}
         self._bytes = 0
+        # Stamped records awaiting space; a woken put is still in flight until it resumes.
+        self._putting = 0
+        self.last_put_ns = time.monotonic_ns()
+
+    @property
+    def settled(self) -> bool:
+        """Report whether nothing is queued or still being put, so a clock may follow."""
+        return self.empty() and self._putting == 0
+
+    async def put(self, item: CaptureRecord) -> None:
+        """Count a stamped record as in flight until the queue accepts it."""
+        self._putting += 1
+        try:
+            await super().put(item)
+        finally:
+            self._putting -= 1
 
     def put_received_nowait(self, item: CaptureRecord, received_at_ns: int) -> None:
         """Preserve the socket receipt clock across frame validation and queueing."""
@@ -54,6 +97,7 @@ class CaptureQueue(asyncio.Queue[CaptureRecord]):
     def put_nowait(self, item: CaptureRecord) -> None:
         """Retain a monotonic receipt clock only after accepting the record."""
         super().put_nowait(item)
+        self.last_put_ns = time.monotonic_ns()
         self._receipts.append((self._put_clock.pop(id(item), time.monotonic_ns()), len(item.raw)))
         self._bytes += len(item.raw)
         self._observe("accepted")
@@ -105,6 +149,8 @@ class ReceiptStream:
         remaining: int,
         health: HealthMetrics | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        *,
+        receipts: ReceiptClock,
     ) -> None:
         """Timestamp receipt independently of persistence; stop visibly on overload or disconnect.
 
@@ -117,6 +163,7 @@ class ReceiptStream:
             remaining: Maximum additional received WebSocket messages.
             health: Optional shared progress observed by an independent supervisor.
             stop_requested: Optional cooperative stop signal for a finite owner service.
+            receipts: The recording's monotonic receipt clock.
         """
         reason = "message_limit"
         awaiting_pong = False
@@ -156,11 +203,15 @@ class ReceiptStream:
                 awaiting_pong = False
                 idle_deadline = time.monotonic() + idle
                 received_at_ns = time.monotonic_ns()
+                received_ns = receipts.receive()
+                if received_ns is None:
+                    reason = "receipt_clock_regressed"
+                    break
                 received += 1
                 record = CaptureRecord(
                     kind="frame",
                     epoch=epoch,
-                    received_ns=time.time_ns(),
+                    received_ns=received_ns,
                     raw=message.encode() if isinstance(message, str) else message,
                 )
                 if health is not None:
@@ -191,7 +242,7 @@ class ReceiptStream:
             reason = "receiver_failed_unknown_loss"
         await queue.put(
             CaptureRecord(
-                kind="session_end", epoch=epoch, received_ns=time.time_ns(), reason=reason
+                kind="session_end", epoch=epoch, received_ns=receipts.stamp(), reason=reason
             )
         )
 
@@ -200,6 +251,7 @@ class ReceiptStream:
         transport: SnapshotTransport,
         queue: asyncio.Queue[CaptureRecord],
         epoch: int,
+        receipts: ReceiptClock,
     ) -> None:
         """Capture the independently fetched REST snapshot while WebSocket receipt continues.
 
@@ -207,22 +259,69 @@ class ReceiptStream:
             transport: Explicit transport override for deterministic integration tests.
             queue: Bounded queue shared with the durable consumer.
             epoch: Connection epoch within the current recording.
+            receipts: The recording's monotonic receipt clock.
         """
         try:
             raw = await asyncio.to_thread(transport.snapshot)
             received_at_ns = time.monotonic_ns()
-            record = CaptureRecord(
-                kind="snapshot", epoch=epoch, received_ns=time.time_ns(), raw=raw
+            received_ns = receipts.receive()
+            record = (
+                CaptureRecord(kind="snapshot", epoch=epoch, received_ns=received_ns, raw=raw)
+                if received_ns is not None
+                else CaptureRecord(
+                    kind="gap",
+                    epoch=epoch,
+                    received_ns=receipts.stamp(),
+                    reason="receipt_clock_regressed",
+                )
             )
         except OSError, ValueError, HTTPException:
             received_at_ns = time.monotonic_ns()
             record = CaptureRecord(
                 kind="gap",
                 epoch=epoch,
-                received_ns=time.time_ns(),
+                received_ns=receipts.stamp(),
                 reason="snapshot_failed_unknown_loss",
             )
         if isinstance(queue, CaptureQueue):
             await queue.put_received(record, received_at_ns)
         else:
             await queue.put(record)
+
+    @staticmethod
+    async def clock(
+        queue: CaptureQueue,
+        epoch: int,
+        interval_ms: int,
+        receipts: ReceiptClock,
+        receiver: asyncio.Future[None],
+    ) -> None:
+        """Queue a ``clock`` record whenever a receiving feed stays idle for the interval.
+
+        The record is stamped and queued in one step, and only into a settled queue:
+        empty, with no stamped record still being put. A receiver or snapshot that
+        stamped a record and waits for space, even one already woken, keeps the clock
+        out, so every receipt stamped before a clock is queued ahead of it.
+
+        Args:
+            queue: Bounded queue shared with the durable consumer.
+            epoch: Connection epoch within the current recording.
+            interval_ms: The capture's idle interval in milliseconds.
+            receipts: The recording's monotonic receipt clock.
+            receiver: This epoch's receiver; no clock is queued once it is done.
+        """
+        interval_ns = interval_ms * 1_000_000
+        while True:
+            idle_ns = time.monotonic_ns() - queue.last_put_ns
+            if idle_ns < interval_ns:
+                await asyncio.sleep((interval_ns - idle_ns) / 1e9)
+                continue
+            if receiver.done():
+                return
+            if queue.settled:
+                queue.put_received_nowait(
+                    CaptureRecord(kind="clock", epoch=epoch, received_ns=receipts.stamp()),
+                    time.monotonic_ns(),
+                )
+            else:
+                await asyncio.sleep(interval_ns / 1e9)

@@ -208,7 +208,7 @@ shape is:
 | J4 Features | Offline PIT retrieval, materialization and online serving of the QR feature through the Feast worker; injected late revision, TTL expiry, missing entity, materialization retry, version rollback | Matched-cutoff parity exact; no future leakage; each fault explicit and recovered |
 | J5 Candidates | Package rule and learned candidates; replay through the candidate loader | Replay decisions equal the study's at matched inputs |
 | J6 Paper | Signed installation and activation per account; supervised deployment (after P1) of both QR candidates on shared and isolated accounts in both venues, paper and shadow, within the qualified 2a envelope (at most 50-minute life, one-hour grants); shared-budget race, injected order uncertainty, selective stop/restart, adverse-cost scenario | Exact independent reconciliation; cost/P&L with gas inapplicability; no duplicate effect; custom metric on paper dashboards; alert observed by the local receiver; shadow zero fills |
-| J7 Operations | Quiesced backup of data/features/artifacts/account state; restore into a fresh root; reconcile; resume; signed release upgrade and rollback | Restored identities equal; resumption without manual repair; rollback keeps current facts |
+| J7 Operations | Quiesced backup of data/features/artifacts/account state; restore into fresh roots, opened from them alone; resume from the retained journals; signed release upgrade and rollback | Restored identities equal; restored account copies quarantined; resumption from retained state without manual repair; rollback keeps current facts; decision delays within the studies' modelled delay; refusals only for paper-only account rules |
 | J8 Capacity | No new measurement; links the accepted MR15 R1 and 2b records | Both accepted |
 
 **Retained evidence.** Frozen commit, wheel and release digests, environment
@@ -1334,31 +1334,59 @@ Pass criteria:
 - shadow made zero fills;
 - the research-selection grant was refused (J2).
 
-**J7 — Operations.**
+**J7 — Operations.** Corrected on 2026-10-05 to the approved R-2 and E-3 (the
+[M3f-3 note](#m3f-3-design-note-the-journeys-j7-approved-2026-10-05)). `$B` is the
+backup set `<evidence root>/<attempt>.j7-backup`, outside `$A` because a backup
+cannot sit inside its source; `$A/j7/backup` links to it.
 
 ```sh
-PY $A/qr/studies/j7_backup.py --workspace $A --backup $A/j7/backup   # quiesced
-PY $A/qr/studies/j7_restore.py --backup $A/j7/backup --root $A/j7/restored
-$GA install --release <account release> --policy $A/j6/policy.json \
-  --target $A/j7/target-<account> --state $A/j7/restored/<account>   # R-1
-$GA build ... --configuration $A/j7/services-v2.json ...   # revision activates the inactive instance
-$GA install --release <services v2> --policy $A/j6/policy.json --target $A/j6/services
-$GA rollback --release <services v1> --policy $A/j6/policy.json --target $A/j6/services
+JP="PY $A/consumers/journey_paper.py"; P=$A/j6/paper
+SIGNED="--launcher $GA --targets $P/targets --policy $A/j6/policy.json"
+$JP quiesce --plan $P $SIGNED                     # no fence held; stop running accounts
+PY $A/qr/studies/j7_backup.py --workspace $A --backup $B/research \
+  --record $A/j7/research-backup.json --worker <feast worker>
+$JP backup --plan $P $SIGNED --backup $B --record $A/j7/paper-backup.json
+#   paper components candidates, features, service-p-a, service-p-b; then each
+#   account's installed `account` command with a `backup` request
+PY $A/qr/studies/j7_restore.py --backup $B/research --root $A/j7/restored/research \
+  --record $A/j7/research-backup.json --worker <feast worker>   # $A/j2-j5 moved aside
+$JP restore --plan $P $SIGNED --backup $B --restored $A/j7/restored \
+  --record $A/j7/paper-backup.json   # each account: `restore` with its manifest digest
+$JP reclaim ... ; $JP owners --plan $P            # R: from the retained journals
+$GA build ... --configuration $P/services-upgraded.json ...   # revision 2 activates rule-okx-btc-late
+$GA install --release <services v2> --policy $A/j6/policy.json --target $P/services
+$JP reclaim ... ; $JP late ...                    # U
+$JP facts ... --output $A/j7/facts-before.json
+$GA rollback --release <services v1> --policy $A/j6/policy.json --target $P/services
+$JP reclaim ... ; $JP facts ... ; $JP rollback-check ...   # B
+$JP delays --plan $P --attempts $A/j3/attempts --roots <every paper service root> ...
+$JP refusals --plan $P $SIGNED --output $A/j7/refusals.json
 ```
 
-The backup covers the research workspace (attempts, raw store, snapshots, jobs)
-through `WorkspaceBackup`, the feature store through `VersionedFeatureStore.backup`,
-and each stopped account through `AccountWorkspace.backup`. After the restore, the
-journey reconciles, claims and runs the supervisor for 5 minutes on the restored
-state. It then runs 5 minutes on services v2 and 5 minutes after the rollback to v1.
+Phases R, U and B run the supervisor and publisher for 5 minutes each (rehearsals
+shorten them), each ended by a `shutdown` control. U stops the late instance with
+`stop_instance` 30 s before its end.
 
 Pass criteria:
-- restored manifests and identities equal the backup;
-- studies reopen and the restored store serves equal values;
-- resumption needs no manual repair;
-- v2 activates the inactive instance;
-- after the rollback, v1's code and configuration are selected and journals keep
-  their current facts.
+- every restored manifest equals its backup's, and studies reopen with equal reports;
+- the restored QR store and the restored paper store serve equal values: the paper
+  store by replaying every J6 delivery log against it exactly;
+- each restored account receipt equals its backup receipt, its facts equal the
+  retained journal's, and it is quarantined while the retained journal is not;
+- resumption from the retained journals needs no manual repair: every command is a
+  runbook step that exits 0, with J6's per-phase checks in R, U and B;
+- the upgrade receipt names v1 as previous, and the late instance decides (its fills
+  are retained);
+- after the rollback, the receipt selects v1 with v2 as previous and the deployment
+  check equals v1's; fills, costs and controls are extended unchanged, terminal orders
+  are unchanged, the late instance places nothing, and U's delivery logs still replay
+  exactly against the store;
+- every paper decision delay is at most its study's modelled entry delay, read from
+  the study's retained orders;
+- every paper refusal and dropped leg carries a declared paper-only reason
+  (`self_trade_conflict`, `holding_limit`, `instance_limit`, `account_limit`,
+  `firm_limit`, `insufficient_cash`, `insufficient_owned_inventory`,
+  `order_notional_limit`).
 
 **J8 — Capacity.** No new measurement. The step links the accepted MR15 R1 and 2b
 records. It is `pending` until M4 and M5 pass, and passes only when both are
@@ -3424,6 +3452,631 @@ defect, all recorded above:
 | Integration (`-m integration`, Feast worker selected) | Passed: 40 passed |
 | Performance (`-m performance`) | Passed: 25 passed |
 | Linux strict mypy | Passed: no issues in 712 source files |
+
+## M3f-3 design note: the journey's J7 (approved 2026-10-05)
+
+The owner approved this note, with R-2 and E-3, on 2026-10-05. It fixes how the
+driver runs J7 after J6. Its two choices were judged on scalability and
+maintainability, with no backward compatibility kept. M3f-3 has two parts, which land
+in one commit at the milestone (owner, 2026-10-05):
+- **M3f-3a:** a durable receipt clock, with [its own note](#m3f-3a-design-note-a-durable-receipt-clock-approved-2026-10-05);
+- **M3f-3b:** the driver's J7.
+
+Both are implemented; see the [M3f-3a](#m3f-3a-result-2026-10-05) and
+[M3f-3b](#m3f-3b-result-2026-10-06) results.
+
+**What reading the code shows.**
+- **The declared J7 commands cannot run as written.**
+  - `alpha-governance-artifacts install` takes no `--state`. `--state` is a `build`
+    option that signs a quiesced directory into a release as its initial state.
+  - `WorkspaceBackup.create` refuses a backup inside its source root, so
+    `$A/j7/backup` cannot hold a backup of `$A`'s components.
+  - Component names must be lower case, so J6's `service-P-A` and `service-P-B`
+    cannot be selected.
+- **A restored account journal can never be activated.**
+  - `AccountWorkspace.restore` marks the staged journal
+    `paper_restore_quarantine` before publication, and nothing clears it.
+    `install_paper`, `claim_paper`, `restart_paper`, `reduce_paper` and every owner
+    check refuse it with `paper_restore_requires_current_retained_journal`.
+  - This is the accepted MR13 contract: the roadmap says "historical snapshots
+    cannot reactivate managed execution", and the runbook says managed paper resumes
+    only from the latest retained journal. A copy cannot prove that no later fills
+    happened.
+  - So R-1 (install a fresh target from the restored journal, then claim) would be
+    refused at the claim. The M3 note said a rehearsal would find this; reading the
+    code finds it now.
+- **J7 also inherited two criteria from earlier notes.**
+  - S-1: "J7 checks that the study's simulated entry delay is at least the observed
+    decision delay."
+  - AB-1: paper can refuse a budget-bound decision that research admits; "J7 declares
+    and checks that difference."
+- **The entry-delay criterion would fail.** The QR's studies model a 1 ms entry
+  delay. Measured on `rehearsal-103`'s J6 delivery logs (`coordinated_at − at`):
+
+  | Feed | Rule (source-fed) p50 / max | Learned (served) p50 / p90 / max | Learned above 1 s |
+  | --- | --- | --- | --- |
+  | OKX BTC | 0.0 / 0.0 ms | 0.84 / 2.9 / 4.7 s | 36% |
+  | OKX ETH | 0.0 / 0.0 ms | 0.96 / 4.9 / 15.0 s | 48% |
+  | Bitfinex BTC | 0.0 / 0.0 ms | 1.26 / 8.7 / 13.6 s | 74% |
+  | Bitfinex ETH | 0.0 / 0.0 ms | 1.78 / 9.5 / 9.5 s | 56% |
+
+  Rule candidates decide on the crossing book well inside 1 ms. The learned delay has
+  two causes, both waits on a quiet feed:
+  - the publisher publishes t only after every feed, including the sparse trades
+    feed, has a durable record later than t;
+  - the supervisor retries a pending served instant only on the next book delivery
+    after the snapshot appears.
+
+  S-1 bounds the total wait at one cadence (15 s), and the logs reach that bound. The
+  delay grows with every added feed and with quieter markets.
+
+**Choices for the owner.**
+
+*R — what "restore and resume" means for accounts.*
+- **R-2 (recommended): one recovery path, the accepted boundary.** This replaces R-1.
+  No platform change.
+  - Backup and restore cover data, features, artifacts and account state. The
+    restored copies are verified equal, and they are opened from the restored root
+    alone.
+  - Restored account copies are verified equal to their backup and to the retained
+    journals: views, orders, fills, stops and candidate checkpoints. J7 also checks
+    that they are quarantined.
+  - Resumption follows the runbook from the latest retained journals: independent
+    reconciliation, fresh grants and claims, and the supervisor and publisher
+    relaunched. No step outside the runbook is allowed.
+  - The quarantine is a safety rule, not compatibility: a copy cannot prove that no
+    later fills happened. Keeping one resumption path is the more maintainable design.
+  - The J7 row's criteria become: restored identities equal, restored account copies
+    quarantined, resumption from retained state without manual repair, and rollback
+    keeps current facts.
+- **R-3: account succession.** The backup durably retires its source journal, and a
+  restored copy carrying that retirement may be claimed once.
+  - It adds a second resumption path, new journal state, and a services release that
+    re-points the store paths, for a case MR17 does not have.
+  - What it would really provide is moving an account to another host. That deserves
+    its own design when multi-host operation is in scope. Not recommended.
+
+*E — the inherited entry-delay criterion.*
+- **E-3 (recommended): fix the served path's latency at its source, then keep S-1's
+  strict criterion.**
+  - Each capture durably records an idle receipt clock (M3f-3a). A quiet feed then
+    passes t within the clock interval. The publisher publishes as soon as it has
+    the inputs, and the supervisor retries the pending instant on the clock delivery.
+    Readiness keeps exactly its current rule.
+  - The served delay becomes about the clock interval plus one warm materialization,
+    independent of how many feeds there are or how sparse they are.
+  - The QR's learned studies model a declared served-path delay (1 s, to be confirmed
+    from the M3f-3a development run), so J3–J5 rerun.
+  - J7 then requires every observed decision delay to be at most the study's modelled
+    delay, per candidate, over every J6 and J7 paper phase.
+  - It changes shipped code, so it lands before 2b, which qualifies it.
+- **E-2: a bounded, reported delay.** Learned delays are only bounded by one cadence
+  and reported. No code change, but the gap grows with scale and is only documented.
+- **E-1: the QR models today's measured delay.** This builds the quiet-feed wait into
+  research, and a delay near one cadence collides with the 15 s order lifetime.
+
+**How J7 runs** (as recommended).
+1. **Quiesce.** J7 starts after J6's shadow phase, with no supervisor, publisher or
+   owner running; the driver checks this. Each paper account must be explicitly
+   stopped: J7 reads its phase through the installed `account` command and stops one
+   that is not.
+2. **Back up**, into one backup set at
+   `~/AlphaResearchEvidence.noindex/mr17/<attempt>.j7-backup/` (outside `$A`, because
+   a backup cannot sit inside its source), linked from `$A/j7/backup`.
+   - `research/`: the QR's `j7_backup.py` runs `WorkspaceBackup.create($A, …,
+     components=("j2", "j3", "j4", "j5"))`. This covers snapshots and raw captures,
+     attempts and their artifacts, the QR feature store with its Feast generations,
+     and the bundles.
+   - `paper/`: `journey_paper.py backup` runs `WorkspaceBackup.create($A/j6/paper, …,
+     components=("candidates", "features", "service-p-a", "service-p-b"))`. J6's
+     service roots are renamed to lower case for this.
+   - `accounts/<id>/`: each paper account's installed `account` command with a
+     `backup` request (runbook step 5).
+   - `backup-set.json` lists every manifest digest.
+   - Not covered, as the runtime guide states: lakeFS and ClearML server state (J2 and
+     J3 already reopen from them), the signed release registry (immutable, and verified
+     again at installation), and the shadow accounts (their phase is over).
+3. **Restore**, into absent roots under `$A/j7/restored/`.
+   - Research through the QR's `j7_restore.py`, paper through `journey_paper.py
+     restore`, and each account through its installed `account` command with a
+     `restore` request and the retained manifest digest.
+   - While the QR checks the restored research root, the driver moves `$A/j2`–`$A/j5`
+     aside and moves them back afterwards. A hidden absolute path into the source then
+     fails the check instead of passing it.
+   - Criteria:
+     - every restored manifest equals its backup's;
+     - the QR's studies reopen with equal identities and reports;
+     - the restored QR store and the restored paper store serve equal values at the
+       same cutoffs;
+     - each restored account receipt equals its backup receipt, its views, orders,
+       fills, stops and checkpoints equal the retained journal's, and it is
+       quarantined.
+4. **Resume (phase R, 5 min).** From the retained journals, on services v1:
+   independent reconciliation, fresh one-hour grants and claims as in P-B, then the
+   publisher and supervisor. Criteria: J6's per-phase checks (every reconciliation
+   round matches, exact delivery-log replay, dashboards, no duplicate effect), and
+   every command is a runbook step that exits 0.
+5. **Upgrade (phase U, 5 min).** Services v2 is the same request with configuration
+   revision 2, adding `rule-okx-btc-late` to `active`. It is built, verified and
+   installed over the services target, the accounts reclaim, and the services run.
+   - Before U ends, a `stop_instance` control stops the late instance. This cancels
+     its working orders and keeps its position, so v1 never inherits unmanaged orders.
+   - Criteria: the installation receipt names v1 as previous; the late instance
+     decides and trades; J6's per-phase checks.
+6. **Roll back (phase B, 5 min).** `rollback --release <services v1>`, then reclaim
+   and run.
+   - Before the rollback, J7 retains each journal's orders, fills, controls, ledger
+     and checkpoints.
+   - Criteria:
+     - the receipt selects v1 with v2 as previous, and the deployment check shows
+       revision 1;
+     - every retained fact is still present and unchanged after phase B;
+     - the late instance keeps its position and places no order;
+     - the paper store keeps every snapshot published under v2;
+     - J6's per-phase checks.
+7. **Inherited criteria.**
+   - **Entry delay.** Per candidate, every decision delay in J6 and J7 is at most the
+     study's modelled entry delay. The distributions are retained.
+   - **Budget-bound refusals.** Every paper refusal and dropped leg in J6 and J7
+     carries a reason from the declared paper-only set (`holding_limit`, instance and
+     firm budget, cash, inventory, order notional). Any other reason fails, and the
+     counts per candidate are retained.
+
+**Where the code goes (M3f-3b).**
+- The driver's `Operations` step, with J7 added to `IMPLEMENTED` and the J7 phase
+  lengths in the declaration (5/5/5 minutes).
+- `journey_paper.py` gains `backup`, `restore`, `facts` (journal facts before and
+  after) and `delays`. It reuses J6's reclaim, owners and phase checks.
+- In the QR workspace: `j7_backup.py` and `j7_restore.py`, written from the runtime
+  guide, and the learned studies' modelled entry delay. If guide coverage finds a gap,
+  the QR API map gains a backup-and-restore entry.
+- The J7 section of the declaration and the J7 row are corrected to the chosen
+  options. No further shipped code changes are expected; any that a run finds come
+  back as addenda.
+
+**Iteration.** M3f-3a changes shipped code, so J3–J5 rerun once after it. After that,
+the development harness runs J6 with 180/90/90 s phases, then J7 with 120 s phases, in
+continue-past-failures mode, reusing the packaged candidates.
+
+**Addendum RF-1 (decided 2026-10-05): one read of every decision outcome.** The
+owner delegated this choice on 2026-10-05, on scalability and maintainability, with no
+backward compatibility kept.
+- **Found while implementing.** The inherited budget-refusal criterion needs every paper
+  decision's outcome and dropped legs. Both are retained: each decision's `StepCommit`,
+  with its status, reason and `dropped` legs, is saved with the decision, including a
+  rejected batch's decisions. But the `account` command reads one saved batch per call
+  (about 1.5 s through the signed launcher), and it has no read for dropped legs at all.
+  At counted lengths that would be about 3,500 calls, and still incomplete.
+- **The change.** `inspect` gains a read-only `decisions` projection. It returns one
+  compact `DecisionOutcome` per saved decision (account, instance, decision identity
+  and time, status, reason and dropped legs) from one snapshot, in commit order. J7
+  makes one signed call per account.
+- **Rejected options.** Per-batch launcher reads (slow, and blind to dropped legs);
+  opening the journals in the research environment (it bypasses the signed launcher
+  the journey otherwise keeps).
+- **Release.** An execution-owner read; stage 2b qualifies the execution release.
+
+**Addendum P-1 (decided 2026-10-05): J3's studies run in a bounded pool.** The owner
+proposed this and delegated the design on 2026-10-05, on the same criteria.
+- **Why.** J3 runs twelve independent studies and a grid. On `rehearsal-105`'s
+  30-minute window they took 52 minutes in sequence, about 4–6 minutes each. A counted
+  six-hour window makes each study several times longer.
+- **What blocked it.** `AttemptStore` admits one writer, held for a whole study's
+  session, so concurrent studies on one store fail. One store per study would break
+  the shared family and holdout history that refuses a second holdout.
+- **The change.**
+  - `AttemptStore` serializes each mutation instead of each session. A session holds a
+    shared session lock; every mutation takes the exclusive writer lock only while it
+    rechecks persisted state and appends, as it already does. A re-entrant
+    `transaction()` holds the writer lock across a compound check-and-write, such as
+    `evaluate_study`'s idempotency-key check and start.
+  - Holdout consumption, family declarations and artifact deduplication stay atomic,
+    because each is one mutation under the writer lock.
+  - `WorkspaceBackup` takes the session lock exclusively, so it still refuses while any
+    study session is open.
+  - The driver runs J3's studies and grid through a bounded pool. The declaration's
+    `research_workers` (default 4, at most 16) sizes it.
+- **Not changed.** A study's records, identities and holdout rules.
+
+**Addendum RP-1 (found 2026-10-05): a replaced order ends with its parent.** J7's
+refusal criterion, dry-run on `rehearsal-107`, found a defect in widened AB-1.
+- **What happened.**
+  - When a decision replaces its instance's working orders, the account requests
+    cancellation of the physical parent. The attached child was left in `intent`, with
+    no cancel request.
+  - When the parent's cancel completed, only a stopped instance's children were
+    cancelled with it. The replaced child therefore became an unassigned residual
+    awaiting reissue.
+  - Every later batch on that account then needed a reconciliation newer than the
+    parent's outcome. On each isolated account the learned ETH candidate was refused
+    with `reissue_requires_current_reconciliation` for most of its decisions (15–16 of
+    about 20 in `rehearsal-107`; 18–30 in `rehearsal-109`), so it barely traded.
+  - Once a reconciliation was current, the replaced order would have been reissued,
+    which AB-1 forbids.
+- **The fix.**
+  - Replacement also records a cancel request on the instance's attached children.
+  - When a parent ends, any child with a cancel request ends with it, as a stopped
+    instance's children already did.
+  - A replaced order is therefore never reissued, and no other instance waits on it.
+- **Release.** The changed execution modules are candidate-runtime modules, so packaged
+  candidates pin the new runtime code; J3–J5 rerun.
+- **A second form, found by `rehearsal-111`.** The learned target candidates send
+  immediate-or-cancel orders. An unfilled IOC parent ends `cancelled`, and its child
+  again became a residual. One was reissued to a second parent, and later batches
+  waited for reconciliation (`rule-bitfinex-eth`: 11 refusals).
+- **A third form, found by `rehearsal-113`.** Paper matching rejected a crossing
+  post-only parent, which also ended without a cancel request. Its child waited until
+  the rule's next decision, and one learned decision in between was refused.
+- **The rule, stated once.** Only a parent cancelled on request leaves its other
+  children's remainder to reissue: for example, a shared parent cancelled for another
+  strategy's stop (the MR09 portfolio consumer). A child ends with its parent when:
+  - its instance stopped;
+  - its own cancel was requested as its instance replaced its orders;
+  - or the parent ended on its own terms, through an immediate order's expiry or a
+    post-only rejection. Reissuing it would repeat an order that has already ended.
+
+**Addendum ST-1 (found 2026-10-05): a stale observation is refused, not a break.**
+`rehearsal-114` found this.
+- **What happened.** The journey's reconciler reads an account's reconciliation
+  projection, then sends the observation back. On bitfinex-isolated a round read at
+  23:12:59.7 reached the account just after the rule's 23:13:00 decision had placed
+  orders. The observation now preceded the account's knowledge clock, so it did not
+  match.
+- **Why it mattered.** A mismatch records `account_break` and faults the account. J7
+  then could not reclaim it ("paper account is faulted"). A reconciliation racing an
+  admission is no evidence that the account diverged.
+- **The change.**
+  - An observation stamped before the account's knowledge clock, or before its last
+    reconciliation, is refused with `observation_precedes_account_state`. It is
+    unrecorded, and the account is not faulted. This mirrors the existing
+    `decision_precedes_account_state` refusal.
+  - A current observation that differs is still a break.
+  - The journey's reconciler observes again, up to three times.
+  - The same race reaches P-A's selective restart. Its control carries an
+    observation made about a second earlier. On `rehearsal-115` a decision landed in
+    between, the restart was refused as stale, and the instance stayed stopped. P-B's
+    supervisor then refused to start ("selected instance requires explicit reconciled
+    restart"). The driver now re-observes and resends the restart, up to three times.
+  - `deployment-control` exits 0 even when the supervisor refuses. So the driver also
+    requires every control to answer `ok`, and a refused control fails its criterion.
+- **Release.** An execution-owner change in candidate-runtime modules; J3–J5 rerun.
+
+**J7 criterion decisions (decided 2026-10-05, owner delegation).** The development
+runs showed three criteria stricter than the behaviour they test. Each is now decided
+on the same criteria as RF-1 and P-1.
+- **Self-trade protection is a declared paper-only reason.** The account refuses an
+  order that would trade against one of its own working orders: another instance's on
+  the same instrument (a learned IOC buy against the rule's resting sell), or a leg a
+  replacement is replacing, which stays working until its cancel completes (AB-1).
+  Research models each candidate alone, with instant replacement. `self_trade_conflict`
+  joins the declared set, like the budgets.
+- **The race counts a reserved order.** On `rehearsal-111` the rule's first bid rested
+  unfilled through P-A. It reserved 0.006 BTC of the shared 0.01 limit, and the
+  reference and the learned candidate were refused at the limit: the race, admitted
+  once and refused once. The check required the other contender to hold fills. It
+  now also accepts a contender whose latest admitted decision reserved a working
+  order. Under AB-1 that rule could not replace its resting bid either (0.006 + 0.006
+  exceeds the limit until the cancel completes), which is the declared paper-only
+  difference.
+- **A decision overtaken by an operator control is attributed, not unexplained.**
+  - On `rehearsal-116`, P-A's restart control ran from 00:35:16.36 to 00:35:17.67 and
+    stamped the account clock. The reference's decision for instant 00:35:17.5 then
+    arrived after it and was refused with `decision_precedes_account_state`.
+  - That refusal is correct and safe: the decision was made on state from before the
+    operator's change. Declaring the reason wholesale could hide real lag, though.
+  - So a stale-decision refusal is accepted only when the decision's instant falls
+    within a supervisor control command's run. The driver retains those windows from
+    its own command records (`j7/controls.json`).
+- **The late instance must decide; its fills are retained.** It runs on `okx-shared`,
+  where the race exhausts the shared limit, so whether it trades within U depends on
+  the market. Activation is shown by its decisions reaching the account. Its outcomes
+  fall under the refusal criterion, and its fill count is retained.
+
+## M3f-3a design note: a durable receipt clock (approved 2026-10-05)
+
+The owner approved this note on 2026-10-05.
+
+**Problem.** Live inputs advance only on received messages. A quiet feed therefore
+holds back everything that waits for it to pass an instant:
+- the publisher, which publishes t only once every feed has a durable record later
+  than t (`FeaturePublication.advance`);
+- the supervisor's observers, which retry a pending served instant, or cross a
+  source-fed instant, only on the next delivery.
+
+The wait is the gap to the quietest feed's next message, so it grows with every feed
+added and with quieter markets. J6 measured it at up to one cadence (the table above).
+
+**The change.**
+1. **A `clock` capture record.** `CaptureRecord.kind` gains `clock`: no bytes, no
+   reason, and `received_ns` stamped like any receipt.
+   - It states that the feed received nothing between the previous record and that
+     instant. It carries no market content, and it says nothing about venue
+     liveness.
+   - It replaces nothing: frames, gaps and session records keep their meaning.
+2. **Written by the durable writer when the feed is idle.**
+   - The capture runner's writer appends a `clock` record when its queue has been
+     empty for the capture's `clock_interval_ms`. A busy feed therefore writes none.
+   - The interval is a new required `CaptureConfig` field, with no default in the
+     schema. The journey and the guides use 250 ms.
+   - The writer stamps the clock synchronously on the event loop, and only with an
+     empty queue. The receiver and the snapshot task suspend between stamping and
+     enqueuing only while the queue is full, which cannot coincide with an empty
+     queue. So every receipt stamped earlier is already queued, and no record stamped
+     before a clock can arrive after it.
+3. **Receipts become monotonic, and the writer enforces it.** The writer refuses a
+   record whose `received_ns` is before the last appended record's (a wall-clock step
+   back). It ends the session with the visible gap `receipt_clock_regressed`. Clock
+   records rely on this, and every receipt-ordered reader gains a checked invariant
+   it now assumes silently.
+4. **Readers.**
+   - Book and trade reconstruction (`CaptureReplay`, the trades tape) apply a clock
+     as a no-op with outcome `clock`. It never changes book state, market age or
+     quality counts.
+   - Freshness validation does not count a clock as market data, so a feed with only
+     clocks still ages its book.
+   - Segment message counts, the rollover's original-message rule and the journal's
+     reserve ignore clocks.
+   - Dataset publication and the saved readers skip clocks. Published partitions and
+     research values are unchanged.
+5. **Consumers.**
+   - `FollowedFeed` accepts a clock like any durable record, so the publisher's
+     existing readiness rule passes a quiet feed within one interval.
+   - The supervisor's decision timing changes; see addendum CK-1.
+   - Delivery logs retain clock deliveries, and replay accepts them.
+6. **Release and records.**
+   - This changes the capture record and `CaptureConfig` schemas in place, and the
+     collector, paper-services and research releases. Stage 2b qualifies all of them.
+   - Existing captures and evidence stay valid at their own commits. No reader for
+     the old `CaptureConfig` is kept.
+
+**Addendum CK-1 (approved 2026-10-05): decisions run on time, matching on markets.**
+- **Found while implementing.** The note said the supervisor would retry a pending
+  served instant on a clock "with no rule change". It cannot. `_market` returns a
+  market only for a priced book (`snapshot` or `update`), and an observer crosses,
+  opens and decides instants only when a delivery carries one. Heartbeats and
+  controls already advance nothing.
+- **Why it matters.** Measured on `rehearsal-103`:
+  - trades gaps reach 16 s (the publisher's wait, which clocks fix);
+  - priced-book gaps are p99 0.3–0.5 s, with a maximum of 3.1 s on Bitfinex ETH.
+
+  So after publication, a served decision still waits for its own book's next priced
+  update, and a source-fed decision waits the same way. That wait depends on market
+  activity, so a sparse instrument added later would decide late, and research's
+  entry delay could not bound it.
+- **The change: time and market are separate axes.**
+  - **Time.** Any delivery advances the grid if its source is fresh: a priced book,
+    a heartbeat, a control or a clock. Fresh means the source's latest eligible
+    market (`_pending`) is current at the delivery. Such a delivery crosses instants,
+    opens them (an eligible market at or before the instant still required), and
+    decides every ready instant, quoted at that retained market as today.
+    Coordination keeps S-1's bounds.
+  - **Market.** Only a priced book matches orders and replaces the retained market.
+    A decision made on a non-market delivery has `matched = false`, and its orders
+    match at the next priced book, as research's orders do after their entry delay.
+  - **Unchanged.** Source freshness and invalidation stay as they are. A
+    non-market delivery that finds the book stale is checked by
+    `_source_invalidated`, exactly as heartbeats are now.
+- **Readers.** `LiveBookDecisionSource` and `BookRegistry` carry the previous
+  boundary unchanged across a clock: same observation, same market. The trade source
+  does the same.
+- **Delivery log.** `matched` keeps its meaning (a priced book matched orders), and
+  decisions may now accompany an unmatched delivery. The schema name stays
+  `shared-candidate-delivery`. Replay applies the same rule: a retained group on a
+  non-market delivery must be one that the fresh retained market could decide.
+- **Effect.** A decision waits at most about one clock interval past readiness on
+  every venue and instrument, whatever the market's activity. That makes the QR's
+  modelled delay a small constant.
+- **Tests.**
+  - A pending served instant and a source-fed instant both decide on a clock, quoted
+    at the retained market, unmatched. Their orders match on the next priced book,
+    and the log replays exactly.
+  - A stale book decides nothing on a clock.
+  - Heartbeats and controls advance time the same way.
+
+**Expected effect.** On the J6 layout, a served decision should wait about one clock
+interval, plus the publisher's 100 ms poll, plus one warm materialization (about
+0.2 s), plus at most one more clock interval for the next delivery. That is well
+under 1 s against today's up-to-15 s. The development run measures it, and that measurement fixes the
+QR's modelled delay.
+
+**Tests.**
+- **Writer:**
+  - an idle queue writes clocks at the interval;
+  - a busy feed writes none;
+  - no record stamped before a clock is appended after it, under an injected snapshot
+    race;
+  - a regressed wall clock ends the session with `receipt_clock_regressed`.
+- **Readers:** a recording with interleaved clocks reconstructs the same books,
+  trades, quality, freshness and published partitions as the same recording without
+  them.
+- **Publisher:** with a silent trades feed that writes clocks, an instant publishes
+  within one interval of the book passing it. Without clocks it waits, as today.
+- **Supervisor:** as listed in CK-1.
+- **Guides:** the market-data capture guide and the runtime guide's served-feature
+  section document the record, the interval, and the delay a study should model.
+
+**Validation.** The four lanes, then a J3–J6 development run whose served-delay
+distribution is recorded here. J7 and M3f-3b build on that run.
+
+## M3f-3a result (2026-10-05)
+
+The durable receipt clock and addendum CK-1 are implemented. They land in the single
+M3f-3 commit with M3f-3b.
+
+**The development run (uncounted, not evidence).** `rehearsal-105` ran the driver's
+real J1–J6 on the working tree, in continue-past-failures mode, reusing
+`rehearsal-104`'s 30-minute J2 capture. The feeds declare a 250 ms clock interval, and
+J6 used 300, 180 and 180 s phases.
+- J1, J2, J4, J5 and J6 passed every criterion; J6 passed all 81.
+- J3's one failure is a declaration error, not a code defect (see below).
+- The supervised paper sources delivered 709 clocks in P-A and 402 in P-B, beside
+  about 34,000 and 19,000 frames.
+
+**Measured decision delays** (`coordinated_at − at`, from the J6 delivery logs):
+
+| Phase | Feed | Rule (source-fed) | Learned (served) p50 / p90 / max |
+| --- | --- | --- | --- |
+| P-A | OKX BTC | 1 µs | 95 / 292 / 293 ms |
+| P-A | OKX ETH | 1 µs | 189 / 289 / 290 ms |
+| P-A | Bitfinex BTC | 1 µs | 175 / 256 / 276 ms |
+| P-A | Bitfinex ETH | 1 µs | 189 / 285 / 347 ms |
+| P-B | OKX BTC | 1 µs | 203 / 205 / 205 ms |
+| P-B | OKX ETH | 1 µs | 185 / 187 / 187 ms |
+| P-B | Bitfinex BTC | 1 µs | 172 / 312 / 312 ms |
+| P-B | Bitfinex ETH | 1 µs | 237 / 324 / 324 ms |
+
+- On `rehearsal-103`, without clocks, the served maximum was 15 s, and up to 74% of
+  learned decisions waited more than 1 s. Now no served decision waits more than
+  347 ms, on every venue and instrument. That is about one clock interval plus a warm
+  materialization, as the note expected.
+- A source-fed decision is coordinated 1 µs after its instant, whichever delivery
+  crosses it, and its orders match at the next priced book. That is the book a
+  research order placed 1 ms after the instant meets.
+- **The QR's modelled delay is confirmed at 1 s** (`_SERVED_ENTRY_US`). It leaves about
+  three times headroom over the measured maximum on a loaded host. The source-fed
+  candidates keep 1 ms. The value does not change, so it needs no J3–J5 rerun.
+  (Addendum P-1 changes research code, so the next rehearsal reruns J3–J5 anyway.)
+
+**Defects the development runs found, all fixed with tests.**
+- `rehearsal-104`: the saved research book projection
+  (`research/exploration/projections.py`) read a clock row as a book row. A cutoff
+  after a clock now reads the row before it, as the live source carries its market
+  across a clock.
+- `rehearsal-104`: `CapturedStudyMarket` offered clock rows to execution as market
+  boundaries. It now skips them.
+- `rehearsal-105`: J3's `holdout_consumed_as_declared` expected one holdout, but since
+  the four-instrument J3 the driver consumes one per research instrument. The
+  development declaration now declares four. Earlier J3–J5 dry runs had called the
+  QR scripts directly, so this was the driver's first research check with four
+  instruments.
+
+**Refinements to the note, made while implementing.**
+- **A clock producer task, not the writer.** `ReceiptStream.clock` runs beside each
+  epoch's receiver. It stamps and queues a clock in one step, only into an empty
+  queue, after the interval passes with nothing queued. Receivers also stamp and
+  queue in one step, so the ordering argument of the note holds without touching the
+  durable writer.
+- **A clock waits for a settled queue (found by CI on Linux, PR #106).** The ordering
+  argument above missed one step. A snapshot stamped while the queue was full waits
+  for space. When the consumer frees the slot, the waiting put is woken but has not yet
+  resumed. In that gap the clock saw an empty queue and enqueued a later stamp, and the
+  snapshot then landed behind it. macOS scheduling hid this; the Linux runner hit it in
+  `test_clock_never_overtakes_a_stamped_snapshot`. The capture queue now counts puts in
+  flight, and the clock enqueues only into a settled queue: empty, with no stamped
+  record still being put. A deterministic test frees the slot under a waiting put and
+  checks that the queue stays unsettled.
+- **The regression guard moved to receipt.** A `ReceiptClock` per recording stamps
+  every receipt and refuses a wall-clock step back. A receiver ends its session with
+  `receipt_clock_regressed`, and a snapshot becomes a gap with that reason. Local
+  records (sessions, gaps, ends, clocks) never precede an earlier receipt. The
+  journal-level guard was dropped, because the stamp is the one place a regression
+  can enter.
+- **The match-due rule (CK-1).** An instant crossed or decided on a non-market
+  delivery sets a match-due flag. The next priced book matches orders and clears it.
+  Replay applies the same rule.
+- **Published histories keep clock rows.** Publication retains the capture's clock
+  records, so a published recording replays exactly as captured. The saved readers,
+  rather than publication, skip them, and the published partitions' market values are
+  unchanged.
+
+**QR finding.** The QR's rule policy raises on a missing touch instead of abstaining
+through A-1's explicit abstention. It is recorded as a finding in the QR workspace's
+`SOURCES.md`; the QR workspace is not edited to fix it, as the journey uses the QR's
+work as written.
+
+**Validation.** Before the two reader fixes, `make check`, the integration lane and
+Linux strict mypy passed. The performance lane failed only timing-ratio tests that
+also fail on `main` under host load. After the fixes, the unit suite passed (1,903
+tests). The four lanes run again on the whole M3f-3 tree.
+
+## M3f-3b result (2026-10-06)
+
+The driver's J7 is implemented as the note and its addenda describe, and J7 passes
+in development. It lands with M3f-3a in one commit.
+
+**The passing development runs (uncounted, not evidence).**
+- `rehearsal-115` ran the driver's real J1–J5 on the final shipped code. It reused
+  `rehearsal-107`'s J2 capture, republished into its own lakeFS repository. Every
+  criterion passed (J3 47, J4 16, J5 15). J3's twelve studies and grid ran in the
+  bounded pool (P-1) in about 21 minutes, against 52 minutes in sequence on
+  `rehearsal-105`.
+- `rehearsal-117` reused `rehearsal-115`'s J2–J5 and ran J1, J6 and J7, with J6
+  phases of 180/120/120 s and J7 phases of 120 s. Every criterion passed: J6 83 and
+  J7 84.
+
+**What J7 showed on `rehearsal-117`.**
+- **Quiesce.** No J6 process held any of the 12 fences, and all four paper accounts
+  were already stopped.
+- **Backup.** The set holds `research/` (J2–J5: 1,026 files, 5.9 GB), `paper/`
+  (12,034 files, 679 MB) and four account backups (28 MB). `backup-set.json`
+  lists every manifest digest.
+- **Restore.**
+  - Research was restored with J2–J5 moved aside, so nothing could read the
+    sources. Its manifest is equal, the 16 studies reopen with equal reports and
+    results, and the restored QR store serves 130 values equal to the source's.
+  - The restored paper store replays every J6 delivery log exactly.
+  - Each restored account's receipt equals its backup receipt. Its views, orders,
+    controls, fills, costs and checkpoints equal the retained journal's. It is
+    quarantined, and the retained journal is not.
+- **Resume (R), upgrade (U) and rollback (B).**
+  - Every phase passed J6's per-phase checks: reconciliation each round, retained
+    reports, the custom metric on dashboards, the alert received, and exact delivery
+    replay.
+  - U's receipt names v1 as the previous release. The late instance decided in six
+    groups (no fills, as expected on the exhausted shared limit), and its stop
+    control was accepted.
+  - B's receipt selects v1 with v2 as previous, and the deployment check equals v1's.
+    Fills, costs and controls were only extended, terminal orders are unchanged, and
+    the late instance kept its checkpoint and placed nothing. U's delivery logs still
+    replay exactly against the store.
+- **Entry delay.** Every learned decision was at most 355 ms against the modelled 1 s,
+  and every rule and reference decision 1 µs against 1 ms. The rule studies' 1 ms and
+  the learned studies' 1 s were read from their retained orders.
+- **Refusals.** Every refusal and dropped leg carried a declared paper-only reason:
+  `holding_limit`, `insufficient_owned_inventory` and `self_trade_conflict`. There
+  were none of `reissue_requires_current_reconciliation`, nor any unattributed stale
+  decision.
+
+**What the runs found.** Thirteen development runs (105–117) each found a defect, a
+decision or a harness gap, all recorded above:
+- **Shipped fixes.**
+  - RP-1: a replaced, expired or rejected order ends with its parent, and no
+    replaced order is reissued.
+  - ST-1: a stale observation is refused, not recorded as a break.
+  - RF-1, a one-call read of decision outcomes, and P-1, concurrent study sessions,
+    are designs, not fixes.
+- **Journey fixes.**
+  - Services v2 names its predecessor.
+  - Facts are retained as a typed record.
+  - The study-order filter reads only timestamp pairs.
+  - The restart is re-observed and resent, and every supervisor control must answer
+    `ok`.
+  - The race counts a reserved working order.
+- **Decisions.** `self_trade_conflict` is a declared paper-only reason. A stale
+  decision inside a control's run is attributed to that control. The late instance
+  must decide, and its fills are retained.
+- **Harness only.** These are not in the driver:
+  - the holdout count is four, one per research instrument;
+  - a reused J2 is republished into the attempt's own lakeFS repository, without the
+    earlier attempt's feature backup;
+  - `REUSE_RESEARCH` reuses J3–J5 when neither shipped code nor the QR changed.
+  - Two runs (109, 112) were invalidated by my own edits to candidate-runtime modules
+    mid-run. Packaged candidates pin that code, so such an edit needs a fresh J3–J5.
+
+**Validation (as run on the committed tree, 2026-10-06).** The four lanes ran in
+parallel. `make check` kept the project environment, and each other lane had its own
+environment, so editable and non-editable installs could not race.
+
+| Lane | Result |
+| --- | --- |
+| `make check` | Passed: 2,590 passed, 4 skipped, 25 deselected; wheel smoke passed |
+| Integration (`-m integration`, Feast worker selected) | Passed: 40 passed |
+| Performance (`-m performance`) | Passed: 25 passed |
+| Linux strict mypy | Passed: no issues in 712 source files |
+
+**Not done here.** The next counted-style rehearsal through J7, then M4 (MR15 R1
+closure), M5 (MR15 stage 2b) and M6 (the counted journey). For M6, the six-hour
+capture makes J7's backup about 60 GB, and backup plus restore double that on disk.
 
 ## Milestones
 

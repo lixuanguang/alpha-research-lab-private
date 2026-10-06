@@ -167,11 +167,12 @@ class BookRegistry:
         market = quote if quote.market_state != "unavailable" else None
         if (
             quote.status == "degraded"
-            and quote.outcome in ("control", "heartbeat", "duplicate")
+            and quote.outcome in ("control", "heartbeat", "duplicate", "clock")
             and prior is not None
             and prior.market is not None
-            and (quote.epoch, quote.state_identity)
-            == (prior.market.epoch, prior.market.state_identity)
+            and quote.epoch == prior.market.epoch
+            # A clock changes no book state, so it carries the prior boundary's market.
+            and (quote.outcome == "clock" or quote.state_identity == prior.market.state_identity)
         ):
             market = prior.market
         if len(history) == self.config.history_capacity:

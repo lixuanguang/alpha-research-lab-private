@@ -1,4 +1,8 @@
-"""Retain local single-writer attempts with atomic, append-only outcomes and holdout access."""
+"""Retain local attempts with atomic, append-only outcomes and holdout access.
+
+Concurrent sessions, in one process or several, share one store: each mutation is
+serialized under the store's writer lock, and an open session blocks a backup.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,8 @@ import fcntl
 import hashlib
 import os
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from types import TracebackType
@@ -101,12 +107,15 @@ class AttemptHistory(WireRecord, frozen=True, kw_only=True):
 
 
 class AttemptStore:
-    """Own a local POSIX store with one nonblocking writer and concurrent immutable readers.
+    """Own a local POSIX store whose concurrent sessions serialize each mutation.
 
-    Enter the store for the entire attempt workflow. A process-scoped advisory
-    flock is released on exit or process death; a second writer fails explicitly.
-    Retain the whole root to preserve family/holdout history. External mutation,
-    network filesystems and hostile code are outside this initial boundary.
+    Enter the store for an attempt workflow. The session holds a shared advisory
+    lock, so a workspace backup refuses while any session is open; it is released
+    on exit or process death. Every mutation rechecks persisted state and appends
+    under the exclusive writer lock, held only for that mutation, so independent
+    studies may record concurrently into one family and holdout history. Use
+    :meth:`transaction` to keep a compound check-and-write atomic. External
+    mutation, network filesystems and hostile code are outside this boundary.
     """
 
     def __init__(self, root: Path) -> None:
@@ -117,30 +126,32 @@ class AttemptStore:
         """
         self._root = root
         self._codec = DomainCodec()
-        self._lock: BinaryIO | None = None
+        self._session: BinaryIO | None = None
+        self._writer: BinaryIO | None = None
+        self._depth = 0
         self._pid: int | None = None
 
     def __enter__(self) -> Self:
-        """Acquire the sole writer before inspecting or mutating family history.
+        """Open a session that may mutate the store.
 
         Returns:
-            This writer; read methods do not require the writer lock.
+            This session; read methods do not require it.
 
         Raises:
-            RuntimeError: This instance already owns a writer session.
-            BlockingIOError: Another process or instance holds the store writer lock.
+            RuntimeError: This instance already has an open session.
+            BlockingIOError: A workspace backup is capturing the store.
             OSError: The root or lock cannot be opened.
         """
-        if self._lock is not None:
-            raise RuntimeError("attempt writer is already open")
+        if self._session is not None:
+            raise RuntimeError("attempt session is already open")
         self._root.mkdir(parents=True, exist_ok=True)
-        lock = (self._root / ".writer.lock").open("a+b")
+        session = (self._root / ".session.lock").open("a+b")
         try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(session.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
         except OSError:
-            lock.close()
+            session.close()
             raise
-        self._lock, self._pid = lock, os.getpid()
+        self._session, self._pid = session, os.getpid()
         return self
 
     def __exit__(
@@ -149,16 +160,43 @@ class AttemptStore:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Release the writer without inventing completion for interrupted work.
+        """Close the session without inventing completion for interrupted work.
 
         Args:
             exc_type: Propagated exception type, if any.
             exc_value: Propagated exception, if any.
             traceback: Propagated traceback, if any.
         """
-        if self._lock is not None:
-            self._lock.close()
-            self._lock, self._pid = None, None
+        if self._session is not None:
+            self._session.close()
+            self._session, self._pid = None, None
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Hold the exclusive writer lock across a compound check-and-write.
+
+        Re-entrant within this session; other sessions wait for its release.
+
+        Raises:
+            RuntimeError: This process has no open session.
+        """
+        self._require_session()
+        if self._depth == 0:
+            writer = (self._root / ".writer.lock").open("a+b")
+            try:
+                fcntl.flock(writer.fileno(), fcntl.LOCK_EX)
+            except OSError:
+                writer.close()
+                raise
+            self._writer = writer
+        self._depth += 1
+        try:
+            yield
+        finally:
+            self._depth -= 1
+            if self._depth == 0 and self._writer is not None:
+                self._writer.close()
+                self._writer = None
 
     def start(
         self,
@@ -181,10 +219,16 @@ class AttemptStore:
 
         Raises:
             ValueError: An existing family declares a different final holdout window.
-            RuntimeError: This process has not acquired the writer.
+            RuntimeError: This process has no open session.
             OSError: The atomic start cannot be committed.
         """
-        self._require_writer()
+        with self.transaction():
+            return self._start(spec, at=at, invocation=invocation, request=request)
+
+    def _start(
+        self, spec: ExperimentSpec, *, at: datetime, invocation: str, request: bytes
+    ) -> AttemptStart:
+        """Commit one start under the writer lock."""
         start = AttemptStart(
             attempt_id=uuid4().hex,
             run_identity=spec.identity,
@@ -220,9 +264,13 @@ class AttemptStore:
 
         Raises:
             ValueError: The attempt is terminal or another semantic run consumed this family.
-            RuntimeError: This process does not own the writer session.
+            RuntimeError: This process has no open session.
         """
-        self._require_writer()
+        with self.transaction():
+            self._consume_holdout(attempt_id, at=at, reason=reason)
+
+    def _consume_holdout(self, attempt_id: str, *, at: datetime, reason: str) -> None:
+        """Check every family history and record the consumption under the writer lock."""
         current = self.read(attempt_id)
         if current.start.spec.split is None:
             raise ValueError("engineering sample has no holdout to consume")
@@ -261,15 +309,17 @@ class AttemptStore:
 
         Raises:
             ValueError: The transition or payload is invalid, or a terminal outcome exists.
-            RuntimeError: This process does not own the writer session.
+            RuntimeError: This process has no open session.
             OSError: Publication failed; reload the history to resolve an uncertain outcome.
         """
-        if status == "completed":
-            self._require_frozen_holdout(self.read(attempt_id).start.spec)
-        self._append(
-            attempt_id, AttemptEvent(status=status, recorded_at=at, reason=reason, result=result)
-        )
-        return self.read(attempt_id)
+        with self.transaction():
+            if status == "completed":
+                self._require_frozen_holdout(self.read(attempt_id).start.spec)
+            self._append(
+                attempt_id,
+                AttemptEvent(status=status, recorded_at=at, reason=reason, result=result),
+            )
+            return self.read(attempt_id)
 
     def read(self, attempt_id: str) -> AttemptHistory:
         """Reload validated immutable records without requiring the writer lock.
@@ -321,9 +371,13 @@ class AttemptStore:
 
         Raises:
             ValueError: Name/payload is invalid or an existing artifact differs.
-            RuntimeError: This process does not own the writer.
+            RuntimeError: This process has no open session.
         """
-        self._require_writer()
+        with self.transaction():
+            return self._retain(attempt_id, name, payload)
+
+    def _retain(self, attempt_id: str, name: str, payload: bytes) -> str:
+        """Retain one artifact and its shared content under the writer lock."""
         self.read(attempt_id)
         path = self._artifact_path(attempt_id, name)
         if type(payload) is not bytes or not payload:
@@ -372,10 +426,14 @@ class AttemptStore:
 
         Raises:
             ValueError: An existing export contains different bytes.
-            RuntimeError: This process does not own the writer context.
+            RuntimeError: This process has no open session.
             OSError: The artifact is missing or a durable hard link cannot be created.
         """
-        self._require_writer()
+        with self.transaction():
+            self._export(attempt_id, name, destination)
+
+    def _export(self, attempt_id: str, name: str, destination: Path) -> None:
+        """Link one retained artifact to its export under the writer lock."""
         self.read(attempt_id)
         source = self._artifact_path(attempt_id, name)
         if destination.exists():
@@ -427,14 +485,15 @@ class AttemptStore:
             else ("unfitted-engineering-sample", spec.engineering_sample)
         )
 
-    def _require_writer(self) -> None:
-        """Refuse mutations from readers, closed contexts or inherited fork handles."""
-        if self._lock is None or self._pid != os.getpid():
-            raise RuntimeError("attempt mutation requires the owning process writer context")
+    def _require_session(self) -> None:
+        """Refuse mutations from readers, closed sessions or inherited fork handles."""
+        if self._session is None or self._pid != os.getpid():
+            raise RuntimeError("attempt mutation requires an open session in this process")
 
     def _append(self, attempt_id: str, event: AttemptEvent) -> None:
         """Recheck persisted state and append exactly one atomic access or terminal event."""
-        self._require_writer()
+        if self._depth == 0:
+            raise RuntimeError("attempt events are appended only inside a transaction")
         history = self.read(attempt_id)
         if history.status != "incomplete":
             raise ValueError("terminal attempt cannot be changed; start a new attempt")
