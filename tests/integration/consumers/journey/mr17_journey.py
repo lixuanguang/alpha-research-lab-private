@@ -205,6 +205,47 @@ class Discovery(msgspec.Struct, frozen=True):
     result: tuple[dict[str, object], ...]
 
 
+class CaptureGap(msgspec.Struct, frozen=True):
+    """Read one gap a capture run declared."""
+
+    epoch: int
+    reason: str
+
+
+class CaptureOutcome(msgspec.Struct, frozen=True):
+    """Read the result ``alpha-collect capture-run`` prints, and grade its exit.
+
+    The collector exits 2 both when it fails and when a completed window holds a
+    declared gap (a venue disconnect, a host stall). J2 requires gaps to be explicit,
+    not absent, so a run that reached its stop deadline without exhausting its
+    reconnects, and named every gap, is complete.
+    """
+
+    reached_stop_deadline: bool
+    retry_exhausted: bool
+    gaps: tuple[CaptureGap, ...]
+
+    @classmethod
+    def gate(cls, label: str, returncode: int, stdout: bytes) -> Gate:
+        """Return the capture's completion criterion from its exit and printed result."""
+        observed: dict[str, object] = {"returncode": returncode}
+        try:
+            outcome = msgspec.json.decode(stdout.strip().splitlines()[-1], type=cls)
+        except IndexError, msgspec.DecodeError, msgspec.ValidationError:
+            return Gate(f"{label}_completed", False, {**observed, "result": None})
+        observed |= {
+            "reached_stop_deadline": outcome.reached_stop_deadline,
+            "retry_exhausted": outcome.retry_exhausted,
+            "gaps": [{"epoch": gap.epoch, "reason": gap.reason} for gap in outcome.gaps],
+        }
+        completed = outcome.reached_stop_deadline and not outcome.retry_exhausted
+        explicit = all(gap.reason for gap in outcome.gaps)
+        expected = 2 if outcome.gaps else 0
+        return Gate(
+            f"{label}_completed", completed and explicit and returncode == expected, observed
+        )
+
+
 class CommandRecord(msgspec.Struct, frozen=True):
     """Retain one command's argv, environment overrides, clocks, exit and output digests."""
 
@@ -471,6 +512,10 @@ class Commands:
                 self._record(ordinal, step, label, argv, cwd, {}, started_at, returncode, paths)
             )
         return tuple(records)
+
+    def stdout(self, record: CommandRecord) -> bytes:
+        """Return one recorded command's retained standard output."""
+        return (self.logs / f"{record.ordinal:04d}-{record.label}.stdout").read_bytes()
 
 
 class Background:
@@ -990,11 +1035,10 @@ class Journey:
         )
         self.records["J2"].commands.extend(record.ordinal for record in records)
         for record in records:
-            self.require(
-                f"{record.label}_exit_zero",
-                record.returncode == 0,
-                {"returncode": record.returncode},
+            gate = CaptureOutcome.gate(
+                record.label, record.returncode, self.commands.stdout(record)
             )
+            self.require(gate.name, gate.passed, gate.observed)
         for feed in self.declaration.feeds:
             self.command(
                 f"replay-{feed}",

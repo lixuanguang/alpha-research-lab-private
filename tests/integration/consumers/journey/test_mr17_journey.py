@@ -11,6 +11,7 @@ from pathlib import Path
 import msgspec
 import pytest
 from mr17_journey import (
+    CaptureOutcome,
     CaptureWindow,
     Commands,
     Discovery,
@@ -174,6 +175,7 @@ class TestCommands:
             "0001-echo.stderr",
             "0001-echo.stdout",
         ]
+        assert commands.stdout(record) == b"x\n"
 
 
 class TestPool:
@@ -313,3 +315,52 @@ class TestDiscovery:
         payload = b'{"result":[{"snapshot_id":"a"},{"snapshot_id":"b"}],"status":"complete"}'
         discovered = msgspec.json.decode(payload, type=Discovery)
         assert discovered.status == "complete" and len(discovered.result) == 2
+
+
+class TestCaptureOutcome:
+    """A capture is complete when it reached its deadline and named every gap."""
+
+    @staticmethod
+    def result(**changes: object) -> bytes:
+        """Author the collector's printed result line, after earlier output."""
+        values: dict[str, object] = {
+            "reached_stop_deadline": True,
+            "retry_exhausted": False,
+            "gaps": [],
+            "messages": 14834,
+        }
+        values.update(changes)
+        return b"progress\n" + msgspec.json.encode(values) + b"\n"
+
+    def test_clean_window_exits_zero(self) -> None:
+        """A window with no gap passes only with exit 0."""
+        gate = CaptureOutcome.gate("capture-a", 0, self.result())
+        assert gate.name == "capture-a_completed" and gate.passed
+        assert not CaptureOutcome.gate("capture-a", 2, self.result()).passed
+
+    def test_declared_gap_passes_with_exit_two(self) -> None:
+        """A reconnect gap is explicit, so the collector's exit 2 is a complete window."""
+        gaps = [{"epoch": 0, "reason": "disconnect_unknown_loss", "received_ns": 1}]
+        gate = CaptureOutcome.gate("capture-a", 2, self.result(gaps=gaps))
+        assert gate.passed
+        assert gate.observed == {
+            "returncode": 2,
+            "reached_stop_deadline": True,
+            "retry_exhausted": False,
+            "gaps": [{"epoch": 0, "reason": "disconnect_unknown_loss"}],
+        }
+
+    @pytest.mark.parametrize(
+        ("returncode", "stdout"),
+        [
+            (2, b""),
+            (2, b"Capture/probe/replay failed\n"),
+            (2, result(reached_stop_deadline=False)),
+            (2, result(retry_exhausted=True, gaps=[{"epoch": 0, "reason": "x"}])),
+            (2, result(gaps=[{"epoch": 0, "reason": ""}])),
+            (1, result(gaps=[{"epoch": 0, "reason": "x"}])),
+        ],
+    )
+    def test_incomplete_windows_fail(self, returncode: int, stdout: bytes) -> None:
+        """No result, an early stop, exhausted reconnects or an unnamed gap fail."""
+        assert not CaptureOutcome.gate("capture-a", returncode, stdout).passed

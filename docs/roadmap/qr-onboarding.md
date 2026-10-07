@@ -4690,6 +4690,59 @@ The owner chose `~/Code/alpha-research-lab-private` (stage 2b trim 5).
 - **Effect on 2b.** The quiet-host gate no longer needs an iCloud waiver for the
   repository.
 
+## M6 development run rehearsal-126 (uncounted, 2026-10-07, not evidence)
+
+The first M6 journey development run was on this laptop, after M4 and M5 changed
+J2–J7's code path. It ran from the `main` working tree at `c998a28`, with QR commit
+`7a7f28e`, through J7, from 04:38 to 05:59 UTC.
+- **Setup.** Local services started empty. lakeFS first-user setup reused the existing
+  keys. Evidence and temporary roots moved to `~/mr17t/dev`.
+- **Faults.** It was the fault-injection journey (`FAST=1`): a 30-minute J2 with 300 s
+  segments, and the OKX BTC-USDT books collector frozen for 40 s. This time OKX dropped
+  the stalled connection, which rehearsal-124's freeze had not caused.
+- **Result.** 292 of 293 criteria passed: J1 19, J2 26 of 27, J3 47, J4 16, J5 15, J6 84
+  and J7 85.
+  - The one failure was J2's `capture-okx-btc-usdt-books_exit_zero`. The collector
+    reconnected, recorded the gap and exited 2 by design. CG-1 below fixes the
+    criterion.
+  - Every replay passed, including that chain's, and publication, discovery and reopen
+    carried the gap through.
+- **Re-grading.** CG-1's criterion was applied to the run's eight retained capture
+  results. All eight pass, including that chain with its declared gap. J3–J7 do not
+  depend on this criterion, so no rerun was needed.
+
+## CG-1: a capture with a declared gap is complete (2026-10-07)
+
+- **Finding.** In development run rehearsal-126, the fault injection froze the OKX
+  BTC-USDT books collector for 40 s. OKX dropped the stalled connection. The collector
+  reconnected, recorded the gap `disconnect_unknown_loss` in epoch 0, ran to its stop
+  deadline and exited 2. J2 failed `capture-okx-btc-usdt-books_exit_zero`.
+- **Why it is a defect.** `alpha-collect capture-run` exits 2 both when it fails and when
+  a completed window holds a declared gap. J2's acceptance is "gaps explicit", not "no
+  gaps". A six-hour counted J2 can meet a real venue disconnect, and would then fail
+  on a correct outcome.
+- **Design choice.** The journey grades each capture from its own printed result
+  (`CaptureOutcome`) instead of the bare exit. Criterion `<capture>_completed` passes
+  when:
+  - the run reached its stop deadline without exhausting its reconnects;
+  - every gap names its reason;
+  - the exit is 0 with no gap, or 2 with gaps.
+
+  A crash prints no result and fails. The collector's exit codes are unchanged: other
+  callers keep "nonzero means no continuity claimed".
+- **Tests.** `TestCaptureOutcome`: a clean window, a declared gap, and six incomplete
+  forms (no result, an error line, an early stop, exhausted reconnects, an unnamed gap,
+  another exit).
+
+**Validation (as run on the committed tree, 2026-10-07).**
+
+| Lane | Result |
+| --- | --- |
+| `make check` | Passed: 2,645 passed, 4 skipped, 25 deselected; wheel smoke passed |
+| Integration (`-m integration`, Feast worker selected) | Passed: 40 passed |
+| Performance (`-m performance`) | Passed: 25 passed |
+| Linux strict mypy | Passed: no issues in 722 source files |
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design
