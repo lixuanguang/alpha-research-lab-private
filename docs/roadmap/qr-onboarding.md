@@ -4708,7 +4708,10 @@ The owner chose `~/Code/alpha-research-lab-private` (stage 2b trim 5).
    rehearsals to find remaining guide gaps.
 4. **M4 — MR15 R1 closure.** Done 2026-10-06 as the named profile R1b, qualified by
    extrapolation ([M4 result](#m4-result-r1b-qualified-by-extrapolation-2026-10-06)).
-5. **M5 — MR15 stage 2b** (P4–P6), under its own declaration and gates.
+5. **M5 — MR15 stage 2b** (P4–P6), under its own declaration and gates. Authority
+   approved, harness (M5a) and denial session done 2026-10-07; the rehearsal, counted
+   24-hour run and 72-hour retention wait for a static host
+   ([owner decision](runtime-capacity.md#owner-decision-long-runs-wait-for-a-static-host-2026-10-07)).
 6. **M6 — counted journey**, recorded here, and roadmap update.
 
 Each milestone (each M1 part) is one commit and passes the full suite, the integration lane and the

@@ -3345,3 +3345,46 @@ The first run of these lanes failed three things, each fixed:
 
 The fixture now holds no file between batches, and the runtime consumer suite passes with
 unraisable warnings treated as errors.
+
+#### Stage 2b denial session (2026-10-06): passed
+
+The session ran once, uncounted, from the M5a commit `459226e` in a non-editable
+environment outside the checkout. It built and installed the four signed 2b owners.
+Evidence is in `~/AlphaResearchEvidence.noindex/runtime-capacity/stage2b-denial-2`.
+
+| Drill | Grant | After the grant ended |
+| --- | --- | --- |
+| Expiry (`okx-shared`) | Signed 2b form, a 10-minute life (valid from one minute before issue). While the grant was current, a protective stop was applied and a fresh claim succeeded | New exposure refused with `paper_authorization_expired_or_not_yet_valid`; a new claim refused with the same; a protective stop applied |
+| Revocation (`bitfinex-shared`) | Signed 2b form, a 26-hour life; revoked at 17:27:24 UTC with `revoke_paper` | New exposure refused with `paper_authorization_revoked`; a new claim refused with the same; a protective stop applied |
+
+Neither grant was renewed or changed.
+
+**Earlier attempt.** The first attempt (`stage2b-denial`) is retained as failed. It
+stopped at the expiry drill's first claim with `account_recovery_requires_fresh_reconciliation`.
+A claim after a stop needs fresh quotes and a reconciliation later than the stop, as the
+recovery path does. The driver now refreshes quotes for the deployment's scenarios and
+reconciles the account's own facts before each claim, so the refusal it observes is the
+grant's.
+
+#### Owner decision: long runs wait for a static host (2026-10-07)
+
+The owner decided to run the remaining long runs on a static machine, still to be
+procured, instead of this laptop, which sleeps in transit. They run in the M6 phase:
+- the 2b rehearsal;
+- the counted 24-hour run, with its 72-hour retention and 4× replay;
+- the journey rehearsal and the counted M6.
+
+**What stands.** The approved 2b authority, the harness (M5a) and the denial session
+result stand. Targets, budgets and requirements are unchanged and not waived.
+
+**What the new host needs first.**
+- **Host.** The launch host is declared as this Apple M1 Max laptop. The static machine
+  is declared before any run on it: OS, interpreter, disk, free space of at least 512
+  GiB, and power, with no relaxation of targets.
+- **Install.** A fresh checkout, environments and the Feast worker.
+- **Services.** Local services, including lakeFS first-user setup with the existing
+  keys.
+- **Run conditions.** No iCloud. The quiet-host gate's interactive process list is
+  reviewed for that host.
+- **R1b.** It stays measured on this laptop. A 72-hour acquisition on the static host
+  can then confirm it by measurement.
