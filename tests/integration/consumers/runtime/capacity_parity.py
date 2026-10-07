@@ -916,7 +916,7 @@ def main() -> None:
     parser.add_argument("--trial", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--baseline", type=Path)
-    parser.add_argument("--sustained", choices=("sustained", "stage2b", "stage2b-rehearsal"))
+    parser.add_argument("--sustained", choices=("sustained", "day", "day-rehearsal"))
     parser.add_argument("--speed", type=float, default=4.0)
     args = parser.parse_args(namespace=_Arguments())
     replay = (

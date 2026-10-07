@@ -147,7 +147,9 @@ class CapacityRecovery:
             or not survivors.issubset(after.active)
             or definition.account_id in after.faulted_accounts
         ):
-            raise AssertionError("selective policy death exceeded or broke MR14 protection")
+            raise AssertionError(
+                "selective policy death exceeded or broke multi-instance protection"
+            )
         state = self.trial.clients[definition.account_id].execute(
             AccountExecutionRequest(action="inspect")
         )

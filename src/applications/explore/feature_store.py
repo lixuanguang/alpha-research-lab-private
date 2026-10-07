@@ -58,7 +58,7 @@ def run_served_decision(
     """Read the pinned active Feast generation and pause on missing, stale or lost service.
 
     Exact feature clocks and lineage remain unchanged while the decision records
-    its own consuming time. This MR05/MR07 prerequisite emits intents only; it
+    its own consuming time. This prerequisite emits intents only; it
     does not grant account authority, reserve risk or submit orders. Incompatible
     definitions and malformed strategy transitions fail explicitly.
     """

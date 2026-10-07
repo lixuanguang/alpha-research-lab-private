@@ -1,7 +1,7 @@
 # Dependency admission reference
 
 This page owns the dependency admission contract, native allowance and supported
-commands. The [architecture guide](README.md#dependency-and-release-boundaries)
+commands. The [architecture guide](overview.md#dependency-and-release-boundaries)
 summarizes its place in the system;
 [`dependency-admission.toml`](dependency-admission.toml) is the machine-readable
 policy consumed by the checker.
@@ -102,7 +102,7 @@ and runtime-install checks remain enforced.
 
 ## First deployment dependency decision
 
-Status: MR06 implements the distinct-closure choice, 2026-09-24. The
+Status: implemented. The
 operating `alpha-research-contracts` wheel contains exact financial values
 and omits `financial_units/conventions.py`; collector and execution have their
 own distributions and locked metadata closures. A compatible research environment
@@ -126,8 +126,7 @@ scan. `packaging==26.3` is a direct governance dependency for standards-based
 metadata/marker/tag validation; no external version changes were required.
 Lazy compatibility exports preserve existing research imports, while actual
 wheel manifests and independent installed consumers establish the separation.
-The [MR06 record](../roadmap/README.md#mr06-delivery-and-acceptance) owns acceptance
-results; the [runbook](../governance/operations.md#trusted-local-installation)
+The [runbook](../governance/operations.md#trusted-local-installation)
 owns signing and installation.
 
 ## Review and reversal
@@ -212,11 +211,9 @@ Retained SHA-256 identities:
 | Complete candidate requirements | `49ea8cfb118d2a5989cb24bb1cdf547b40eebe994cf2db850711eb18a6653ea4` |
 | Candidate audit JSON | `ed7a650606339cf4ad258cda8bd93f6b8f4d55a482c6d1e9e05511d02edd494a` |
 
-Raw responses, wheel metadata/bytes, rejected resolver inputs/lock, commands and
-audit output are retained in the primary checkout's ignored, owner-only
-`logs/research-completion-prerequisite/2026-09-21/` directory. This is local
-evidence, not a shared evidence service; preserve it before cleanup. The earlier
-research-comparison acceptance archive remains intact.
+Raw responses, wheel metadata and bytes, rejected resolver inputs, commands and
+audit output are retained as local, owner-only evidence, not in a shared evidence
+service.
 
 There is **no admissible closure among the reviewed released candidates**.
 For Evidently, the next feasible step is a published NLTK fix accepted by the
@@ -257,7 +254,7 @@ bundled license notices above continue to apply. The complete updated 179-packag
 external lock graph passes the admission/audit wrapper with no vulnerability or
 coverage gap. The updated lock digest is in the owning TOML policy; installed
 boundary and report-consumer behavior are described in the
-[offline diagnostic contract](../../src/research/studies/README.md#offline-window-diagnostics).
+[offline diagnostic contract](../packages/research-studies.md#offline-window-diagnostics).
 
 Evidently and NLTK remain absent from the admitted graph. Their rejected
 candidate locks, advisories and failed evidence remain historical records.
@@ -278,7 +275,7 @@ no waiver. No other external version changes.
 
 ## Commands
 
-MR15's research capacity consumer declares the already admitted **psutil 7.2.2**
+The research capacity consumer declares the already admitted **psutil 7.2.2**
 as a direct development dependency for recursive process-tree CPU/RSS sampling.
 The root lock changes only its two development-edge entries; external versions,
 artifact hashes, runtime requirements and the four independent environment locks

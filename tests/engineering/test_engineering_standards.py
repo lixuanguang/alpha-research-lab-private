@@ -236,6 +236,18 @@ class TestFormatCompatibilityChecker:
         assert len(findings) == 1
         assert findings[0].startswith("src/package/README.md:3: format changes replace in place")
 
+    def test_rejects_compatibility_wording_in_package_guides(self, tmp_path: Path) -> None:
+        """Package guides live under docs/packages and follow the same rule as runtime text."""
+        guides = tmp_path / "docs/packages"
+        guides.mkdir(parents=True)
+        (guides / "runtime.md").write_text("# Runtime\n\nKeeps the legacy reader.\n")
+        (tmp_path / "docs/roadmap.md").write_text("A legacy record outside the guides.\n")
+
+        assert FormatCompatibilityChecker.findings(tmp_path) == (
+            "docs/packages/runtime.md:3: format changes replace in place; "
+            "remove old-format compatibility wording and code",
+        )
+
     def test_accepts_current_wording_and_missing_root(self, tmp_path: Path) -> None:
         """Current-format wording passes, and an absent runtime root yields no findings."""
         assert FormatCompatibilityChecker.findings(tmp_path) == ()

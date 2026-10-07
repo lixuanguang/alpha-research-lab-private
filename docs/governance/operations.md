@@ -3,19 +3,17 @@
 This runbook owns the implemented local installation and paper account recovery
 lifecycle and the requirements for later deployed strategies/services. The
 public-paper workflow emits a finite final monitoring view; the supervised local
-deployment also samples account and instance reports while its services run. The
-[paper-monitoring record](../roadmap/paper-monitoring.md) owns its integration
-evidence and limits. Physical venue stop/cancel and other live operations are
-[KIV](../roadmap/README.md#live-trading-kiv-and-reconsideration).
+deployment also samples account and instance reports while its services run.
+Physical venue stop/cancel and other live operations are
+[out of scope](../roadmap/overview.md#live-trading-kept-in-view).
 Add the selected target, numeric limits and tested responses to the strategy's
 runbook before operation. The repository does not claim live readiness.
 
 The operating destination includes multiple strategy instances, accounts, venues
 and asset classes. Quant development must deliver the initial OKX/Bitfinex spot
 paper operating infrastructure before QR onboarding, using reference instances
-and public-input paper environments under the [platform roadmap](../roadmap/README.md).
-Private authenticated venue qualification is KIV outside the bounded
-paper-acceptance gate. Live procedures below are retained requirements for
+and public-input paper environments under the [platform roadmap](../roadmap/overview.md).
+Private authenticated venue qualification is out of scope. Live procedures below are retained requirements for
 reconsideration, not current delivery scope.
 Its commands, dashboards, default operational metrics and recovery procedures
 must not wait for a selected QR strategy. QR later supplies strategy-specific
@@ -27,8 +25,8 @@ execution and observability boundaries.
 ## Deploy
 
 `make build` and `make wheel-smoke` verify the complete research development
-artifact under the [dependency and release boundaries](../architecture/README.md#dependency-and-release-boundaries).
-MR06's independent collector/execution artifacts
+artifact under the [dependency and release boundaries](../architecture/overview.md#dependency-and-release-boundaries).
+The independent collector and execution artifacts
 have their own complete admitted closures and use the trusted lifecycle below.
 Remote/production deployment and service startup require separate authority.
 
@@ -132,7 +130,7 @@ Rollback verifies the prior release again and selects its code/configuration;
 it preserves the latest mutable state. Only exact application, mode and state
 schema compatibility is accepted. There is no automatic schema migration,
 restoration over an active store or rewind of an order/fill ledger. Managed paper uses its owned state reader, current grant and reconciliation
-before resumption; incompatible schema migration is not automatic. MR04's workspace backup/restore still owns data, feature and job-store
+before resumption; incompatible schema migration is not automatic. Workspace backup/restore owns data, feature and job-store
 restoration. Preserve registry bytes, public trust history, manifests, locks,
 audit output and known-compatible rollback releases for the operating lifetime.
 Back them up with the selected local workspace; never delete the sole retained
@@ -143,8 +141,8 @@ artifact or replace an active virtual environment in place.
 Owner: quant development. Scope: trusted local macOS/Linux paper/shadow accounts,
 cash-funded spot, configured instruments and strategies, with normalized paper
 facts. OKX/Bitfinex labels do not certify private venue behavior. The
-[command guide](../../src/applications/execute/README.md#local-operational-commands)
-owns exact request fields; the [account journal](../../src/execution/README.md#account-operational-recovery)
+[command guide](../packages/execute-application.md#local-operational-commands)
+owns exact request fields; the [account journal](../packages/execution.md#account-operational-recovery)
 owns phase, uncertainty and reconciliation semantics.
 
 An installed account target is a signed execution `paper` or `shadow` release with
@@ -226,19 +224,16 @@ orders survive restart; a new process must inspect and reconcile before admissio
 
 The public-paper monitoring output is a finite end-of-invocation snapshot. Its
 immutable receipt envelope, recovery call and dashboard files are described in
-the [MR12 monitoring record](../roadmap/paper-monitoring.md) and
-[telemetry guide](../../src/telemetry/README.md). It does not keep a background
+the [telemetry guide](../packages/telemetry.md). It does not keep a background
 monitor running or change the account when a diagnostic fails.
 
 The local drills exercise real process termination, SQLite capacity exhaustion,
-local datagram delivery/loss and fixture market/protocol faults. They reuse MR04
-workspace/feature/job restoration and collector failure proofs. They do not
+local datagram delivery/loss and fixture market/protocol faults. They reuse
+workspace, feature and job restoration and collector failure proofs. They do not
 establish host-volume reliability, remote service disaster recovery, authenticated
 private-stream reconnect, venue timeout behavior, remote alert acknowledgement,
-deployment failover or production readiness. Private venue qualification remains
-KIV outside paper acceptance. The
-[MR10 record](../roadmap/README.md#mr10-delivery-and-acceptance)
-retains the remaining integrated acceptance boundary.
+deployment failover or production readiness. Private venue qualification is
+out of scope.
 
 ## Managed public-paper activation and recovery
 
@@ -249,7 +244,7 @@ of the collector and research distributions. The signed launcher supplies its
 verified release digest and fixes configuration/state paths; installation grants
 no exposure authority.
 
-The [account command guide](../../src/applications/execute/README.md#managed-paper-activation-requests)
+The [account command guide](../packages/execute-application.md#managed-paper-activation-requests)
 owns exact typed request fields. Each operation is one retained JSON request:
 
 ```sh
@@ -331,8 +326,6 @@ Use the same explicit `--freshness-us 30000000` selection when running this
 signed reference fixture. It budgets the local signed-command round trips;
 the ordinary fixture default remains 5 seconds. Freshness is an authored,
 signed configuration/input assumption and must match throughout the workload.
-The [MR13 record](../roadmap/paper-activation.md) retains concrete commands,
-artifact identities, independently expected economics and qualification limits.
 These fixture controls and public reference policies are engineering workloads,
 not empirical strategy or profitability evidence.
 
@@ -407,8 +400,7 @@ state transitions, and alert outcomes for the operating lifetime.
 
 For a later authenticated venue operation, the owning runbook must stop new
 orders, cancel where safe, preserve state and logs, and reconcile independent
-venue facts before resuming. That venue qualification is KIV outside the current
-paper-acceptance gate. If the founder is unavailable, a deployed process must
+venue facts before resuming. That venue qualification is out of scope. If the founder is unavailable, a deployed process must
 take its defined safe action automatically. Test stop, restart, backup/restore,
 rollback, and reconciliation before increasing limits.
 
@@ -425,19 +417,16 @@ access. Shared allocation/arbitration and allocation reconciliation must
 additionally pass before the second instance shares the account. Stop and
 recovery controls apply in either scope.
 
-The local [dashboard/metric/query/alert interfaces](../../src/telemetry/README.md)
+The local [dashboard/metric/query/alert interfaces](../packages/telemetry.md)
 include configured exact thresholds, retained input/result bytes and explicit
 local routes. The public-paper workflow writes a final local snapshot and exposes
 monitoring failures in its result. The installed
-[monitoring command](../../src/applications/execute/README.md#retained-monitoring)
+[monitoring command](../packages/execute-application.md#retained-monitoring)
 can reopen configured telemetry without changing operating state. Socket status
 means local datagram acceptance; it does not establish receiver processing or
 human acknowledgement. Inspect pending/failed attempts and telemetry loss
-separately from hard controls. The current [MR14 record](../roadmap/multi-instance-paper.md)
-distinguishes supervised local service and public routing observations from their
-remaining limits. Bounded activation/recovery evidence is tracked in the
-[MR13 record](../roadmap/paper-activation.md); external venue/source-clock
-qualification and MR15 capacity remain separate work. Additional
+separately from hard controls. External venue and source-clock qualification
+and runtime capacity are separate work. Additional
 operators and staffing-dependent approval/review programs follow actual
 organizational need and remain separate from technical completion.
 
@@ -451,11 +440,9 @@ human acknowledgement and remote-service delivery remain untested.
 
 ## Supervised multi-instance paper services
 
-Use the [service guide](../../src/applications/paper/README.md#supervised-local-deployments)
-and [account service request](../../src/applications/execute/README.md#bounded-account-owner-service)
-for the supported commands. The [MR14 record](../roadmap/multi-instance-paper.md)
-owns the declared environment, workload/freshness/recovery budgets, retained
-attempts and acceptance status. These finite local invocations do not create a
+Use the [service guide](../packages/paper-application.md#supervised-local-deployments)
+and [account service request](../packages/execute-application.md#bounded-account-owner-service)
+for the supported commands. These finite local invocations do not create a
 background system daemon or grant private venue authority.
 
 1. Install a separately signed account target for each shared or isolated account.
@@ -586,7 +573,7 @@ verified unsent, zero-fill and zero-fee physical parent still at `intent` or
 `cancel_requested`, send an owner-bound `net_event` with `kind="rejected"` through
 the signed account launcher. Use the exact current `PaperOwner`, a nonfuture event
 clock and a stable event identity; the
-[typed request example](../../src/applications/execute/README.md#shadow-unsent-intent-settlement)
+[typed request example](../packages/execute-application.md#shadow-unsent-intent-settlement)
 shows the command. This is a local no-submission fact that releases a reservation,
 not an exchange response. The operation retains the journal and strategy
 checkpoints without adding economic postings. It cannot be used while the
@@ -601,13 +588,12 @@ observation immediately before each instance restart, preferably in that
 supervisor control's `observation` field. A pre-claim reconciliation alone is
 insufficient. Exact saved rejection
 retries remain idempotent under the current owner after restart; a replaced owner
-cannot create a new rejection. The [MR14 record](../roadmap/multi-instance-paper.md)
-owns the bounded installed shadow recovery qualification and service acceptance.
+cannot create a new rejection.
 
 ## Take a packaged candidate to signed paper
 
 Run these steps in order, after the QR has packaged the candidate
-([quickstart](../../examples/qr-quickstart.md#5-package-a-candidate)). Each command
+([quickstart](../research/quickstart.md#5-package-a-candidate)). Each command
 fails closed; on any failure, fix the input and start the step again.
 
 1. **Collect inputs.** Copy the candidate bundle directories into one `CANDIDATES`

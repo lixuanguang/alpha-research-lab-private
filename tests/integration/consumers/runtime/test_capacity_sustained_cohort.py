@@ -1,4 +1,4 @@
-"""Prove the 2a declaration's bounds and every sustained phase gate on authored evidence."""
+"""Prove the sustained declaration's bounds and every sustained phase gate on authored evidence."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class SustainedCohortFixture:
     def evidence(
         phase: Literal["a", "b"],
     ) -> tuple[dict[str, object], dict[str, object], dict[str, object], list[_Observation]]:
-        """Author a passing phase: summary, stage-1 results, sustained facts and observations."""
+        """Author a passing phase: summary, baseline results, sustained facts and observations."""
         sources = ("okx-btc-book", "okx-eth-book", "bitfinex-btc-book", "bitfinex-eth-book")
         accounts = ("okx-shared", "okx-isolated", "bitfinex-shared", "bitfinex-isolated")
         interval = 1800 if phase == "a" else 600
@@ -120,7 +120,7 @@ class SustainedCohortFixture:
 
 
 class TestSustainedDeclaration:
-    """Keep every 2a bound finite, nested and inside one ordinary grant."""
+    """Keep every sustained bound finite, nested and inside one ordinary grant."""
 
     def test_default_phases_fit_one_hour_grant_with_recovery_headroom(self) -> None:
         """Both phases' service lives and the recovery fit inside the one-hour grant."""

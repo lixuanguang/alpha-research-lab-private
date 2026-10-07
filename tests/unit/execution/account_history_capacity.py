@@ -732,7 +732,6 @@ class HistoryCapacity:
         repository = Path(__file__).resolve().parents[3]
         command = HistoryCapacity._command
 
-        declaration = repository / "docs/roadmap/account-journal-history.md"
         return {
             "platform": platform.platform(),
             "cpu": command("/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string"),
@@ -740,7 +739,6 @@ class HistoryCapacity:
             "ram_bytes": int(command("/usr/sbin/sysctl", "-n", "hw.memsize")),
             "power": command("/usr/bin/pmset", "-g", "batt"),
             "base_commit": command("/usr/bin/git", "-C", str(repository), "rev-parse", "HEAD"),
-            "declaration_sha256": hashlib.sha256(declaration.read_bytes()).hexdigest(),
             "consumer_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "cache": "uncontrolled; warm after first read",
         }

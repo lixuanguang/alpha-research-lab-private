@@ -66,7 +66,7 @@ if TYPE_CHECKING:
 class StudyComponents:
     """Bind trusted implementations explicitly; every selection must match configuration.
 
-    Stateful feature/strategy adapters obey the MR02 pure-transition contract.
+    Stateful feature/strategy adapters obey the pure-transition contract.
     The application creates fresh sessions and ledgers for each fold and trial.
     Source adapters retain their actual bytes; component code is supplied by the
     caller and must be retained alongside the pinned implementation identities.

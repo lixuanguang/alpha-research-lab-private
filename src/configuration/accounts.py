@@ -18,7 +18,7 @@ from reference_data.instruments import InstrumentId
 from risk import BudgetPolicy, SpotLimits
 from serialization import WireRecord
 
-# A service life is finite: unset keeps the stage-1 bound; the longest declarable is 25 hours.
+# A service life is finite: unset keeps the one-hour bound; the longest declarable is 25 hours.
 SERVICE_LIFE_DEFAULT_SECONDS = 120
 SERVICE_LIFE_MAXIMUM_SECONDS = 90_000
 

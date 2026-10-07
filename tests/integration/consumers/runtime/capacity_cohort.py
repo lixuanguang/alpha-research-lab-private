@@ -1,4 +1,4 @@
-"""Drive one declared stage-1 cohort: signed candidate, trials, gates and audit.
+"""Drive one declared baseline capacity cohort: signed candidate, trials, gates and audit.
 
 Run this file from a frozen copy of this directory with the installed research
 interpreter. One invocation owns one fresh output directory; a second invocation
@@ -15,7 +15,7 @@ intervals, auditing each, then grades the 17-interval materialization cohort; th
 uncounted ``recovery-chain`` sequence runs a steady interval and four recoveries without
 feature serving, retaining each interval's gates and latencies without grading them.
 
-The trial gates restate the stage-1 targets the runtime-capacity record keeps
+The trial gates restate the baseline targets the runtime-capacity record keeps
 unchanged: they read the statuses ``CapacityResultsCollector`` derives from the
 same budgets and add the documented resource ceilings.
 """
@@ -62,7 +62,7 @@ Sequence = Literal[
 _FEATURE_RECOVERIES = 17
 _CHAIN_RECOVERIES = 4
 _GIB = 1024**3
-# Unchanged stage-1 resource ceilings (budgets_unchanged in the capacity record).
+# Unchanged baseline resource ceilings (budgets_unchanged in the capacity record).
 _AVERAGE_CPU_CORES = 7
 _PEAK_RSS_BYTES = 24 * _GIB
 _PEAK_OCCUPIED_BYTES = 320 * _GIB

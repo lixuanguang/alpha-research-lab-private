@@ -197,7 +197,7 @@ class TestAcquisitionCommand:
             ("--max-bytes", "0"),
             ("--retry-delays", "-1"),
             ("--rights-reference", "unresolved"),
-            ("--api-key-env", "MR07_MISSING_CREDENTIAL"),
+            ("--api-key-env", "ALPHA_TEST_MISSING_CREDENTIAL"),
         ],
     )
     def test_preflight_and_admission_errors_are_terminal(
@@ -210,7 +210,7 @@ class TestAcquisitionCommand:
         value: str,
     ) -> None:
         """Validate explicit command inputs and never fetch after a rejected selection."""
-        monkeypatch.delenv("MR07_MISSING_CREDENTIAL", raising=False)
+        monkeypatch.delenv("ALPHA_TEST_MISSING_CREDENTIAL", raising=False)
         if option in inputs:
             inputs[inputs.index(option) + 1] = value
         else:
@@ -252,8 +252,8 @@ class TestAcquisitionCommand:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Never put an environment credential into command identity, errors or saved state."""
-        monkeypatch.setenv("MR07_SYNTHETIC_KEY", "private-test-key")
-        inputs.extend(("--api-key-env", "MR07_SYNTHETIC_KEY"))
+        monkeypatch.setenv("ALPHA_TEST_SYNTHETIC_KEY", "private-test-key")
+        inputs.extend(("--api-key-env", "ALPHA_TEST_SYNTHETIC_KEY"))
         with patch.object(
             HTTPSConnection, "request", side_effect=PermissionError("private-test-key")
         ) as request:

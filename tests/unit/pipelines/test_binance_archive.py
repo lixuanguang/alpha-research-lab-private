@@ -307,7 +307,7 @@ class TestBinanceArchive:
     def test_command_recovers_published_archive_without_fetch_then_rejects_mutation(
         self, request_partition: SourceRequest, tmp_path: Path
     ) -> None:
-        """Reuse MR06 receipts and checkpoints for real ZIP payloads through the CLI consumer."""
+        """Reuse release receipts and checkpoints for real ZIP payloads through the CLI consumer."""
         config = _ROOT / "configs/data-jobs/binance-archive.json"
         catalog = _ROOT / "configs/reference/binance-archive-spot.json"
         raw = tmp_path / "raw"

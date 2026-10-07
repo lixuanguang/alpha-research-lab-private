@@ -1,4 +1,4 @@
-"""Check a 2b day's native retention once its declared retention period has elapsed.
+"""Check a day run's native retention once its declared retention period has elapsed.
 
 Run this from the attempt's frozen consumers with the installed research interpreter,
 at least 72 hours after the day ended. Every source recording is replayed again from

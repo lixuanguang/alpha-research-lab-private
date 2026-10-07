@@ -1,4 +1,4 @@
-"""Measure R1's research workflow on a captured OKX BTC/ETH books and trades corpus.
+"""Measure the research-capacity workflow on a captured OKX BTC/ETH books and trades corpus.
 
 Native publication, digest reopen and audit; completed-return features over captured
 books, materialized with Feast, every PIT cell against an independent scan, warm close
@@ -290,7 +290,7 @@ class _TimedHandler:
 
 
 class _Workflow:
-    """R1's combined workflow over the captured corpus."""
+    """The combined research workflow over the captured corpus."""
 
     def __init__(
         self,
@@ -728,7 +728,7 @@ class _Workflow:
                     rounding="half_up",
                 ),
                 # A target lowers to an IOC at the touch, which no adverse cost could fill
-                # (stage 2a, S4), so slippage is declared zero; fees stay exact.
+                # (the sustained order mix), so slippage is declared zero; fees stay exact.
                 taker=SpotCosts(
                     adverse=Price(value=Decimal(0), currency=currency, per=dimension),
                     fee_rate=Decimal("0.001"),
@@ -747,7 +747,7 @@ class _Workflow:
                 fit_mode="none",
                 fit_cutoff=None,
                 embargo_us=0,
-                rationale="R1b reference trials; holdout not consumed",
+                rationale="research-capacity reference trials; holdout not consumed",
             )
             fold = StudyFold(
                 name="r1b-validation",
@@ -1052,7 +1052,7 @@ def main() -> None:
             args.output.resolve(), ImplementationIdentity.sha256(), sample_resources=False
         )
     )
-    m.scope = "native-capture R1b measurement"
+    m.scope = "native-capture research-capacity measurement"
     m.consumer = Path(__file__)
     try:
         worker = str(args.worker_python.absolute())

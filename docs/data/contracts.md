@@ -111,7 +111,7 @@ Current source adapters reject non-spot and non-continuous-calendar requests;
 the existing C02 calendar API retains its versioned non-24/7 contracts. This is
 the data/reference/calendar admission slice, not completion of the candidate,
 valuation, account or execution registries. The
-[public workflow](../../src/market_data/README.md#public-spot-data-plane) owns commands,
+[public workflow](../packages/market-data.md#public-spot-data-plane) owns commands,
 resource ceilings, interruption and source limits.
 
 ## Historical eligibility assertions
@@ -254,7 +254,7 @@ selection and supplies the metadata for each line. Input reading, source order,
 blank-line capture-proxy selection, error policy, and downstream delivery belong
 to that orchestrator. The decoder and its parsing, validation, and codec
 dependencies remain library components without acquisition or persistence I/O.
-See the [pipeline call example](../../src/market_data/README.md#pipeline-use).
+See the [pipeline call example](../packages/market-data.md#pipeline-use).
 
 ## Trade duplicate and correction admission
 
@@ -372,7 +372,7 @@ reopening reproduce admission and preserve predecessor values and original unkno
 clocks. Evidence bytes and review provenance enter identity. A manifest without a
 `tier`, including one with a numbered `schema_version`, is refused as an
 unsupported dataset manifest schema. The
-[provider contract](../../src/market_data/README.md#reviewed-provider-qualification)
+[provider contract](../packages/market-data.md#reviewed-provider-qualification)
 defines review requirements, history cutoff and supported limitations.
 
 `DatasetManifest` binds an **ordered** tuple of `DatasetPartition`
@@ -467,7 +467,7 @@ control event's affected scope. It binds exact raw digest, line position and byt
 alongside the decoded record. The saved-file inputs have no live capture-session
 identity; native collector envelopes retain their own session identity. The existing
 `Disconnect` type stays unchanged. See the
-[implemented contract](../../src/market_data/README.md#decoded-raw-occurrences).
+[implemented contract](../packages/market-data.md#decoded-raw-occurrences).
 A null instrument or the `global` stream tag neither identifies the affected
 instruments nor makes the disconnect apply repository-wide.
 
@@ -501,7 +501,7 @@ The decoding boundary is covered by
 and [`test_binance_decoder.py`](../../tests/unit/data/venues/binance/test_binance_decoder.py).
 These tests cover the library boundary. A research study must separately establish
 its sample's eligibility, coverage and availability through the
-[qualification contract](../../src/market_data/README.md#reviewed-provider-qualification).
+[qualification contract](../packages/market-data.md#reviewed-provider-qualification).
 
 ## Installed dataset command
 
@@ -526,14 +526,14 @@ cannot produce an apparently valid snapshot. Exploratory gaps remain visibly
 Flushed partition reports retain invalid/gap/duplicate counts and reasons before
 admission. Persistence stages distinguish a candidate ID, durable acknowledgement
 and completed verification. Failure after rename may leave a complete snapshot;
-retry verifies and synchronizes it. The [command guide](../../src/market_data/README.md#publish-and-inspect-from-the-command-line)
+retry verifies and synchronizes it. The [command guide](../packages/market-data.md#publish-and-inspect-from-the-command-line)
 owns arguments, file preparation, exit codes and recovery.
 
 ## Point-event cutoff projection
 
 `AsOfSelector` consumes verified snapshot partitions or admitted canonical bytes,
 revalidates their existing quality contract, and preserves full immutable history.
-Its [API guide](../../src/market_data/README.md#select-point-events-at-a-cutoff)
+Its [API guide](../packages/market-data.md#select-point-events-at-a-cutoff)
 owns invocation, precedence, window semantics, control boundary behavior and limits.
 Availability is filtered before terminal revision, business-window and eligibility
 selection. Unknown original archive availability is not inferred from event time,
@@ -554,7 +554,7 @@ Bounded queries and trade replay consume this selection contract; native book
 publication/replay uses its separate schema and adapter.
 
 
-The [witnessed archive contract](../../src/market_data/README.md#witnessed-archive-availability)
+The [witnessed archive contract](../packages/market-data.md#witnessed-archive-availability)
 adds native capture evidence without altering source archive records. It supplies
 conservative effective availability for matched decision-relevant fields, preserves
 correction delays and requires historical source membership for witnessed admission.

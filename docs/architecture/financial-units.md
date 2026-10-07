@@ -3,7 +3,7 @@
 ## Objective and boundary
 
 `financial_units` owns immutable in-process financial values and
-explicit convention adapters under the [current architecture decision](README.md#current-architecture-decisions).
+explicit convention adapters under the [current architecture decision](overview.md#current-architecture-decisions).
 It supplies the repository's money, FX, price, yield, volatility, rate, duration,
 multiplier, lot, tick and quantity abstractions. It adds no wire schema, position,
 cash ledger, valuation engine, executable order, risk decision or market authority.
@@ -11,7 +11,7 @@ cash ledger, valuation engine, executable order, risk decision or market authori
 Day counts are computed by the repository itself with exact rational
 arithmetic; the conventions need no native library and add no dependency.
 
-MR06 separates the operating value closure from this optional adapter:
+The operating value closure is separate from this optional adapter:
 `alpha-research-contracts` ships exact values, ratios and currency definitions,
 without `conventions.py`. The complete research wheel retains it. Explicit public
 convention imports remain available in that research environment through Python's
@@ -97,16 +97,16 @@ rounded. No netting, spread, fee or cashflow convention is inferred.
 ## Planned research and accounting arithmetic
 
 `ExactRatio` is now the public dimensionless rational record used by retained
-[feature/label diagnostics](../../src/research/features/README.md). Its
+[feature/label diagnostics](../packages/research-features.md). Its
 `from_fraction` factory preserves an exact calculation; constructors and the
 existing domain codec reject noncanonical or unreduced integer strings and
-nonpositive denominators. The [accounting consumer](../../src/simulation/README.md#exact-accounting-and-recovery)
+nonpositive denominators. The [accounting consumer](../packages/simulation.md#exact-accounting-and-recovery)
 now supplies currency-bearing rational basis/P&L and exact spot postings. C03
 financial-unit conventions and grids remain unchanged.
 
 Decision date: 2026-09-14. This originally resolved the P1 consumer contract before observations and ledger
 implementation. The consumer now implements it without widening C03's decimal
-grid. The [simulation verification guide](../../src/simulation/README.md#verification-and-reversal)
+grid. The [simulation verification guide](../packages/simulation.md#verification-and-reversal)
 describes its accounting and recovery evidence.
 
 | Quantity | Representation and boundary |

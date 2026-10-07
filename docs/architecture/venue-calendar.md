@@ -10,7 +10,7 @@ every schedule lookup depend on an explicit bounded calendar snapshot rather tha
 the host clock, host timezone, a provider SDK, or a live service.
 
 The selected `exchange_calendars==4.13.2` dependency is isolated behind
-`ExchangeCalendarsAdapter` under the [current architecture decision](README.md#current-architecture-decisions).
+`ExchangeCalendarsAdapter` under the [current architecture decision](overview.md#current-architecture-decisions).
 It supplies base session labels, opens, breaks, closes, early closes, holidays by
 session absence, and IANA timezone metadata. Owned values represent attributed
 closures, auctions, halts, limit states, settlement dates, and overrides because

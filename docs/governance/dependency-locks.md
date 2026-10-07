@@ -55,8 +55,8 @@ manifest and lock together. Run the owning environment's checks and the
 [dependency admission and audit](../architecture/dependency-admission.md) required
 for that environment. Root and operating locks also have exact digest bindings
 in the admission policy; a lock change must update and revalidate those bindings.
-Worker validation remains in the [Feast](../../configs/development/research-worker/README.md)
-and [ClearML](../../configs/development/clearml/README.md) guides.
+Worker validation remains in the [Feast](../local-services/feast-worker.md)
+and [ClearML](../local-services/clearml.md) guides.
 
 Do not delete artifact hashes, platform variants or transitive dependencies to
 reduce line counts. Do not add a custom include/concatenation mechanism to the

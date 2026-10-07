@@ -143,7 +143,7 @@ class ReportMonitoringBridge:
 
 
 class ReportMetricAdapter:
-    """Expose the same injected monitoring computation as an MR03 report metric."""
+    """Expose the same injected monitoring computation as a study report metric."""
 
     def __init__(self, bridge: ReportMonitoringBridge) -> None:
         """Bind the checked research-to-monitoring evaluation boundary."""

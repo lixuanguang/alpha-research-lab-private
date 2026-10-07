@@ -1,4 +1,4 @@
-"""Keep stage-1 summaries causal, source-scoped and sample-count qualified."""
+"""Keep baseline summaries causal, source-scoped and sample-count qualified."""
 
 from __future__ import annotations
 

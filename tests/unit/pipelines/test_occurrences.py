@@ -241,7 +241,7 @@ class TestPersistedOccurrences:
     def test_files_and_independent_bindings_cannot_collide(
         self, tmp_path: Path, run: ResolvedManifest
     ) -> None:
-        """Scope sequence zero by digest and request, leaving economic deduplication to MR10."""
+        """Scope sequence zero by digest and request, leaving economic deduplication downstream."""
         first = self._save(tmp_path, run, (_FIRST,))
         second = self._save(tmp_path, run, (_FIRST + _SECOND,))
         store = RawStore(tmp_path)

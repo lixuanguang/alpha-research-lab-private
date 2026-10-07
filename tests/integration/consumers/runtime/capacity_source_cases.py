@@ -74,13 +74,13 @@ class CapacitySourceCases:
             (preparation / "services-initial.json").read_bytes(), PaperServiceConfiguration
         )
         if len(self.service.sources) != 4 or len(self.service.accounts) != 4:
-            raise ValueError("source case requires the prepared MR15 topology")
+            raise ValueError("source case requires the prepared capacity topology")
         workload = CapacityWorkload(
             opening_at=self.service.accounts[0].configuration.opening_at,
             socket_root=Path(self.service.accounts[0].socket_path).parent,
         )
         if self.service != workload.service_configuration():
-            raise ValueError("source case differs from the prepared MR15 service input")
+            raise ValueError("source case differs from the prepared capacity service input")
         self.implementation = InstalledIdentity.sha256()
 
     def _request(self, source: PaperServiceSource) -> CaptureRequest:

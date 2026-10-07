@@ -6,7 +6,7 @@ the roadmap owns delivery and acceptance.
 
 The initial operating scope is paper trading. Live deployment, authenticated
 venue qualification and real-capital operation are
-[KIV](../roadmap/README.md#live-trading-kiv-and-reconsideration); their destination
+[out of scope](../roadmap/overview.md#live-trading-kept-in-view); their destination
 contracts below are retained for reconsideration, outside QR onboarding.
 
 [Platform design and dependency direction](platform-design.md).
@@ -16,7 +16,7 @@ contracts below are retained for reconsideration, outside QR onboarding.
 The platform has three possible lanes with one shared semantic waist:
 
 1. **Batch/research — CURRENT, bounded local scope.** Saved datasets, features, model studies, simulation and reports run with reproducible inputs. Distributed execution and measured parallel scaling remain planned.
-2. **Ordinary event-driven — CURRENT bounded trusted-local paper/shadow service qualification.** MR07 connects native ingestion, candidate callbacks, dedicated-account risk/OMS and exact paper accounting with durable restart. A separate local shared-account workflow reuses per-instance decision sessions and coordinates attributable child and physical orders over normalized events. MR14 composes signed account services with source and policy processes and qualifies their finite 1–120 second local failure and restoration envelope. General deployment and MR15 throughput remain open; private venue reconciliation is KIV.
+2. **Ordinary event-driven — CURRENT bounded trusted-local paper/shadow service qualification.** The paper runtime connects native ingestion, candidate callbacks, dedicated-account risk/OMS and exact paper accounting with durable restart. A separate local shared-account workflow reuses per-instance decision sessions and coordinates attributable child and physical orders over normalized events. Supervised services compose signed account services with source and policy processes; their failure and restoration envelope is qualified locally. General deployment is not qualified, and private venue reconciliation is out of scope.
 3. **Latency-sensitive — OPTIONAL PLANNED.** A native component or dedicated host is added only after a measured latency, jitter, or vendor ABI need. It consumes compatible schemas and remains behind independent risk and kill controls.
 
 Lanes may use different artifacts, process models, stores, and release cadences. A deployment is placement of an
@@ -25,15 +25,15 @@ venues, instruments, capital, limits, duration, credentials, and stop conditions
 
 ## Artifact, schema, and state migration
 
-MR06 implements the [local signed installation boundary](../governance/operations.md#trusted-local-installation)
-for independent collector and execution artifacts, now extended with MR07's
+The [local signed installation boundary](../governance/operations.md#trusted-local-installation)
+covers independent collector and execution artifacts and the
 portable paper OMS. It verifies
 actual wheel/source/lock/audit bytes, out-of-band builder trust, configuration and
 exact state compatibility before an offline installation. Rollback preserves
 current mutable state. The initial local target and acceptance record do not
 qualify remote production deployment, OMS state migration or venue recovery.
-The paper destination below remains required at its owning milestones; live
-qualification is deferred under the roadmap's KIV gate.
+Live qualification is out of scope under the roadmap's
+reconsideration gate.
 
 Managed local paper adds disabled deployment manifests and separate bounded
 operator grants to that installer. The account journal owns generation fencing and checks
@@ -41,10 +41,9 @@ inside serialized economic transactions. The public-input API can use the signed
 account-command adapter; the execution target does not import the research wheel.
 Only the latest journal resumes after reconciliation. Historical restores remain
 quarantined, and compatible rollback selects code while preserving current state.
-The [activation record](../roadmap/paper-activation.md) owns the bounded evidence;
-remote service recovery remains outside this increment.
+Remote service recovery is not qualified.
 
-MR14 adds a bounded local composition over those owners. One signed execution
+Supervised services add a bounded local composition over those owners. One signed execution
 service serializes each account's existing journal commands; one supervisor owns
 the selected native-source processes and isolated policy processes. Only the
 supervisor schedules and commits a decision cohort. Within an account, source-name
@@ -52,7 +51,7 @@ then instance-name order remains fixed. Sources with disjoint complete account
 sets may keep one observation in flight per source across supervisor passes, in
 at most four supervisor-owned threads. All jobs join before lifecycle, control,
 phase/status changes or shutdown. The
-[execution service](../../src/applications/execute/README.md#bounded-account-owner-service)
+[execution service](../packages/execute-application.md#bounded-account-owner-service)
 owns completion wakeups and health scheduling within the existing protection
 budgets; account RPCs independently validate current authority.
 Sources sharing an account retain serial dispatch. Policy processes receive typed
@@ -93,15 +92,15 @@ one-sided or crossed book is unpriced and faults only if no eligible market
 follows within the smaller of source freshness and capture idle time. Retained
 `SharedBookDelivery` records hold each decided instant and whether the book
 matched, for exact replay. This is a declared paper market model rather than
-native-feed downsampling or MR15 throughput evidence.
+native-feed downsampling or throughput evidence.
 
 The immutable deployment can bind multiple explicit source/scenario identities
 per account. A versioned active selection can enable an already provisioned
 instance after a controlled restart. Its predecessor hash, source definitions,
 policies, exact account configuration and journal remain compatible or launch
 fails. New definitions outside the signed envelope need separately qualified
-installation compatibility. The [service guide](../../src/applications/paper/README.md#supervised-local-deployments)
-owns commands; the [MR14 record](../roadmap/multi-instance-paper.md) owns qualification.
+installation compatibility. The [service guide](../packages/paper-application.md#supervised-local-deployments)
+owns commands; the [roadmap](../roadmap/overview.md#capabilities) records qualification.
 
 An artifact identity binds source commit, build command, dependency lock, platform, configuration, model/data
 references, schema versions, limits, and complete artifact digest. Build once and promote the same bytes. The retained
@@ -129,26 +128,22 @@ when state or schema changed.
 
 ## Monitoring, recovery, and operational evidence
 
-**Current bounded local qualification:** MR10 connects durable account
+**Current bounded local qualification:** durable account
 stop/fault/restart and cancel requests, retained local alert outcomes, quiesced
-account backup/restore, signed account installation/rollback and the MR14
+account backup/restore, signed account installation/rollback and
 supervised paper/shadow service drills. Dedicated live-paper failures persist a
 decision block before releasing their fence. The
 [runbook](../governance/operations.md#local-paper-operations) and
-[runtime guide](../../src/runtime/README.md#account-workspace-recovery) own the
-implemented interfaces. MR12 extends the original local alert prerequisite with
-[versioned telemetry and retained dashboards](../../src/telemetry/README.md),
+[runtime guide](../packages/runtime.md#account-workspace-recovery) own the
+implemented interfaces. Monitoring adds
+[versioned telemetry and retained dashboards](../packages/telemetry.md),
 causal query/metric APIs and report adapters. Periodic collector observations use
 a bounded background writer; disk stalls cannot hold the watchdog control thread.
 Account/venue commands project committed state into a separate optional journal.
 The bounded managed-paper activation/recovery increment is described in the
 [runbook](../governance/operations.md#managed-public-paper-activation-and-recovery).
-The [MR14 record](../roadmap/multi-instance-paper.md) and joint ignored
-`logs/mr10/multi-instance-paper.json` complete bounded trusted-local MR10/MR14
-operating acceptance, reusing historical MR10 backup/restore and MR13 signed
-rollback proofs by explicit impact analysis. This scope does not qualify general
-remote service deployment, sustained MR15 capacity or cross-journal atomic limits.
-External private venue qualification remains unproven and KIV.
+This scope does not qualify general remote service deployment, sustained capacity
+or cross-journal atomic limits. External private venue qualification is out of scope.
 
 Current monitoring events correlate release, strategy, model, dataset/source/study,
 account, instrument, venue, order, fill, state epoch and incident through fixed
@@ -194,7 +189,7 @@ orders. The roadmap's failure scenarios cover disk/queue exhaustion, malformed
 inputs, clock anomalies and modeled order-event loss/timeouts alongside
 process/service loss. Final paper acceptance requires both public-input paper
 paths and their actual service/failure evidence. Private-stream loss, exchange
-timeouts and external venue conformance remain live KIV requirements.
+timeouts and external venue conformance are live requirements, out of scope.
 
 ### Feed health and observable loss
 
@@ -219,7 +214,7 @@ block an ordinary local calculation by pretending unavailable roles are present.
 ## Scaling triggers and technology choices
 
 Keep the current Python/uv path while it is reproducible and within the workload budget.
-The implemented [research integrations](../../src/research/studies/README.md#ownership-and-verification)
+The implemented [research integrations](../packages/research-studies.md#ownership-and-verification)
 address concrete tracking, orchestration and data/feature-reuse consumers;
 their initial bounded integrations do not require a throughput bottleneck. Preserve
 existing source, temporal and numerical contracts through their adapters. Measure before
@@ -239,16 +234,12 @@ Set research and operating budgets at the start of their delivery paths. Include
 offline retrieval and online feature materialization/serving alongside queries,
 ingestion and execution. Record throughput, p50/p95/p99 latency, memory/disk,
 concurrency, hardware/cache conditions and recovery targets. Research capacity
-can be accepted at G2; final runtime and service capacity qualification remains
-MR15 work. MR14's bounded service failure drills do not establish that capacity.
+can be accepted at G2; final runtime and service capacity is qualified
+separately. Bounded service failure drills do not establish that capacity.
 
-The provisional numeric [research launch profile and measured diagnostics](../roadmap/research-capacity.md)
-and [integrated runtime profile](../roadmap/runtime-capacity.md) now declare those
-budgets. Research diagnostics cover the enlarged study schedules, incremental
-scheduled replay and isolated Feast worker; representative 72-hour acceptance
-remains open. Runtime qualification must separately resolve MR14's 120-second
-service lifetime, finite capture limits and signed-grant validity before a
-sustained claim. Neither record closes MR16 ownership or MR17 onboarding.
+The [research capacity profile](../roadmap/research-capacity.md) and the
+[runtime capacity profile](../roadmap/runtime-capacity.md) declare those budgets and
+hold their results.
 
 Useful triggers include a dataset build that misses research cadence, concurrent readers that contend on local storage,
 replay throughput that blocks iteration, recovery time beyond the operating target, or measured native latency/jitter

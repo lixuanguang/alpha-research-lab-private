@@ -1,7 +1,7 @@
-"""Drive one declared stage-2a attempt: quiet host, two sustained phases, gates and audits.
+"""Drive one declared sustained or day-run attempt: quiet host, phases, gates and audits.
 
 Run this file from a frozen copy of this directory with the installed research
-interpreter, exactly as the stage-1 cohort. One invocation owns one fresh output
+interpreter, exactly as the baseline cohort. One invocation owns one fresh output
 directory. The sequence builds and installs four signed owners, checks the host is
 quiet, issues ordinary one-hour grants, then runs phase A, an injected owner death,
 the qualified four-owner recovery and phase B inside those grants. Every step stops
@@ -26,8 +26,8 @@ from capacity_cohort import Cohort, Gate, _Tree
 from capacity_host import HostGate, HostSampler, QuietHostPrecheck, ResourceGate
 from capacity_results import CapacityResultsCollector
 from capacity_sustained import (
-    Stage2bNativeFixture,
-    Stage2bRehearsalFixture,
+    DayNativeFixture,
+    DayRehearsalFixture,
     SustainedNativeFixture,
 )
 from capacity_sustained_results import SustainedResults, WindowBudget
@@ -80,7 +80,7 @@ class SustainedArithmetic:
 
 @dataclass(frozen=True, slots=True)
 class SustainedDeclaration:
-    """Fix every 2a number before an attempt; S6 declares and the owner approves these.
+    """Fix every number before an attempt; the declaration is approved before it runs.
 
     Phase A spans one 30-minute segment rollover; phase B follows the recovery. Each
     interval is a whole number of 300-second windows so no window is partial.
@@ -102,8 +102,8 @@ class SustainedDeclaration:
     idle_seconds: float = 300
     interactive: frozenset[str] = INTERACTIVE_PROCESSES
     budgets: dict[str, WindowBudget] = field(default_factory=partial(dict, STAGE_BUDGETS))
-    # The stage: 2a's two phases with a fault, or 2b's one day (counted or rehearsal).
-    stage: Literal["2a", "2b", "2b-rehearsal"] = "2a"
+    # The stage: two sustained phases with a fault, or one day (counted or rehearsal).
+    stage: Literal["sustained", "day", "day-rehearsal"] = "sustained"
     workload: TrialWorkload = "sustained"
     fixture: type[SustainedNativeFixture] = SustainedNativeFixture
     day: TrialTimings | None = None
@@ -128,16 +128,16 @@ class SustainedDeclaration:
                 raise ValueError("each sustained interval must be whole rolling windows")
         if not 0 < self.reconcile_seconds < 120 or not self.inject_owner_death:
             raise ValueError("sustained reconciliation must refresh inside 120 seconds")
-        if (self.stage == "2a") != (self.day is None):
-            raise ValueError("only stage 2b declares its single day phase")
+        if (self.stage == "sustained") != (self.day is None):
+            raise ValueError("only a day run declares its single day phase")
 
     @classmethod
-    def stage2b(cls) -> SustainedDeclaration:
+    def counted_day(cls) -> SustainedDeclaration:
         """Declare the counted 24-hour day: 288 windows, graded checkpoint percentiles."""
         return cls(
-            stage="2b",
-            workload="stage2b",
-            fixture=Stage2bNativeFixture,
+            stage="day",
+            workload="day",
+            fixture=DayNativeFixture,
             day=TrialTimings(86_400, 87_000, 87_600),
             minimum_segments_day=48,
             minimum_messages=7_000_000,
@@ -145,12 +145,12 @@ class SustainedDeclaration:
         )
 
     @classmethod
-    def stage2b_rehearsal(cls) -> SustainedDeclaration:
-        """Declare a 2-hour rehearsal: the 2b shape, checkpoint percentiles reported only."""
+    def day_rehearsal(cls) -> SustainedDeclaration:
+        """Declare a 2-hour rehearsal: the day-run shape, checkpoint percentiles reported only."""
         return cls(
-            stage="2b-rehearsal",
-            workload="stage2b-rehearsal",
-            fixture=Stage2bRehearsalFixture,
+            stage="day-rehearsal",
+            workload="day-rehearsal",
+            fixture=DayRehearsalFixture,
             day=TrialTimings(7_200, 7_800, 8_400),
             minimum_segments_day=4,
         )
@@ -341,7 +341,7 @@ class SustainedGates:
         observations: tuple[_Observation, ...],
         declaration: SustainedDeclaration,
     ) -> tuple[Gate, ...]:
-        """Grade 2b's day: native receipt, per-account checkpoint percentiles, daily orders."""
+        """Grade the day run: native receipt, per-account checkpoint percentiles, daily orders."""
         messages = {
             name: sum(cast(int, entry["durable_records"]) for entry in entries)
             for name, entries in recordings.items()
@@ -461,7 +461,7 @@ class SustainedGates:
 
 
 class SustainedCohort(Cohort):
-    """Run the declared 2a or 2b sequence once, stopping at the first failed step."""
+    """Run the declared sustained or day sequence once, stopping at the first failed step."""
 
     def __init__(
         self,
@@ -627,7 +627,7 @@ class SustainedCohort(Cohort):
         )
 
     def run_day(self) -> None:
-        """Run the declared 2b day once: one phase, its audit, host and resource gates."""
+        """Run the declared day once: one phase, its audit, host and resource gates."""
         self.output.mkdir(parents=True, exist_ok=False)
         awake = QuietHostPrecheck.hold_awake()
         try:
@@ -654,8 +654,8 @@ class SustainedCohort(Cohort):
             awake.wait(5)
 
     def run(self) -> None:
-        """Run the declared 2a sequence once; ``make check`` stays a separate final step."""
-        if self.declaration.stage != "2a":
+        """Run the declared sustained sequence once; ``make check`` stays a separate final step."""
+        if self.declaration.stage != "sustained":
             self.run_day()
             return
         self.output.mkdir(parents=True, exist_ok=False)
@@ -697,11 +697,11 @@ class _Arguments(argparse.Namespace):
     label: str
     icloud_paused: bool
     icloud_waived: bool
-    stage: Literal["2a", "2b", "2b-rehearsal"]
+    stage: Literal["sustained", "day", "day-rehearsal"]
 
 
 def main() -> None:
-    """Run one declared 2a attempt into a fresh output directory."""
+    """Run one declared attempt into a fresh output directory."""
     parser = argparse.ArgumentParser(description=__doc__)
     for option in (
         "--output",
@@ -713,7 +713,9 @@ def main() -> None:
     ):
         parser.add_argument(option, type=Path, required=True)
     parser.add_argument("--label", required=True)
-    parser.add_argument("--stage", choices=("2a", "2b", "2b-rehearsal"), default="2a")
+    parser.add_argument(
+        "--stage", choices=("sustained", "day", "day-rehearsal"), default="sustained"
+    )
     parser.add_argument("--icloud-paused", action="store_true")
     # The owner may waive the iCloud pause; it is then retained as waived, never paused.
     parser.add_argument("--icloud-waived", action="store_true")
@@ -729,9 +731,9 @@ def main() -> None:
         icloud_paused_attested=args.icloud_paused,
         icloud_waived=args.icloud_waived,
         declaration={
-            "2a": SustainedDeclaration,
-            "2b": SustainedDeclaration.stage2b,
-            "2b-rehearsal": SustainedDeclaration.stage2b_rehearsal,
+            "sustained": SustainedDeclaration,
+            "day": SustainedDeclaration.counted_day,
+            "day-rehearsal": SustainedDeclaration.day_rehearsal,
         }[args.stage](),
     )
     try:

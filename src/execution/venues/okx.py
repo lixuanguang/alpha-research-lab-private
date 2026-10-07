@@ -53,7 +53,7 @@ class OKXSpotAdapter:
 
     @property
     def capability_profiles(self) -> tuple[CapabilityProfile, ...]:
-        """Advertise spot test execution and account reads to the MR05 registry."""
+        """Advertise spot test execution and account reads to the component registry."""
         return (
             CapabilityProfile(
                 name="okx_demo_spot_execution",

@@ -17,7 +17,7 @@ The long-term goal is an institutional-grade monorepo for multi-asset, multi-str
 monitoring. It should approach the engineering depth expected at a strong proprietary trading or hedge-fund platform
 through measured delivery. Quant development delivers the complete initial
 OKX/Bitfinex spot research and paper infrastructure before QR onboarding, using
-its own reference research and operating workloads. The [roadmap's onboarding gate](../roadmap/README.md#infrastructure-completion-before-qr-onboarding)
+its own reference research and operating workloads. The [roadmap's onboarding gate](../roadmap/overview.md#scope)
 defines the required scope and separates software completion from empirical
 strategy acceptance and live activation. Staffing, independent review, operational
 separation and broader organizational controls arrive as contributors and operators join.
@@ -29,7 +29,7 @@ extensible dashboards and capacity qualification remain required. The initial
 spot integrations exercise generalized contracts for other sources, products and
 strategies; they do not define the limits of the monorepo's architecture.
 Live execution and qualification remain
-[KIV pending profitable OOS and paper evidence](../roadmap/README.md#live-trading-kiv-and-reconsideration);
+[out of scope pending profitable OOS and paper evidence](../roadmap/overview.md#live-trading-kept-in-view);
 retained live design contracts below are outside the initial delivery gate.
 
 This design records the technical destination and functional source owners without
@@ -65,13 +65,13 @@ memory safety, vendor interoperability, or latency. A native choice requires a t
 conformance fixtures, packaging evidence, and a demonstrated budget; language prestige or an anticipated workload is not
 sufficient.
 
-The current [architecture overview](README.md) owns active command and dependency boundaries.
+The current [architecture overview](overview.md) owns active command and dependency boundaries.
 This index owns future platform shape and module seams; the linked design chapters
 own the detailed data/runtime contracts and infrastructure triggers.
-The [infrastructure roadmap](../roadmap/README.md) selects delivery work against
+The [infrastructure roadmap](../roadmap/overview.md) selects delivery work against
 these boundaries. Bare functions serve workflow orchestration; reusable library
 behavior belongs to cohesive classes under the
-[engineering rule](../coding_standards/README.md#orchestrator-pipelines-and-libraries).
+[engineering rule](../development/engineering-standards.md#orchestrator-pipelines-and-libraries).
 Remaining ownership/enforcement work is tracked in the roadmap.
 
 ## Current and planned repository shape
@@ -172,7 +172,7 @@ nor creating one distribution per folder is required. Supporting module filename
 can evolve within the named owners; changes to an owning boundary must update
 the roadmap and its consumers together.
 
-The [tests guide](../../tests/README.md) defines the current fixture, subprocess
+The [tests guide](../development/testing.md) defines the current fixture, subprocess
 and installed-consumer layout and its execution boundaries.
 
 ### Functional APIs and application entrypoints
@@ -229,24 +229,24 @@ independently installed distribution does not ship the module behind it, as
 `applications.execute` does for its paper-service composition. The installed
 wheel smoke resolves every exported name, lazy ones included.
 
-The MR03 offline study API carries explicitly supplied compatible features,
+The offline study API carries explicitly supplied compatible features,
 transforms, estimators, rules, execution/cost assumptions and metric/chart definitions
 through `applications.explore.evaluate_study` and `compare_studies`. Typed and
 serialized configuration identify the same run; retained implementation bytes,
 resolved folds and typed result/report readers preserve reproduction inputs.
 Local/deferred publication preserves attempts independently of tracking availability.
-The [study guide](../../src/research/studies/README.md#generalized-decision-studies)
+The [study guide](../packages/research-studies.md#generalized-decision-studies)
 owns the bounded spot implementation and installed consumers. No runner may replace
 a selected implementation with its built-in default. Candidate/runtime binding
-is implemented by MR05's local candidate loader; MR04 services and MR12 runtime
+is implemented by the local candidate loader; feature-store services and runtime
 telemetry extend these contracts.
 
-The [book registry](../../src/market_data/README.md#book-registry-and-consolidated-bbo)
+The [book registry](../packages/market-data.md#book-registry-and-consolidated-bbo)
 owns independent venue/listing reconstruction and bounded causal quote history.
 Explicit reference equivalence permits consolidated BBO scans with exact tied
 sizes and selected/eligible coverage. USD/USDT, native units, source clocks and
-quality remain distinct; paper matching selects one native venue quote. MR15
-owns measured capacity and MR08+ retain their operating scopes.
+quality remain distinct; paper matching selects one native venue quote. Measured capacity is a separate
+qualification.
 
 ## Dependency and interface graph
 
@@ -300,14 +300,14 @@ exceptions, timestamps with unknown timezone semantics, and mutable registries s
 ## Configuration and active workflows
 
 The runtime boundary follows the
-[configuration-driven implementation standard](../coding_standards/README.md#generalized-code-and-configuration-driven-activation).
+[configuration-driven implementation standard](../development/engineering-standards.md#generalized-code-and-configuration-driven-activation).
 **CURRENT data-plane slice:** `PublicDataJob` and `UniverseSelection` pin four
 independent scopes, public trade/reference requests, and named cutoff selections.
 Scoped native book requests also retain collection/research admission. Typed
 `DataCapability` records admit installed data/reference/calendar profiles. The
 [data contracts](../data/contracts.md#versioned-venue-specifications-and-scoped-universes)
-own these implemented interfaces. MR05 supplies typed candidate capability
-admission; MR07 connects dedicated paper accounts and execution state. Production
+own these implemented interfaces. Candidate packaging supplies typed capability
+admission; the paper runtime connects dedicated paper accounts and execution state. Production
 deployment and executable authorization remain separate; a scope record grants
 no executable authority.
 The current authored instrument catalog supplies reference facts and assumptions;
@@ -485,22 +485,20 @@ See [external simulator reuse](runtime-and-operations-design.md#external-simulat
 
 ## Delivery sequence
 
-The single [implementation roadmap](../roadmap/README.md) owns maturity, status,
+The single [implementation roadmap](../roadmap/overview.md) owns maturity, status,
 delivery dependencies and acceptance criteria.
 Quant development completes data/research APIs, offline/online feature stores,
 candidate/runtime interfaces, portfolio/risk/OMS, both venues' paper execution,
 paper deployment, observability, recovery and launch capacity using reference
 consumers before QR onboarding. Public-source and paper operating evidence qualify
 infrastructure independently of empirical research; private venue qualification
-and live activation are KIV. The roadmap owns
+and live activation are out of scope. The roadmap owns
 the clean-environment handoff gate. People-dependent organizational work remains
 separate from technical completion and follows actual staffing.
 
 G1–G5 record foundation, research, paper/shadow, integrated paper operating and
-generalized handoff acceptance. They preserve all in-scope paper MR outcomes and
-the pre-onboarding gate. MR10 establishes paper drills first and incorporates integrated paper execution/activation
-evidence; MR13 uses that paper increment rather than waiting on MR10's final
-integrated record. Generalization is demonstrated by fresh installed extensions,
+generalized handoff acceptance. They preserve every in-scope paper capability and
+the pre-onboarding gate. Generalization is demonstrated by fresh installed extensions,
 including a non-book input and calendar/product fixture, with source limits intact.
 
 Each slice leaves the previous path usable or provides a tested rollback. It states what is implemented, what remains

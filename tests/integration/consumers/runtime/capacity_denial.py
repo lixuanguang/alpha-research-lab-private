@@ -1,7 +1,7 @@
-"""Show signed 2b grants deny use after expiry and after revocation, in one short session.
+"""Show signed day-run grants deny use after expiry and after revocation, in one short session.
 
 Run this from a frozen copy of this directory with the installed research interpreter,
-as a cohort. One invocation builds and installs the four signed 2b owners, then:
+as a cohort. One invocation builds and installs the four signed day-run owners, then:
 
 - **expiry**: grants of the same signed form with a 10-minute life. One owner is
   claimed; before expiry a protective stop and a fresh claim both succeed; after
@@ -30,7 +30,7 @@ from uuid import uuid4
 from capacity_cohort import Cohort, Gate
 from capacity_host import QuietHostPrecheck
 from capacity_inputs import CapacityWorkload
-from capacity_sustained import Stage2bWorkload
+from capacity_sustained import DayWorkload
 
 # project library imports
 from accounting import AccountLedger
@@ -50,8 +50,8 @@ from strategies import OrderIntent
 type Drill = Literal["expiry", "revocation"]
 
 
-class _ExpiryWorkload(Stage2bWorkload):
-    """The 2b selection under grants of the same signed form with a 10-minute life."""
+class _ExpiryWorkload(DayWorkload):
+    """The day-run selection under grants of the same signed form with a 10-minute life."""
 
     grant_seconds: ClassVar[int] = 600
 
@@ -59,7 +59,7 @@ class _ExpiryWorkload(Stage2bWorkload):
 class DenialSession(Cohort):
     """Run both denial drills once, stopping at the first failed step."""
 
-    workload_type: type[CapacityWorkload] = Stage2bWorkload
+    workload_type: type[CapacityWorkload] = DayWorkload
     accounts: ClassVar[dict[Drill, str]] = {"expiry": "okx-shared", "revocation": "bitfinex-shared"}
     reasons: ClassVar[dict[Drill, str]] = {
         "expiry": "paper_authorization_expired_or_not_yet_valid",
@@ -72,7 +72,7 @@ class DenialSession(Cohort):
             (self.root / "preparation/services-initial.json").read_bytes(),
             PaperServiceConfiguration,
         )
-        workload = (_ExpiryWorkload if drill == "expiry" else Stage2bWorkload)(
+        workload = (_ExpiryWorkload if drill == "expiry" else DayWorkload)(
             opening_at=service.accounts[0].configuration.opening_at,
             socket_root=Path(service.accounts[0].socket_path).parent,
         )
@@ -157,7 +157,7 @@ class DenialSession(Cohort):
             PaperServiceConfiguration,
         )
         name = self.accounts[drill]
-        workload = Stage2bWorkload(
+        workload = DayWorkload(
             opening_at=service.accounts[0].configuration.opening_at,
             socket_root=Path(service.accounts[0].socket_path).parent,
         )
@@ -232,7 +232,7 @@ class DenialSession(Cohort):
             PaperAuthorization,
         )
         admin = self._admin(drill)
-        workload = Stage2bWorkload(
+        workload = DayWorkload(
             opening_at=definition.configuration.opening_at,
             socket_root=Path(definition.socket_path).parent,
         )
@@ -299,7 +299,7 @@ class DenialSession(Cohort):
         return tuple(gates)
 
     def run(self) -> None:
-        """Build the 2b owners, then run the expiry and revocation drills."""
+        """Build the day-run owners, then run the expiry and revocation drills."""
         self.output.mkdir(parents=True, exist_ok=False)
         awake = QuietHostPrecheck.hold_awake()
         try:

@@ -1,6 +1,6 @@
 """Collect one sustained phase's rolling latencies, commits, reconciliations and inputs.
 
-The stage-1 collector keeps its 60-second gates. This collector reads the same retained
+The baseline collector keeps its 60-second gates. This collector reads the same retained
 probes, read samples, feature samples, capture chains and driver observations, and
 reports every latency class over fixed windows so a late tail cannot be averaged away.
 """
@@ -308,7 +308,7 @@ class SustainedResults:
                 for name, values in sorted(bbo.items())
             },
             "selected_book_to_checkpoint": self._rolling("selected_book_to_checkpoint", checkpoint),
-            # Whole-run populations per account, for the 2b checkpoint percentiles.
+            # Whole-run populations per account, for the day-run checkpoint percentiles.
             "selected_book_to_checkpoint_by_account": {
                 name: self._rolling("selected_book_to_checkpoint", values)
                 for name, values in sorted(account_checkpoints.items())

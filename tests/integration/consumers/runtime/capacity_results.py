@@ -57,7 +57,7 @@ class _TrialContext(msgspec.Struct, frozen=True):
 
     public_venue: str | None
     variant: str
-    # Sustained runs author another schedule; the stage-1 slot proof does not apply.
+    # Sustained runs author another schedule; the baseline slot proof does not apply.
     workload: str = "capacity"
 
 
@@ -391,7 +391,7 @@ class CapacityResultsCollector:
                 rollovers.append(rollover)
             else:
                 raise ValueError(f"unknown capture measurement kind: {kind.kind}")
-        # A chain's boundary pauses are facts only; their budget is declared with 2a.
+        # A chain's boundary pauses are facts only; their budget is declared with the sustained run.
         rollover_facts: dict[str, object] = (
             {
                 "rollover": {

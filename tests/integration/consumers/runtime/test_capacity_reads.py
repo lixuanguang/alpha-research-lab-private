@@ -320,7 +320,7 @@ class TestCapacityReads:
             opening_at=datetime(2026, 9, 27, 12, tzinfo=UTC),
             socket_root=Path("/private/tmp/capacity-chain-test"),
         ).service_configuration()
-        # The signed source selection carries the segment limits, as S3 will declare.
+        # The signed source selection carries the segment limits it declares.
         source = replace(
             config.sources[0], capture=replace(config.sources[0].capture, max_messages=1)
         )

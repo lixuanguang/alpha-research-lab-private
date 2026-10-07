@@ -1,4 +1,4 @@
-"""Prove the stage-2a workload's schedule, selection and low-order commit mix offline."""
+"""Prove the sustained workload's schedule, selection and low-order commit mix offline."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ _SOCKETS = Path("/private/tmp/capacity-sustained-test")
 
 
 class TestCapacitySustained:
-    """Keep the declared stage-2 load and order mix measurable before any signed run."""
+    """Keep the declared sustained load and order mix measurable before any signed run."""
 
     def test_schedule_repeats_a_ten_second_burst_every_five_minutes(self) -> None:
         """Ten 300-second periods of 25 Hz with a final 100 Hz burst cover 3,000 seconds."""
@@ -48,8 +48,8 @@ class TestCapacitySustained:
             fixture.elapsed_seconds(82_500)
 
     def test_selection_declares_segments_chain_life_and_target_holders(self) -> None:
-        """2a sources roll 30-minute segments in one chain; owners outlive the supervisor."""
-        stage1 = CapacityWorkload(opening_at=_OPENING, socket_root=_SOCKETS)
+        """Sustained sources roll 30-minute segments in one chain; owners outlive the supervisor."""
+        baseline = CapacityWorkload(opening_at=_OPENING, socket_root=_SOCKETS)
         workload = SustainedWorkload(opening_at=_OPENING, socket_root=_SOCKETS)
         service = workload.service_configuration()
         assert len(service.sources) == len(service.accounts) == 4
@@ -80,12 +80,12 @@ class TestCapacitySustained:
             )
             for item in service.instances
         } == {("target_clip", 3_000_000, "1")}
-        # The stage-1 selection declares no chain, service life or target formula.
-        encoded = DomainCodec().encode_json(stage1.service_configuration())
+        # The baseline selection declares no chain, service life or target formula.
+        encoded = DomainCodec().encode_json(baseline.service_configuration())
         assert b'"chain":null' in encoded and b"service_life_seconds" not in encoded
         assert {
             PaperServiceWorkload.reference(item).formula
-            for item in stage1.service_configuration().instances
+            for item in baseline.service_configuration().instances
         } == {
             "fixed_clip",
             "liquidity_clip",

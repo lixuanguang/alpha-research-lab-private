@@ -105,7 +105,7 @@ class _Case:
     def decision(
         self, at: int, intent: TargetIntent | ExposureIntent | OrderIntent | QuoteIntent | None
     ) -> DecisionRecord:
-        """Retain a typed MR02 output without inventing an executable client ID."""
+        """Retain a typed decision output without inventing an executable client ID."""
         return DecisionRecord(
             instance="alpha",
             entity=self.entity,

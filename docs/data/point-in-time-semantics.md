@@ -83,7 +83,7 @@ candidate.
 [`AsOfSelector`](../../src/market_data/query/asof.py) supplies the reference cutoff
 order; the bounded [`Replay`](../../src/market_data/replay/events.py) iterator
 supplies the clock/cursor and scheduled-step operation. Economic composition through that operation is implemented in the
-[spot consumer](../../src/simulation/README.md). The [cutoff guide](../../src/market_data/README.md#select-point-events-at-a-cutoff)
+[spot consumer](../packages/simulation.md). The [cutoff guide](../packages/market-data.md#select-point-events-at-a-cutoff)
 defines the implemented projection and its separate retained history.
 
 Order admitted events by effective knowledge time, then predefined source/stream
@@ -149,7 +149,7 @@ at or before `t` a future-only perturbation.
 Storage, dataset publication, order-book and replay consumers preserve original
 capture text, source sequence, provenance identity, exact values and proxy reasons.
 The current price diagnostic preserves the query's business clock and separate
-exchange-event and availability clocks; its [contract](../../src/research/features/README.md#formula-and-clocks)
+exchange-event and availability clocks; its [contract](../packages/research-features.md#formula-and-clocks)
 explains this distinction. Economic consumers must preserve these semantics end to end.
 
 A selected input must satisfy `available_at <= decision_time` under its declared knowledge model;
@@ -167,7 +167,7 @@ cross-source tie rule rather than inventing a total observed arrival order.
 
 ## Corroborated archive availability
 
-The [native witness boundary](../../src/market_data/README.md#witnessed-archive-availability)
+The [native witness boundary](../packages/market-data.md#witnessed-archive-availability)
 retains independent Tardis response bytes for the exact Binance archive selection.
 `TradeRevision.availability` contains a reverified recorder timestamp and evidence
 identity; the original `ArchiveTrade.ts_knowledge` remains absent. This is a

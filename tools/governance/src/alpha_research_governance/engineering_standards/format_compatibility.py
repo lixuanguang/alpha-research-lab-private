@@ -17,7 +17,7 @@ class FormatCompatibilityChecker:
     revision suffix. External API references are listed explicitly.
     """
 
-    _WORDING_ROOTS: ClassVar[tuple[str, ...]] = ("src",)
+    _WORDING_ROOTS: ClassVar[tuple[str, ...]] = ("src", "docs/packages")
     _NAME_ROOTS: ClassVar[tuple[str, ...]] = ("src", "tools", "tests", "configs")
     # Assembled from parts so this checker's own source never matches its rules.
     _WORDING: ClassVar[re.Pattern[str]] = re.compile(

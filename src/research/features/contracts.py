@@ -58,7 +58,7 @@ class FeatureSchema(WireRecord, frozen=True):
 
     @property
     def identity(self) -> str:
-        """Pin definition, ordered signature, parameters and lifecycle for MR04 retrieval."""
+        """Pin definition, ordered signature, parameters and lifecycle for retrieval."""
         self.__post_init__()
         return hashlib.sha256(DomainCodec().encode_json(self)).hexdigest()
 

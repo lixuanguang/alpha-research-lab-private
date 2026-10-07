@@ -16,7 +16,7 @@ through existing snapshot admission and family-specific queries; the existing
 units, controls, membership and coverage limits. Book selection uses exact receipt
 clocks and cannot invent availability for archives. No implicit join, filling or
 currency conversion is performed. The
-[public contract](../../src/market_data/README.md#discover-and-reopen-research-selections)
+[public contract](../packages/market-data.md#discover-and-reopen-research-selections)
 owns the supported fields, resource bounds, missingness and refusal behavior.
 
 
@@ -34,7 +34,7 @@ observed-price window returns; `research.labels.ForwardReturn` separately comput
 delayed outcomes against frozen earlier endpoints. `FeatureStudy` reuses pinned
 trade selection and the existing retained exploration application. Every decision
 has its own knowledge cutoff; labels cannot enter earlier feature values. The
-[public contract](../../src/research/features/README.md) defines the query business
+[public contract](../packages/research-features.md) defines the query business
 clock, cadence, warm-up, missing/stale policy, exact rational units, input lineage
 and bounded execution. This does not implement the economic baseline's completed
 observations or a book/macro formula. The separate completed-price feature now
@@ -42,7 +42,7 @@ reuses `research.observations` and one `CompletedReturn` formula across simulati
 and a bounded scheduled batch path. `applications.backtest.qualify_scheduled_features`
 and its `qualify-features` subcommand retain exact replay/batch/restart traces.
 This qualifies saved-input software only; live source/cadence qualification
-remains open. MR04 online retrieval and MR05 local candidate binding now implement
+remains open. Online retrieval and local candidate binding implement
 their declared boundaries. Their in-scope
 lifecycle and serving interfaces are now required before QR onboarding, exercised
 by reference consumers owned by quant development. The feature store must provide
@@ -66,9 +66,9 @@ those integrations; both owners retain the existing serialized record contracts.
 Study and exploration APIs import ClearML, Optuna, DuckDB and Polars only when
 their corresponding operations run. `research.results.FeatureStudyResult` owns
 the shared retained feature-result schema used by production and admission.
-The [public contract](../../src/research/experiments/README.md) owns clocks,
+The [public contract](../packages/research-experiments.md) owns clocks,
 identity, retention, concurrency, recovery and supported evaluation boundaries.
-The [bounded model consumer](../../src/research/models/README.md) now adds configured
+The [bounded model consumer](../packages/research-models.md) now adds configured
 and train-only centered least-squares state, reload-only inference and exact
 predictive evaluation. ClearML publication is a separate recoverable outbox;
 terminal attempts and holdout history remain authoritative locally. ClearML source admission verifies
@@ -95,7 +95,7 @@ consumer now belongs to `research.studies.WindowDiagnostics` and
 `WindowDiagnosticRun`, composed by `applications.explore.compare_windows` and
 published through the existing ClearML outbox. It uses admitted SciPy for explicit
 reference/current tests and exact rational predictive errors with delayed-label
-admission. Its [contract](../../src/research/studies/README.md#offline-window-diagnostics)
+admission. Its [contract](../packages/research-studies.md#offline-window-diagnostics)
 retains reproducible reports and failure/retry semantics. Evidently's reviewed
 closure still fails admission; it is not installed. The roadmap owns verification
 and acceptance status. No comparison grants candidate, deployment or trading authority.
@@ -108,10 +108,9 @@ Once an exploratory result influences a candidate decision, it receives durable 
 
 Status: **implemented local versioned feature store and isolated Feast serving,
 including supervised paper/shadow consumption; deployment remains separate**.
-MR02 owns feature definitions and result semantics; MR04 owns provisioned stores,
-materialization and retrieval. The MR04 intent-only consumer supplies the initial
-MR05/MR07 online feature/policy binding; MR05 now loads complete candidates through
-that store, and MR07 binds it through `runtime.CandidateFeatureFeed` to the
+The research contracts own feature definitions and result semantics; the feature store
+owns provisioned stores, materialization and retrieval. Candidate packaging loads complete
+candidates through that store, and the paper runtime binds it through `runtime.CandidateFeatureFeed` to the
 checkpointed paper OMS. The store serves
 versioned features across studies and strategy instances rather than a special
 case for the initial return diagnostic. Preserve Feast's independently locked
@@ -131,25 +130,25 @@ Exercise late corrections, missing entities, expired values, partial publication
 retry and version rollback. Serving returns version and quality metadata; consumers
 refuse incompatible or stale state according to their declared policy. Loss of
 the serving service triggers the runtime's explicit pause or qualified fallback,
-never silent recomputation using different definitions. Backup/restore and MR15
-capacity evidence cover source products, registry/state and serving recovery.
+never silent recomputation using different definitions. Backup/restore and capacity
+evidence cover source products, registry/state and serving recovery.
 
 ### Research-driven feature lifecycle
 
-**Current MR02 research SDK:** named source projections, ordered multi-feature
+**Research SDK:** named source projections, ordered multi-feature
 schemas, train-only fitted transforms, arbitrary estimator state, separate labels,
 and target/exposure/order/quote policies now run through
 `applications.explore.run_decisions` / `inspect_decisions`. Pure feature/policy
 transitions retain isolated restart state; the installed consumer supplies fresh
 implementations without shared runner edits. The owning
-[feature guide](../../src/research/features/README.md#generalized-feature-lifecycle),
-[model guide](../../src/research/models/README.md#generalized-estimator-lifecycle),
-[observation guide](../../src/research/observations/README.md) and
-[strategy guide](../../src/strategies/README.md) define the exact supported scope.
-MR03 now composes these definitions into costed temporal studies, search and
-extensible retained reports. The [feature guide](../../src/research/features/README.md) now owns MR04 local
-feature-store services and intent-only online consumption. Candidate packaging
-and runtime binding are implemented locally under MR05; MR07 adds supervised
+[feature guide](../packages/research-features.md#generalized-feature-lifecycle),
+[model guide](../packages/research-models.md#generalized-estimator-lifecycle),
+[observation guide](../packages/research-observations.md) and
+[strategy guide](../packages/strategies.md) define the exact supported scope.
+Studies compose these definitions into costed temporal studies, search and
+extensible retained reports. The [feature guide](../packages/research-features.md) owns local
+feature-store services and online consumption. Candidate packaging
+and runtime binding are implemented locally, with supervised
 paper/shadow integration. Offline study fills do not
 qualify venue execution.
 
@@ -192,8 +191,8 @@ semantics require new versions and affected validation.
 ### Candidate promotion contract
 
 Status: **implemented for local candidate packaging and intent-only runtime binding**.
-The [candidate guide](../../src/research/experiments/README.md#candidate-bundles) and
-[runtime guide](../../src/runtime/README.md#candidate-loading-and-intent-evaluation)
+The [candidate guide](../packages/research-experiments.md#candidate-bundles) and
+[runtime guide](../packages/runtime.md#candidate-loading-and-intent-evaluation)
 own the installed interfaces. Quant development implements
 the candidate manifest in `research/experiments/` using both rule-only and learned
 reference candidates. Learned fields remain inapplicable for a rule-only
@@ -272,7 +271,7 @@ owned by chronological replay. Pipelines compose operations and retain state; th
 scheduled-step library enforce source admission, expiry, pending fill, decision
 and valuation order. Use fixed source/stream precedence and stable logical source
 order for meaningful ties. Hashes retain provenance without allowing future byte
-changes to reorder earlier economics. The [bounded spot economic consumer](../../src/simulation/README.md) now exercises
+changes to reorder earlier economics. The [bounded spot economic consumer](../packages/simulation.md) now exercises
 this contract through frozen observations, rules, independent limits, delayed fills,
 exact accounting and complete checkpoints. Its installed workflow reopens saved
 synthetic archives. The installed `alpha-backtest` command extends the same path with validated configuration,
@@ -320,5 +319,4 @@ or visibly bound unsupported liquidity-taking/capacity claims. A partial-fill
 option alone does not remove this limitation. Keep P1's declared trade-price
 model intact; book-based research needs a separate versioned experiment.
 
-The roadmap places paper qualification at MR10 in the
-[delivery sequence](../roadmap/README.md#delivery-order-and-dependencies).
+The [roadmap](../roadmap/overview.md#capabilities) records paper qualification.

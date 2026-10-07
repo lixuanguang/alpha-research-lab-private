@@ -1,11 +1,11 @@
-"""Re-verify MR12's installed monitoring evidence once under the bounded dashboard contract.
+"""Re-verify the installed monitoring evidence once under the bounded dashboard contract.
 
 Run this file from a separately installed, non-editable research environment with
 ``-I``. One invocation owns one fresh output directory, so a declared single attempt
 cannot be repeated in place. Every step stops the attempt at its first failure and is
 retained in ``steps.jsonl``. ``make check`` stays a separate final step.
 
-The steps repeat MR12's installed journeys: four live public-paper runs (both venues,
+The steps repeat the installed monitoring journeys: four live public-paper runs (both venues,
 shared and dedicated accounts) that reconcile dashboard economics and observe every
 local alert, their fresh-process replays, the installed operational and research
 consumer suites, and a structural inspection of every retained dashboard page.
@@ -314,7 +314,7 @@ class _Arguments(argparse.Namespace):
 
 
 def main() -> None:
-    """Run one declared MR12 re-verification into a fresh output directory."""
+    """Run one declared monitoring re-verification into a fresh output directory."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repository", type=Path, required=True)

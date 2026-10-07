@@ -112,7 +112,7 @@ class AccountJournal:
     Every writer reads and commits under the same SQLite BEGIN IMMEDIATE lock.
     No strategy can supply its own balance or release pending capacity. Unknown
     outcomes and cancel acknowledgements retain reservations. This local command
-    service has no executable transport; a venue submitter's fencing is MR11.
+    service has no executable transport; a venue submitter fences itself.
     """
 
     def __init__(

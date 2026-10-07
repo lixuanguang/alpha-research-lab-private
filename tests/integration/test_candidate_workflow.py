@@ -1,4 +1,4 @@
-"""Exercise MR05 candidate packaging through an isolated installed consumer."""
+"""Exercise candidate packaging through an isolated installed consumer."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import pytest
 
 
 class TestCandidateWorkflow:
-    """Keep the MR03 study and MR05 handoff together outside the checkout."""
+    """Keep the study and candidate handoff together outside the checkout."""
 
     @staticmethod
     def _copy_consumer(source: Path, destination: Path) -> None:

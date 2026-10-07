@@ -1,4 +1,4 @@
-"""Declare the stage-2a sustained workload: 50-minute native load and a low-order mix."""
+"""Declare the sustained workload: 50-minute native load and a low-order mix."""
 
 from __future__ import annotations
 
@@ -37,11 +37,11 @@ from runtime import SharedDecisionRuntime, SharedPaperCaptureObserver, SharedStr
 
 
 class SustainedNativeFixture(CapacityNativeFixture):
-    """Emit the declared stage-2 schedule: 25 Hz with a 10-second 100 Hz burst every 5 minutes.
+    """Emit the declared sustained schedule: 25 Hz with a 10-second 100 Hz burst every 5 minutes.
 
     Each 300-second period holds 7,250 base slots and then 1,000 burst slots in its last
     ten seconds, so ten periods cover 3,000 seconds with 82,500 socket messages. Native
-    frames, reconnect anchoring and receipt retention are the stage-1 fixture's own.
+    frames, reconnect anchoring and receipt retention are the baseline fixture's own.
     """
 
     period_seconds: ClassVar[int] = 300
@@ -58,7 +58,7 @@ class SustainedNativeFixture(CapacityNativeFixture):
         start_high: bool = False,
         epoch_path: Path | None = None,
     ) -> None:
-        """Admit only the base schedule; fault variants remain stage-1 inputs."""
+        """Admit only the base schedule; fault variants remain baseline inputs."""
         if variant != "base":
             raise ValueError("sustained fixture declares only its base schedule")
         super().__init__(source, variant=variant, start_high=start_high, epoch_path=epoch_path)
@@ -116,22 +116,22 @@ class SustainedNativeFixture(CapacityNativeFixture):
         }
 
 
-class Stage2bNativeFixture(SustainedNativeFixture):
-    """Emit the 2b day: 291 periods (87,300 seconds), 2,400,750 socket messages a source."""
+class DayNativeFixture(SustainedNativeFixture):
+    """Emit the day run: 291 periods (87,300 seconds), 2,400,750 socket messages a source."""
 
     periods: ClassVar[int] = 291
     frame_count = periods * (SustainedNativeFixture.base_slots + SustainedNativeFixture.burst_slots)
 
 
-class Stage2bRehearsalFixture(SustainedNativeFixture):
-    """Emit a 2b rehearsal: 26 periods (7,800 seconds), 214,500 socket messages a source."""
+class DayRehearsalFixture(SustainedNativeFixture):
+    """Emit a day-run rehearsal: 26 periods (7,800 seconds), 214,500 socket messages a source."""
 
     periods: ClassVar[int] = 26
     frame_count = periods * (SustainedNativeFixture.base_slots + SustainedNativeFixture.burst_slots)
 
 
 class SustainedWorkload(CapacityWorkload):
-    """Select the 2a topology: four sources and owners, two target-holding instances each.
+    """Select the sustained topology: four sources and owners, two target-holding instances each.
 
     Sources capture 30-minute, 75,000-message, 256 MiB segments in one chain per
     recording, and model paper fills at the touch without an adverse cost, so a held
@@ -154,7 +154,7 @@ class SustainedWorkload(CapacityWorkload):
     projection_window_minutes: ClassVar[int] = 45
 
     def service_configuration(self) -> PaperServiceConfiguration:
-        """Derive 2a's sources, owners and duration from the four-owner stage-1 topology."""
+        """Derive sustained sources, owners and duration from the four-owner baseline topology."""
         selected = super().service_configuration()
         sources = tuple(
             msgspec.structs.replace(
@@ -258,7 +258,7 @@ class SustainedWorkload(CapacityWorkload):
         window_minutes: int,
         reconcile_seconds: int | None = 60,
     ) -> dict[str, object]:
-        """Project 2a load and replay the authored order mix offline for each account.
+        """Project the sustained load and replay the authored order mix offline for each account.
 
         The first ``minutes`` of every source are replayed through the installed
         reconstruction, shared paper observer, account journal and selected policies,
@@ -562,14 +562,14 @@ class _ProjectionClock:
         return datetime(1970, 1, 1, tzinfo=UTC) + timedelta(microseconds=value // 1000)
 
 
-class Stage2bWorkload(SustainedWorkload):
-    """Select the counted 2b day: the 2a topology under a 25-hour cap and 26-hour grants.
+class DayWorkload(SustainedWorkload):
+    """Select the counted day run: the sustained topology under a 25-hour cap and 26-hour grants.
 
     Owners declare the approved 90,000-second service-life cap; each invocation is set
     by the cohort's timings. Chains hold the whole day's 30-minute segments.
     """
 
-    fixture: ClassVar[type[SustainedNativeFixture]] = Stage2bNativeFixture
+    fixture: ClassVar[type[SustainedNativeFixture]] = DayNativeFixture
     service_life_seconds: ClassVar[int] = 90_000
     supervisor_seconds: ClassVar[int] = 87_000
     grant_seconds: ClassVar[int] = 26 * 3600
@@ -588,10 +588,10 @@ class Stage2bWorkload(SustainedWorkload):
         return service
 
 
-class Stage2bRehearsalWorkload(Stage2bWorkload):
-    """Select a 2-hour 2b rehearsal under the same cap and grant life."""
+class DayRehearsalWorkload(DayWorkload):
+    """Select a 2-hour day-run rehearsal under the same cap and grant life."""
 
-    fixture: ClassVar[type[SustainedNativeFixture]] = Stage2bRehearsalFixture
+    fixture: ClassVar[type[SustainedNativeFixture]] = DayRehearsalFixture
     supervisor_seconds: ClassVar[int] = 7_800
     chain: ClassVar[PaperSourceChain] = PaperSourceChain(
         max_messages=250_000, max_bytes=1024**3, max_segments=6

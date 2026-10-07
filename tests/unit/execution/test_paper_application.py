@@ -525,7 +525,7 @@ class TestPaperExecutionApplication:
     def test_existing_admission_commands_keep_their_read_only_output(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """The installed MR06 command path still reports suppressed admission."""
+        """The installed command path still reports suppressed admission."""
         fixtures = Path(__file__).parents[2] / "fixtures" / "execution"
         config = fixtures / "shadow-config.json"
         request = fixtures / "shadow-request.json"

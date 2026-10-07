@@ -7,7 +7,7 @@ This workflow records new observations;
 it does not establish historical backfill, complete source coverage, a deployed
 service or an execution model.
 
-The shared [depth and BBO contract](../../src/market_data/README.md#shared-book-quotes)
+The shared [depth and BBO contract](../packages/market-data.md#shared-book-quotes)
 now maintains exact quantities and order counts incrementally for every visible
 L3 side/price. Native IDs and canonical order-only records remain unchanged;
 the level cache is rebuilt during ordinary saved replay. A gap or malformed
@@ -17,8 +17,8 @@ book. Counts describe visible orders and establish no queue priority.
 ## Start here
 
 Use the installed `alpha-collect` command below for deliberate acquisition.
-For pinned dataset inspection, use the [selection interfaces](../../src/market_data/README.md#discover-and-reopen-research-selections).
-The [research workbooks](../../examples/README.md) specify economic studies and
+For pinned dataset inspection, use the [selection interfaces](../packages/market-data.md#discover-and-reopen-research-selections).
+The [research workbooks](../research/guide.md) specify economic studies and
 consume retained results. The former infrastructure/capture notebooks are
 retired from active examples; their source remains in Git history.
 
@@ -241,7 +241,7 @@ object and compares the entire final summary and trace. This preserves visible
 resting order state; it establishes neither queue priority, hidden liquidity,
 executable fills, nor a simulator. Shared book publication/replay follows below.
 
-The [shared book path](../../src/market_data/README.md#published-book-queries-and-shared-stepping)
+The [shared book path](../packages/market-data.md#published-book-queries-and-shared-stepping)
 reuses publication and chronological stepping with its own format and quality scope.
 
 ## Verified source contract
@@ -375,7 +375,7 @@ Both are required together. Publication uses the capture's existing byte budget,
 shared `QualityReport` gate and atomic `SnapshotStore`. A publication refusal does
 not remove the completed raw recording or its summary. Original raw configuration
 and capture serialization remain compatible. Saved-only publication and explicit
-book reopening are described in the [data guide](../../src/market_data/README.md#bounded-saved-books).
+book reopening are described in the [data guide](../packages/market-data.md#bounded-saved-books).
 
 The native OKX decoder now commits both sides of a message together: a malformed
 second side leaves the preceding state and source cursor intact. Native sequence
@@ -386,7 +386,7 @@ rules, visible depth and archive unknown-continuity restrictions remain unchange
 
 The watchdog also retains periodic and final versioned observations in
 `monitor.sqlite3` within its supervision directory. The
-[monitoring guide](../../src/telemetry/README.md#operating-signals-and-commands)
+[monitoring guide](../packages/telemetry.md#operating-signals-and-commands)
 owns query/default-panel configuration. Receipt-to-durable lag uses actual local
 monotonic receipt and completed durable-append clocks. Queue bytes/age include
 in-flight persistence; heartbeat, received/durable frames, invalid/duplicate/gap
@@ -476,7 +476,7 @@ A divergent message leaves `first-divergence.json` beside the original raw objec
 with the first raw position and expected/observed states. No vendor download is
 used to replace the recording. Preserve these files together when diagnosing failure.
 
-The [book replay API](../../src/market_data/README.md#published-book-queries-and-shared-stepping)
+The [book replay API](../packages/market-data.md#published-book-queries-and-shared-stepping)
 queries atomic messages, schedules only known receipts, and restores the shared
 completed cursor together with accepted snapshot and recovery epoch in consumer
 state. The [recovery probe](../../tests/integration/consumers/capture/recovery_probe.py)
@@ -563,5 +563,5 @@ trades chain as one `public-trades` snapshot, each covering every segment.
 replays the whole chain in one pass, positions counted from zero across it.
 Raw identities, clocks and suffix positions stay attributable. Publication copies
 the predecessor objects for portable reopening. This preserves ingestion
-compatibility; it does not establish full-run publication throughput or R1
-workspace/retention budgets.
+compatibility; it does not establish full-run publication throughput or the
+[research capacity](../roadmap/research-capacity.md) budgets.

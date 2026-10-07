@@ -14,7 +14,7 @@ assertions. Provider-specific classes, normalization rules, SDK values, and
 source-priority policy do not enter the canonical model. The package has no
 network, filesystem, database, clock, or configuration dependency. Its strict
 immutable Pydantic construction boundary is governed by
-the [current architecture decision](README.md#current-architecture-decisions).
+the [current architecture decision](overview.md#current-architecture-decisions).
 
 ## Public interface
 

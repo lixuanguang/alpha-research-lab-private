@@ -1,0 +1,365 @@
+"""Prove the onboarding journey declaration, command records, guide coverage and summary rules."""
+
+from __future__ import annotations
+
+# standard library imports
+import subprocess  # nosec B404  # [owner=runtime; rationale=authored git fixture; expires=2027-03-01]
+import sys
+from pathlib import Path
+
+# third party library imports
+import msgspec
+import pytest
+from onboarding_journey import (
+    CaptureOutcome,
+    CaptureWindow,
+    Commands,
+    Discovery,
+    GuideCoverage,
+    Journey,
+    JourneyDeclaration,
+    ReleaseInputs,
+    Summary,
+)
+
+
+class JourneyFixture:
+    """Author declarations, guides and repositories for the journey driver."""
+
+    @staticmethod
+    def window(**changes: int) -> CaptureWindow:
+        """Author a valid 30-minute capture window."""
+        values = {
+            "lead_seconds": 120,
+            "ready_seconds": 60,
+            "duration_seconds": 1800,
+            "max_messages": 10_000_000,
+            "max_bytes": 8 * 1024**3,
+            "max_segments": 8,
+            "max_reconnects": 4,
+        }
+        values.update(changes)
+        return CaptureWindow(**values)
+
+    @classmethod
+    def declaration(cls, root: Path, **changes: object) -> JourneyDeclaration:
+        """Author a valid rehearsal declaration rooted under ``root``."""
+        values: dict[str, object] = {
+            "attempt": "rehearsal-1",
+            "counted": False,
+            "through": "J5",
+            "repository": str(root / "repository"),
+            "commit": "0" * 40,
+            "qr_workspace": str(root / "qr"),
+            "qr_commit": "1" * 40,
+            "evidence_root": str(root / "evidence"),
+            "temporary_root": str(root / "t"),
+            "uv": "/usr/bin/true",
+            "local_services_env": str(root / "local-services.env"),
+            "lakefs_credentials": str(root / "lakefs-access.json"),
+            "lakefs_repository": "journey-rehearsal-1",
+            "feeds": ("okx-btc-usdt-books", "okx-btc-usdt-trades"),
+            "window": cls.window(),
+            "holdouts": 1,
+            "guides": ("docs/research/quickstart.md",),
+        }
+        values.update(changes)
+        return msgspec.json.decode(msgspec.json.encode(values), type=JourneyDeclaration)
+
+    @staticmethod
+    def git(cwd: Path, *arguments: str) -> str:
+        """Run one git command in an authored repository."""
+        completed = subprocess.run(  # nosec B603 B607  # [owner=runtime; rationale=authored git fixture; expires=2027-03-01]
+            ("git", *arguments), cwd=cwd, capture_output=True, check=True, text=True
+        )
+        return completed.stdout.strip()
+
+    @classmethod
+    def repository(cls, root: Path) -> str:
+        """Create a one-commit repository and return its commit."""
+        root.mkdir(parents=True)
+        cls.git(root, "init", "-q")
+        (root / "README.md").write_text("fixture\n")
+        cls.git(root, "add", "README.md")
+        cls.git(
+            root,
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=f@example.invalid",
+            "commit",
+            "-q",
+            "-m",
+            "fixture",
+        )
+        return cls.git(root, "rev-parse", "HEAD")
+
+
+class TestDeclaration:
+    """Refuse declarations the record does not allow."""
+
+    def test_valid_rehearsal(self, tmp_path: Path) -> None:
+        """A rehearsal may stop before J8 and name no capacity records."""
+        declaration = JourneyFixture.declaration(tmp_path)
+        assert declaration.through == "J5" and not declaration.counted
+
+    @pytest.mark.parametrize(
+        ("changes", "message"),
+        [
+            ({"attempt": "trial"}, "rehearsal-<n>"),
+            ({"counted": True}, "only a counted attempt"),
+            ({"attempt": "counted", "counted": True}, "through J8"),
+            ({"repository": "relative/path"}, "absolute"),
+            ({"commit": "abc"}, "full SHA-1"),
+            ({"feeds": ("a", "a")}, "distinct feeds"),
+            ({"holdouts": 0}, "holdout"),
+            ({"temporary_root": "/" + "t" * 90}, "socket"),
+            ({"phases": (1800, 60, 600)}, "J6 phases"),
+            ({"phases": (1800, 600, 3600)}, "J6 phases"),
+            ({"operations": (300, 60, 300)}, "J7 phases"),
+            ({"research_workers": 0}, "research workers"),
+        ],
+    )
+    def test_refusals(self, tmp_path: Path, changes: dict[str, object], message: str) -> None:
+        """Each invalid field is refused with its reason."""
+        with pytest.raises((ValueError, msgspec.ValidationError), match=message):
+            JourneyFixture.declaration(tmp_path, **changes)
+
+    def test_counted_attempt_requires_both_capacity_records(self, tmp_path: Path) -> None:
+        """A counted attempt runs through J8 with both capacity records."""
+        declaration = JourneyFixture.declaration(
+            tmp_path,
+            attempt="counted",
+            counted=True,
+            through="J8",
+            capacity_records=(str(tmp_path / "research.md"), str(tmp_path / "day.md")),
+        )
+        assert declaration.counted
+
+    @pytest.mark.parametrize(
+        "changes",
+        [{"lead_seconds": 5}, {"ready_seconds": 1800}, {"duration_seconds": 6 * 3600 + 1}],
+    )
+    def test_window_bounds(self, changes: dict[str, int]) -> None:
+        """The window starts in the future, is ready inside itself and lasts six hours at most."""
+        with pytest.raises(ValueError, match=r"capture window|six hours"):
+            JourneyFixture.window(**changes)
+
+
+class TestCommands:
+    """Retain every command with a unique ordinal, its exit and output digests."""
+
+    def test_sequential_and_concurrent_records(self, tmp_path: Path) -> None:
+        """Ordinals are unique and records keep each command's own exit status."""
+        commands = Commands(tmp_path)
+        record, stdout = commands.run(
+            "J1", "echo", (sys.executable, "-c", "print('x')"), cwd=tmp_path
+        )
+        assert record.ordinal == 1 and record.returncode == 0 and stdout == b"x\n"
+        records = commands.run_concurrently(
+            "J2",
+            (
+                ("ok", (sys.executable, "-c", "pass")),
+                ("fail", (sys.executable, "-c", "raise SystemExit(3)")),
+            ),
+            cwd=tmp_path,
+            timeout=60,
+        )
+        assert [(r.ordinal, r.label, r.returncode) for r in records] == [
+            (2, "ok", 0),
+            (3, "fail", 3),
+        ]
+        lines = (tmp_path / "commands.jsonl").read_bytes().splitlines()
+        assert len(lines) == 3
+        assert sorted(path.name for path in (tmp_path / "logs").iterdir())[:2] == [
+            "0001-echo.stderr",
+            "0001-echo.stdout",
+        ]
+        assert commands.stdout(record) == b"x\n"
+
+
+class TestPool:
+    """Run independent commands in a bounded pool and record each in input order."""
+
+    def test_pool_bounds_concurrency(self, tmp_path: Path) -> None:
+        """No more than the declared workers run at once; each keeps its own exit."""
+        probe = (
+            "import os, sys, time; from pathlib import Path; "
+            "root = Path(sys.argv[1]); mark = root / str(os.getpid()); mark.touch(); "
+            "(root / f'seen-{os.getpid()}').write_text(str(len(list(root.glob('[0-9]*'))))); "
+            "time.sleep(1); mark.unlink(); raise SystemExit(int(sys.argv[2]))"
+        )
+        running = tmp_path / "running"
+        running.mkdir()
+        (tmp_path / "attempt").mkdir()
+        commands = Commands(tmp_path / "attempt")
+        labels = tuple(f"study-{index}" for index in range(5))
+        records = commands.run_pool(
+            "J3",
+            tuple(
+                (label, (sys.executable, "-c", probe, str(running), str(index % 2)))
+                for index, label in enumerate(labels)
+            ),
+            cwd=tmp_path,
+            environment={},
+            workers=2,
+            timeout=60,
+        )
+        assert [record.label for record in records] == list(labels)
+        assert [record.returncode for record in records] == [0, 1, 0, 1, 0]
+        seen = [int(path.read_text()) for path in running.glob("seen-*")]
+        assert len(seen) == 5 and max(seen) <= 2
+
+
+class TestBackground:
+    """Record a started command only when it ends, terminating it at its timeout."""
+
+    def test_finished_and_terminated_records(self, tmp_path: Path) -> None:
+        """A quick command keeps its exit; one that outlives its timeout is terminated."""
+        commands = Commands(tmp_path)
+        quick = commands.start("J6", "quick", (sys.executable, "-c", "pass"), cwd=tmp_path)
+        slow = commands.start(
+            "J6", "slow", (sys.executable, "-c", "import time; time.sleep(60)"), cwd=tmp_path
+        )
+        assert commands.finish(quick, cwd=tmp_path, timeout=30).returncode == 0
+        record = commands.finish(slow, cwd=tmp_path, timeout=1)
+        assert record.returncode != 0 and record.label == "slow"
+        assert len((tmp_path / "commands.jsonl").read_bytes().splitlines()) == 2
+
+
+class BuildRequest(msgspec.Struct, frozen=True):
+    """Read a build request's runtime declaration."""
+
+    runtime: dict[str, str]
+
+
+class TestPaperReleases:
+    """Author one policy and the paper and shadow services and account requests."""
+
+    def test_requests_name_each_runtime(self, tmp_path: Path) -> None:
+        """Each mode has a services and an account request with its own schemas."""
+        journey = Journey(
+            JourneyFixture.declaration(tmp_path, through="J6", phases=(600, 300, 300)), b"{}"
+        )
+        key = tmp_path / "key"
+        key.write_text("private")
+        key.with_suffix(".pub").write_text("ssh-ed25519 AAAA builder")
+        build = journey.temporary / "build/bin"
+        build.mkdir(parents=True)
+        (build / "python").write_bytes(b"python")
+        policy, requests = ReleaseInputs(journey, key).paper(tmp_path / "j6")
+        written = msgspec.json.decode(policy.read_bytes(), type=dict[str, object])
+        assert written["config_schemas"] == ["paper-services", "account-runtime"]
+        assert written["state_schemas"] == ["none", "account-journal"]
+        runtimes = {
+            name: msgspec.json.decode(path.read_bytes(), type=BuildRequest).runtime
+            for name, path in requests.items()
+        }
+        assert {name: (item["application"], item["mode"]) for name, item in runtimes.items()} == {
+            "paper-services": ("paper-services", "paper"),
+            "paper-account": ("execution", "paper"),
+            "shadow-services": ("paper-services", "shadow"),
+            "shadow-account": ("execution", "shadow"),
+        }
+
+
+class TestGuideCoverage:
+    """Find platform names a QR workspace imports that no linked guide mentions."""
+
+    def test_links_and_uncovered_names(self, tmp_path: Path) -> None:
+        """Linked Markdown is read; external links and fragments are ignored."""
+        checkout = tmp_path / "checkout"
+        (checkout / "docs/research").mkdir(parents=True)
+        (checkout / "docs/research/quickstart.md").write_text(
+            "Use `CandidatePackager`. See [guide](../guide.md#part) and "
+            "[site](https://example.invalid).\n"
+        )
+        (checkout / "docs/guide.md").write_text("`InstalledExtensions` loads providers.\n")
+        workspace = tmp_path / "qr"
+        (workspace / "studies").mkdir(parents=True)
+        (workspace / "studies/run.py").write_text(
+            "from runtime import CandidatePackager, InstalledExtensions, LoadedCandidate\n"
+            "from decimal import Decimal\n"
+        )
+        coverage = GuideCoverage(checkout, ("docs/research/quickstart.md",))
+        assert GuideCoverage.links("[a](b.md#c) [d](https://e)") == ("b.md",)
+        gate, uncovered = coverage.assess(workspace)
+        assert not gate.passed and uncovered == ("LoadedCandidate",)
+
+
+class TestSequence:
+    """Stop at the first failure and summarize it."""
+
+    def test_dirty_repository_fails_first(self, tmp_path: Path) -> None:
+        """A checkout that differs from the declared commit fails J1 before any build."""
+        commit = JourneyFixture.repository(tmp_path / "repository")
+        (tmp_path / "repository/README.md").write_text("changed\n")
+        declaration = JourneyFixture.declaration(tmp_path, commit=commit)
+        summary = Journey(declaration, msgspec.json.encode(declaration)).run()
+        assert summary.result == "failed"
+        assert summary.first_failure is not None
+        assert summary.first_failure.criterion == "repository_clean_at_declared_commit"
+        retained = msgspec.json.decode(
+            (tmp_path / "evidence/rehearsal-1/summary.json").read_bytes(), type=Summary
+        )
+        assert [step.status for step in retained.steps][:2] == ["failed", "not_run"]
+        assert not (tmp_path / "evidence/rehearsal-1/checkout").exists()
+
+
+class TestDiscovery:
+    """Read the dataset command's envelope as the driver does."""
+
+    def test_envelope_lists_snapshots(self) -> None:
+        """The discover output wraps its rows in a status envelope."""
+        payload = b'{"result":[{"snapshot_id":"a"},{"snapshot_id":"b"}],"status":"complete"}'
+        discovered = msgspec.json.decode(payload, type=Discovery)
+        assert discovered.status == "complete" and len(discovered.result) == 2
+
+
+class TestCaptureOutcome:
+    """A capture is complete when it reached its deadline and named every gap."""
+
+    @staticmethod
+    def result(**changes: object) -> bytes:
+        """Author the collector's printed result line, after earlier output."""
+        values: dict[str, object] = {
+            "reached_stop_deadline": True,
+            "retry_exhausted": False,
+            "gaps": [],
+            "messages": 14834,
+        }
+        values.update(changes)
+        return b"progress\n" + msgspec.json.encode(values) + b"\n"
+
+    def test_clean_window_exits_zero(self) -> None:
+        """A window with no gap passes only with exit 0."""
+        gate = CaptureOutcome.gate("capture-a", 0, self.result())
+        assert gate.name == "capture-a_completed" and gate.passed
+        assert not CaptureOutcome.gate("capture-a", 2, self.result()).passed
+
+    def test_declared_gap_passes_with_exit_two(self) -> None:
+        """A reconnect gap is explicit, so the collector's exit 2 is a complete window."""
+        gaps = [{"epoch": 0, "reason": "disconnect_unknown_loss", "received_ns": 1}]
+        gate = CaptureOutcome.gate("capture-a", 2, self.result(gaps=gaps))
+        assert gate.passed
+        assert gate.observed == {
+            "returncode": 2,
+            "reached_stop_deadline": True,
+            "retry_exhausted": False,
+            "gaps": [{"epoch": 0, "reason": "disconnect_unknown_loss"}],
+        }
+
+    @pytest.mark.parametrize(
+        ("returncode", "stdout"),
+        [
+            (2, b""),
+            (2, b"Capture/probe/replay failed\n"),
+            (2, result(reached_stop_deadline=False)),
+            (2, result(retry_exhausted=True, gaps=[{"epoch": 0, "reason": "x"}])),
+            (2, result(gaps=[{"epoch": 0, "reason": ""}])),
+            (1, result(gaps=[{"epoch": 0, "reason": "x"}])),
+        ],
+    )
+    def test_incomplete_windows_fail(self, returncode: int, stdout: bytes) -> None:
+        """No result, an early stop, exhausted reconnects or an unnamed gap fail."""
+        assert not CaptureOutcome.gate("capture-a", returncode, stdout).passed

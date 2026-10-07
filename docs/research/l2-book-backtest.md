@@ -10,7 +10,7 @@ A reproducible simulation does not establish an empirical alpha or live executio
 
 Before starting or resuming this research workflow, run `make local-services-up`
 from the repository root and complete the
-[research-session prerequisites](../../examples/README.md#before-every-research-session).
+[research-session prerequisites](guide.md#before-every-research-session).
 
 From the repository root, with the pinned uv environment and the existing saved
 archive present:
@@ -53,7 +53,7 @@ from research.studies import BookReport
 report = BookReport.read(Path("logs/book-backtest/runs/<attempt-id>/report.json"))
 ```
 
-Use the [research guide](../../examples/README.md) to design an economic study
+Use the [research guide](guide.md) to design an economic study
 around the supported interfaces and their limitations.
 
 ## Source, configuration and implemented owners

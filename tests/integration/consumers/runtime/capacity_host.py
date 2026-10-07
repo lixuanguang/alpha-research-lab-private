@@ -2,7 +2,7 @@
 
 The trial's own sampler sees only its process tree, so contention from anything else on
 the host is invisible to it. This sampler runs in the otherwise idle cohort driver.
-Stage-1 rows are diagnostic only. Given a trial root, each row also splits trial cores
+Baseline rows are diagnostic only. Given a trial root, each row also splits trial cores
 (that process and its descendants) from non-trial cores, which the sustained host gate
 grades. Processes the user may not inspect (on macOS, root-owned daemons) are counted
 only in the host total and so as non-trial load, never named.

@@ -507,7 +507,7 @@ class CapacityWorkload:
     # Each grant's declared life: ordinary one-hour grants unless a stage declares longer.
     grant_seconds: ClassVar[int] = 3600
     # Observed public Bitfinex ETH R0 reached 84.3 messages/s; 12,000 per 100 s capture
-    # leaves 42% headroom. Fixture routes keep the stage-1 5,000-message cap.
+    # leaves 42% headroom. Fixture routes keep the baseline 5,000-message cap.
     public_bitfinex_max_messages: ClassVar[int] = 12_000
     # Two selected reference consumers per account: instance role, formula and clip units.
     instance_policies: ClassVar[
@@ -554,7 +554,7 @@ class CapacityWorkload:
     def _account_configuration(
         self, venue: Literal["okx", "bitfinex"], role: Literal["shared", "isolated"]
     ) -> AccountConfiguration:
-        """Keep MR14 cash, risk and budget numbers for one independently signed owner."""
+        """Keep multi-instance paper cash, risk and budgets for one independently signed owner."""
         workload = self.venue_workloads[venue]
         dimension = workload.dimensions[0 if role == "shared" else 1]
         asset = "btc" if role == "shared" else "eth"
@@ -810,7 +810,7 @@ class CapacityWorkload:
         policy: Path,
         requests: Path,
     ) -> PaperOwner:
-        """Claim one venue's separately signed paper account using MR14 controls."""
+        """Claim one venue's separately signed paper account using multi-instance controls."""
         venue = account.account_id.split("-", maxsplit=1)[0]
         return self.venue_workload(venue).install_and_claim(
             account,

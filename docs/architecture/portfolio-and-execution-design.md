@@ -6,7 +6,7 @@ the roadmap owns delivery and acceptance.
 
 The initial delivery is research and paper trading. Live execution, authenticated
 venue qualification and real-account recovery are
-[KIV](../roadmap/README.md#live-trading-kiv-and-reconsideration). Their destination
+[out of scope](../roadmap/overview.md#live-trading-kept-in-view). Their destination
 contracts below remain requirements only if that work is reopened; existing
 test-adapter implementation and evidence retain their stated limits.
 
@@ -78,7 +78,7 @@ observations.
 
 The implemented local account boundary enforces marked gross exposure and pending
 commitments across instance/account/firm budgets, authorized instruments, price,
-size, freshness, inventory and cash. Its [account guide](../../src/execution/README.md#shared-account-admission-and-reconciliation)
+size, freshness, inventory and cash. Its [account guide](../packages/execution.md#shared-account-admission-and-reconciliation)
 records the normalized reconciliation and correction contracts. Broader risk
 views remain planned: net exposure, leverage,
 concentration, liquidity, margin, stress loss, sensitivities, and loss limits as applicable. Strategy budgets nest under
@@ -100,22 +100,20 @@ The dedicated single-instance paper account qualifies durable state, pending
 reservations, hard limits and base account reconciliation. The local shared-account
 increment adds tagged child orders, atomic budgets, conflict handling, attribution,
 compatible netting and deterministic allocation of fills, fees and residual units.
-MR09 acceptance requires two distinct active reference strategies on the
+Acceptance requires two distinct active reference strategies on the
 same instrument/account to reconcile separately and together, including selective
 stop/restart with ownership and account safety. A stopped child in a physical
 parent retains its reservation until a terminal outcome; unaffected residuals are
 reissued only after reconciliation and current mark/budget/funding checks.
 Unroutable physical-lot residuals stay visible and reserved; a completed child
 retains fee capacity while its physical parent can still receive costs.
-The [MR09 roadmap boundary](../roadmap/README.md#mr09-delivery-and-acceptance) retains
+The [roadmap](../roadmap/overview.md#capabilities) records
 the qualified scope and remaining limits. Quant development supplies the deterministic
 reference policy; QR later supplies economic allocation choices within limits.
 This local paper/software proof does not establish OKX or Bitfinex private-stream,
-order, fill or account conformance; that authenticated qualification is KIV.
-MR11 now retains separate installed public-input paper execution and account
-evidence for each venue, with two active reference policies sharing one account.
-The [delivery record](../roadmap/paper-integration.md) distinguishes deterministic
-economic/recovery proofs from bounded observed public-source runs.
+order, fill or account conformance; that authenticated qualification is out of scope.
+Each venue has separate installed public-input paper execution and account
+evidence, with two active reference policies sharing one account.
 
 Initial strategies are trusted founder-authored code. Logical separation,
 immutable limits, per-instance state and final risk enforcement outside strategy
@@ -127,7 +125,7 @@ this stronger guarantee; no sandbox platform is a P1 prerequisite.
 
 ## OMS and venue adapter design
 
-The [`execution` owner](../../src/execution/README.md) implements a durable,
+The [`execution` owner](../packages/execution.md) implements a durable,
 fenced dedicated-account paper/shadow OMS. It owns intent, request acknowledgment,
 acceptance, partial fill, cancel request/acknowledgment/confirmation, rejection,
 unknown outcomes and local reconciliation. Candidate checkpoints and child order
@@ -137,14 +135,14 @@ does not decide economic targets or override risk. The additional `AccountJourna
 shares the same intent/lifecycle owner and adds
 atomic instance/account/firm admission, tagged child orders and postings, compatible
 physical net orders, deterministic fill/fee allocation, append-only corrections
-and complete local reconciliation. MR11 adds an implemented test-venue gateway,
+and complete local reconciliation. An implemented test-venue gateway adds
 both native protocols, signed native fees and wallet/order comparison through
 these same owners. Its scripted conformance remains software evidence; actual
-authenticated venue qualification is unproven and KIV. The
-[test-venue contract](../../src/execution/README.md#test-venue-execution) owns
+authenticated venue qualification is out of scope. The
+[test-venue contract](../packages/execution.md#test-venue-execution) owns
 supported operations, separate authority and recovery limits.
 
-[`runtime.PaperCandidateRuntime`](../../src/runtime/README.md#paper-candidate-supervision)
+[`runtime.PaperCandidateRuntime`](../packages/runtime.md#paper-candidate-supervision)
 delivers lifecycle, timer, market, order and account callbacks to the same
 candidate components used by replay. Public native feed collection connects
 through a post-persistence observer and retains actual local availability.
@@ -158,8 +156,8 @@ slippage already included in execution prices is not deducted twice. Shadow mode
 never matches. Both modes suppress executable submission. A contradictory fill
 after confirmed cancellation durably blocks the account pending later correction
 support rather than rewriting terminal state. The
-[MR07 roadmap boundary](../roadmap/README.md#mr07-delivery-and-acceptance)
-qualifies the bounded scope and separates source observations from modeled fills.
+[roadmap](../roadmap/overview.md#capabilities)
+records the bounded scope; source observations stay separate from modeled fills.
 
 The supervised local composition retains this same coordinator and journal. Each
 instance selects its own input, reference policy and explicit instrument through
@@ -176,9 +174,8 @@ decision cannot bypass the requirement for reconciliation after the terminal
 parent outcome before residual reissue. Source loss faults all dependent accounts;
 an owner failure terminates every dependent policy. Independent accounts continue
 only with their own healthy source and current authority. Shadow records decisions
-and reservations without paper matching or internal crossing fills. The
-[MR14 record](../roadmap/multi-instance-paper.md) separates these implementation
-contracts from measured installed service observations.
+and reservations without paper matching or internal crossing fills. Measured installed service observations are kept
+separately from these implementation contracts.
 
 The retained live adapter contract below applies if live work is reopened.
 Venue adapters translate canonical orders into one broker or venue protocol. They own credentials, throttles, sequence
@@ -194,7 +191,7 @@ A cancel acknowledgement is not confirmed cancellation and cannot alone free a
 reservation. Private-stream loss, cancel/fill races and process restart reconcile
 against venue state before retry or resumption. One fenced owner may execute for
 an account. Any reopened live scope must qualify the first venue end to end, then
-the second through the same contracts. This native venue conformance is KIV;
+the second through the same contracts. This native venue conformance is out of scope;
 initial onboarding instead requires both venues' public-input paper conformance.
 
 ## Asset-class specializations

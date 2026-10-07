@@ -1,4 +1,4 @@
-"""Check MR17 journey evidence independently through the installed supported API.
+"""Check onboarding journey evidence independently through the installed supported API.
 
 The journey driver runs this file with the installed research interpreter (``-I``)
 after a step's commands. It reads the step's retained outputs, never QR claims, and

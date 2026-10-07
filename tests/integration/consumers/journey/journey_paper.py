@@ -96,7 +96,7 @@ Mode = Literal["paper", "shadow"]
 # The paper services' workspace components J7 backs up: the release's candidates, the
 # served feature store and J6's two paper service roots.
 PAPER_COMPONENTS = ("candidates", "features", "service-p-a", "service-p-b")
-# The account rules paper may refuse for and research does not model (AB-1): budgets,
+# The account rules paper may refuse for and research does not model: budgets,
 # holdings, funding, and self-trade protection between the account's working orders.
 PAPER_ONLY_REASONS = frozenset(
     {
@@ -131,6 +131,11 @@ class Market:
     def feed(self) -> str:
         """Name the QR's captured feed files."""
         return f"{self.venue}-{self.asset}-{self.quote.lower()}"
+
+
+# Names the QR workspace chose for its extension package, study families and metric.
+QR_EXTENSION = "mr17-extensions"
+QR_PREFIX = "mr17"
 
 
 class PaperPlan:
@@ -276,12 +281,12 @@ class PaperPlan:
             dimension = self.dimension(source.capture)
             currency = Currency.from_code(market.quote)
             selected: list[tuple[str, str, datetime, str | None]] = [
-                (f"rule-{market.name}", f"mr17-rule-{market.name}", origin, None),
+                (f"rule-{market.name}", f"{QR_PREFIX}-rule-{market.name}", origin, None),
                 # Five seconds after the rule, so the pair decide in separate batches and
                 # the learned target contends for the limit the rule's bid reserved.
                 (
                     f"learned-{market.name}",
-                    f"mr17-learned-{market.name}",
+                    f"{QR_PREFIX}-learned-{market.name}",
                     origin + timedelta(seconds=5),
                     "live",
                 ),
@@ -290,7 +295,7 @@ class PaperPlan:
                 selected.append(
                     (
                         f"rule-{market.name}-late",
-                        f"mr17-rule-{market.name}",
+                        f"{QR_PREFIX}-rule-{market.name}",
                         origin + timedelta(seconds=7, microseconds=500_000),
                         None,
                     )
@@ -304,7 +309,7 @@ class PaperPlan:
                         source=source.name,
                         candidate=PackagedCandidate(
                             definition_sha256=identities[family],
-                            extension="mr17-extensions",
+                            extension=QR_EXTENSION,
                             starts_at=starts_at,
                             feature_version=version,
                         ),
@@ -972,7 +977,7 @@ class RaceCheck:
 class PhaseVerification:
     """Assess one phase from its retained monitoring, reconciliation and receiver evidence."""
 
-    metric = "mr17.net-per-turnover"
+    metric = f"{QR_PREFIX}.net-per-turnover"
 
     def __init__(
         self,
@@ -1020,7 +1025,7 @@ class PhaseVerification:
         mode = self.configuration.accounts[0].configuration.mode
         if mode == "paper":
             # Whether one phase alerts depends on its market, so the count is observed
-            # here and the driver requires an alert across the step's phases (AL-1).
+            # here and the driver requires an alert across the step's phases.
             received = self.alerts.read_bytes().count(b"\n") if self.alerts.is_file() else 0
             gates.append(PhaseGate("alerts_observed", True, {"datagrams": received}))
         else:
@@ -1881,7 +1886,7 @@ class JourneyPaper:
     def refusals(self) -> None:
         """J7: every paper refusal and dropped leg carries a declared paper-only reason.
 
-        Paper enforces budgets research does not model (AB-1), so a budget-bound
+        Paper enforces budgets research does not model, so a budget-bound
         decision research admits may be refused here, but for no other reason.
         """
         # An operator control stamps the account's clock while it runs, so a decision

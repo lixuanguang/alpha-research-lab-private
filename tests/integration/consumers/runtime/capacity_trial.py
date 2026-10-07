@@ -32,7 +32,7 @@ from capacity_inputs import CapacityVariant, CapacityWorkload
 from capacity_reads import CapacityReadObserver
 from capacity_reconciler import AccountReconciler
 from capacity_recovery import CapacityRecovery
-from capacity_sustained import Stage2bRehearsalWorkload, Stage2bWorkload, SustainedWorkload
+from capacity_sustained import DayRehearsalWorkload, DayWorkload, SustainedWorkload
 
 # project library imports
 from accounting import AccountLedger
@@ -60,12 +60,12 @@ class TrialWorkloads:
         socket_root: Path,
         public_venue: Literal["okx", "bitfinex"] | None,
     ) -> CapacityWorkload:
-        """Select the stage-1 or the sustained workload by its explicit declared name."""
+        """Select the baseline or a sustained workload by its explicit declared name."""
         factory: type[CapacityWorkload] = {
             "capacity": CapacityWorkload,
             "sustained": SustainedWorkload,
-            "stage2b": Stage2bWorkload,
-            "stage2b-rehearsal": Stage2bRehearsalWorkload,
+            "day": DayWorkload,
+            "day-rehearsal": DayRehearsalWorkload,
         }[name]
         return factory(opening_at=opening_at, socket_root=socket_root, public_venue=public_venue)
 
@@ -167,14 +167,14 @@ class AlertReceiver:
         self.path.unlink(missing_ok=True)
 
 
-type TrialWorkload = Literal["capacity", "sustained", "stage2b", "stage2b-rehearsal"]
+type TrialWorkload = Literal["capacity", "sustained", "day", "day-rehearsal"]
 
 
 @dataclass(frozen=True, slots=True)
 class TrialTimings:
     """Declare one trial's measured interval and its finite process lifetimes.
 
-    The defaults are the stage-1 shape: a 60-second interval, a 75-second supervisor
+    The defaults are the baseline shape: a 60-second interval, a 75-second supervisor
     and 120-second signed account services. A sustained phase declares its own.
     """
 
@@ -191,7 +191,7 @@ class TrialTimings:
 class CapacityTrial:
     """Own signed startup, a measured finite interval and unconditional shutdown."""
 
-    # Stage-1 defaults; a sustained phase declares its own in ``__init__``.
+    # Baseline defaults; a sustained phase declares its own in ``__init__``.
     workload_name: TrialWorkload = "capacity"
     timings: TrialTimings = TrialTimings()
     reconcile_seconds: int | None = None
@@ -994,7 +994,7 @@ def main() -> None:
     parser.add_argument("--features", action="store_true")
     parser.add_argument(
         "--workload",
-        choices=("capacity", "sustained", "stage2b", "stage2b-rehearsal"),
+        choices=("capacity", "sustained", "day", "day-rehearsal"),
         default="capacity",
     )
     parser.add_argument("--interval-seconds", type=int, default=60)

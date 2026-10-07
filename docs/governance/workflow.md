@@ -4,7 +4,7 @@ This repository is maintained by one founder. The workflow follows the actual
 capability being built; a package catalog, role register, evidence bundle, or
 institutional approval is not a prerequisite for ordinary development.
 
-The [platform roadmap](../roadmap/README.md#infrastructure-completion-before-qr-onboarding)
+The [platform roadmap](../roadmap/overview.md#scope)
 requires quant development to complete the initial OKX/Bitfinex spot research and
 paper-trading stack before QR onboarding. Quant development authors reference research/runtime consumers and
 qualifies their public extension points; accepted QR strategies are not delivery
@@ -18,10 +18,10 @@ delivery, not current capability or trading authority.
 2. Change the implementation and its focused tests together. Preserve the
    existing typing, import organization, docstring, numerical, and temporal
    contracts. Assign module responsibilities according to the
-   [orchestrator pipeline and library boundary](../coding_standards/README.md#orchestrator-pipelines-and-libraries).
+   [orchestrator pipeline and library boundary](../development/engineering-standards.md#orchestrator-pipelines-and-libraries).
    Review class ownership and reserve bare functions for actual orchestration;
    the checker does not yet enforce this rule. Migrate affected APIs with their
-   callers and follow the [remaining OOP work](../roadmap/README.md#delivery-order-and-dependencies).
+   callers and follow the [remaining OOP work](../roadmap/overview.md#capabilities).
 3. Use the four sections in the pull-request template: problem/change,
    affected scope, validation result, and risks/reversal. Add migration,
    benchmark, or operational detail only when the change needs it.
@@ -34,8 +34,8 @@ Cross-cutting choices may be recorded in a short ADR when they are expensive to
 reverse. ADRs are explanatory records and are not approval or staffing gates.
 The architecture checker validates only repository-local links.
 
-Follow the [engineering guide](../coding_standards/README.md) for retained source
-requirements and the [platform roadmap](../roadmap/README.md) for current work.
+Follow the [engineering guide](../development/engineering-standards.md) for retained source
+requirements and the [platform roadmap](../roadmap/overview.md) for current work.
 Keep secrets, private data, bulk research outputs and mutable operational state
 outside Git; retain small provenance and release identities with durable output
 references. Source access does not grant data, deployment, broker or capital
@@ -49,9 +49,8 @@ while any [wheel-only allowance](../architecture/dependency-admission.md#wheel-o
 is active; deleting an allowance cannot make a package without a source
 distribution admissible.
 
-[MR06](../roadmap/README.md#mr06-delivery-and-acceptance) adds separate
-`alpha-research-contracts`, `alpha-research-collector` and
-`alpha-research-execution` wheels. MR17 adds `alpha-research-paper-services`, the
+Separate `alpha-research-contracts`, `alpha-research-collector` and
+`alpha-research-execution` wheels are built, and `alpha-research-paper-services`, the
 supervised paper services and candidate runtime, which depends on the exact
 `contracts` and `execution` versions. A paper services release also builds the
 research extensions listed as its path dependencies, and external extensions given
@@ -91,7 +90,7 @@ retention requirement.
 
 ## Activate and operate
 
-Live trading is [KIV](../roadmap/README.md#live-trading-kiv-and-reconsideration)
+Live trading is [out of scope](../roadmap/overview.md#live-trading-kept-in-view)
 until both OOS testing and forward paper trading demonstrate profitability net
 of transaction costs, slippage and applicable digital-asset gas fees. Live
 execution qualification and capital activation are outside QR onboarding. The
