@@ -324,3 +324,5 @@ can reuse earlier J2 or J3–J5 outputs. Its fault-injection mode runs a 30-minu
 | Run | Code | Result |
 | --- | --- | --- |
 | rehearsal-126 (2026-10-07) | `c998a28`, QR `7a7f28e` | J1–J7: 292 of 293. OKX dropped the frozen collector's connection; the collector recorded the gap and exited 2, which failed the old exit-zero criterion. J2 now grades each capture's printed result; all eight captures pass that criterion |
+| rehearsal-127 (2026-10-07) | `8c25636`, QR `7a7f28e` | J1–J5 passed every criterion; all eight captures completed with no gap. At 07:44 UTC, during J6, the source checkout was switched to `main` outside the run, so the J6 shadow and J7 upgrade builds used different code from the packaged candidates and were refused (`installed environment differs`). Not a code defect: the development harness now snapshots the working tree instead of linking it |
+| rehearsal-128 (2026-10-07) | `2ec69a1`, QR `7a7f28e` | J1–J7: all 293 criteria passed, on the renamed driver with the working tree snapshotted; the frozen collector completed with no gap |
