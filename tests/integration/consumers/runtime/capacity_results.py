@@ -12,6 +12,7 @@ from typing import Literal, cast
 
 # third party library imports
 import msgspec
+from capacity_inputs import FixtureReceipts
 
 # project library imports
 from configuration import PaperServiceConfiguration
@@ -847,11 +848,21 @@ class CapacityResultsCollector:
     ) -> dict[str, object]:
         """Compare every emitted byte and required steady slot with the finalized capture."""
         trace_path = (
-            self.service_root.parent / "fixture-epochs" / f"{source_name}.epoch-1-receipts.json"
+            self.service_root.parent / "fixture-epochs" / f"{source_name}.epoch-1-receipts.jsonl"
         )
         if not trace_path.exists() or self.read_root is None:
             return {"status": "unmeasured", "reason": "no_closed_fixture_schedule_trace"}
-        trace = self.codec.decode_json(trace_path.read_bytes(), _FixtureReceipts)
+        receipts = FixtureReceipts(trace_path)
+        if receipts.closed_ns is None:
+            return {"status": "unmeasured", "reason": "no_closed_fixture_schedule_trace"}
+        trace = _FixtureReceipts(
+            fixture_identity=receipts.fixture_identity,
+            active_identity=receipts.active_identity or "",
+            epoch=receipts.epoch,
+            anchor_ns=receipts.anchor_ns,
+            closed_ns=receipts.closed_ns,
+            emitted=tuple(receipts.rows()),
+        )
         interval = self.codec.decode_json((self.read_root / "summary.json").read_bytes(), _ReadRun)
         start, end = interval.started_monotonic_ns, interval.steady_ended_monotonic_ns
         if start is None or end is None:

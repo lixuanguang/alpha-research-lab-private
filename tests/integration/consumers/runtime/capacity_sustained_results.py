@@ -17,6 +17,7 @@ from pathlib import Path
 # third party library imports
 import msgspec
 from capacity_host import HostGate
+from capacity_inputs import FixtureReceipts
 from capacity_sustained import SustainedNativeFixture
 
 # project library imports
@@ -107,6 +108,7 @@ class RollingPercentiles:
         statuses = {str(window["status"]) for window in windows}
         return {
             "count": len(population),
+            "p50_ns": cls._rank(population, 0.50) if population else None,
             "p95_ns": cls._rank(population, 0.95) if population else None,
             "p99_ns": cls._rank(population, 0.99) if population else None,
             "max_ns": population[-1] if population else None,
@@ -184,16 +186,6 @@ class _Observation(msgspec.Struct, frozen=True):
     values: object
 
 
-class _Receipts(msgspec.Struct, frozen=True):
-    """Decode one fixture epoch's emitted slots, clocks and byte digests."""
-
-    fixture_identity: str
-    epoch: int
-    anchor_ns: int
-    closed_ns: int
-    emitted: tuple[tuple[int, int, str], ...]
-
-
 class _Interval(msgspec.Struct, frozen=True):
     """Decode the read observer's actual measured interval clocks."""
 
@@ -210,10 +202,12 @@ class SustainedResults:
         *,
         window_seconds: int = 300,
         budgets: dict[str, WindowBudget] | None = None,
+        fixture: type[SustainedNativeFixture] = SustainedNativeFixture,
     ) -> None:
-        """Bind a completed phase directory and the declared window budgets by class."""
+        """Bind a completed phase, its declared window budgets and its authored schedule."""
         self.trial, self.window_ns = trial, window_seconds * 1_000_000_000
         self.budgets = {} if budgets is None else budgets
+        self.fixture = fixture
 
     def interval(self) -> tuple[int, int]:
         """Return the read observer's declared measured interval in monotonic ns."""
@@ -224,11 +218,12 @@ class SustainedResults:
 
     @staticmethod
     def _lines(path: Path) -> Iterator[bytes]:
-        """Yield complete retained rows, refusing a truncated last row."""
-        payload = path.read_bytes()
-        if payload and not payload.endswith(b"\n"):
-            raise ValueError(f"incomplete sustained evidence row: {path}")
-        yield from payload.splitlines()
+        """Stream complete retained rows, refusing a truncated last row."""
+        with path.open("rb") as stream:
+            for line in stream:
+                if not line.endswith(b"\n"):
+                    raise ValueError(f"incomplete sustained evidence row: {path}")
+                yield line[:-1]
 
     def _rolling(self, name: str, samples: Iterable[tuple[int, int]]) -> dict[str, object]:
         """Summarize one class over the measured interval with its declared budget."""
@@ -257,6 +252,7 @@ class SustainedResults:
                 durable[(key, row.cursor)] = row.durable_ns
         bbo: dict[str, list[tuple[int, int]]] = {}
         checkpoint: list[tuple[int, int]] = []
+        account_checkpoints: dict[str, list[tuple[int, int]]] = {}
         for path in sorted(measurements.glob("*/*/*.paper.jsonl")):
             key, account = path.name.split(".")[:2]
             account_bbo = bbo.setdefault(account, [])
@@ -268,7 +264,9 @@ class SustainedResults:
                 if durable_ns is not None:
                     account_bbo.append((durable_ns, book.bbo_observed_ns - durable_ns))
                 if book.book_to_checkpoint_ns is not None:
-                    checkpoint.append((book.book_started_ns, book.book_to_checkpoint_ns))
+                    sample = (book.book_started_ns, book.book_to_checkpoint_ns)
+                    checkpoint.append(sample)
+                    account_checkpoints.setdefault(account, []).append(sample)
         reads: dict[str, list[tuple[int, int]]] = {}
         failed_reads: dict[str, int] = {}
         samples_path = self.trial / "reads/samples.jsonl"
@@ -310,6 +308,11 @@ class SustainedResults:
                 for name, values in sorted(bbo.items())
             },
             "selected_book_to_checkpoint": self._rolling("selected_book_to_checkpoint", checkpoint),
+            # Whole-run populations per account, for the 2b checkpoint percentiles.
+            "selected_book_to_checkpoint_by_account": {
+                name: self._rolling("selected_book_to_checkpoint", values)
+                for name, values in sorted(account_checkpoints.items())
+            },
             **{
                 f"read_{name}": self._rolling(f"read_{name}", values)
                 for name, values in sorted(reads.items())
@@ -387,15 +390,29 @@ class SustainedResults:
                 result[source.name] = entries
         return result
 
+    @staticmethod
+    def _first_slot_at(fixture: type[SustainedNativeFixture], offset_ns: int) -> int:
+        """Return the first slot whose authored offset is at least ``offset_ns``."""
+        low, high = 0, fixture.frame_count
+        while low < high:
+            middle = (low + high) // 2
+            if fixture.slot_ns(middle) < offset_ns:
+                low = middle + 1
+            else:
+                high = middle
+        return low
+
     def fixture_proof(self, source: str) -> dict[str, object]:
         """Prove every emitted slot is retained exactly, in order and on time.
 
         Each fixture epoch's emitted bytes must equal its recording's frames in order;
         every slot due inside the measured interval must have been emitted and
-        retained no later than the unchanged two-second queue-age bound.
+        retained no later than the unchanged two-second queue-age bound. Emitted slots
+        and retained frames are compared as they stream, so a day's run is never held.
         """
         start, end = self.interval()
-        traces = sorted((self.trial / "fixture-epochs").glob(f"{source}.epoch-*-receipts.json"))
+        fixture = self.fixture
+        traces = sorted((self.trial / "fixture-epochs").glob(f"{source}.epoch-*-receipts.jsonl"))
         runs = sorted((self.trial / "operating/runs").iterdir())
         recordings = CaptureRecording.discover(runs[0] / source) if len(runs) == 1 else ()
         if len(traces) != 1 or len(recordings) != 1:
@@ -405,37 +422,40 @@ class SustainedResults:
                 "epochs": len(traces),
                 "recordings": len(recordings),
             }
-        trace = msgspec.json.decode(traces[0].read_bytes(), type=_Receipts)
-        frames = tuple(
-            record
+        trace = FixtureReceipts(traces[0])
+        # Slot clocks increase with the index, so the slots due in the interval are one range.
+        low = self._first_slot_at(fixture, start - trace.anchor_ns)
+        high = self._first_slot_at(fixture, end - trace.anchor_ns)
+        frames = (
+            hashlib.sha256(record.raw).hexdigest()
             for record in recordings[0].records(completed=recordings[0].completed)
             if record.kind in ("frame", "snapshot")
         )
-        indices = tuple(row[0] for row in trace.emitted)
-        exact = tuple(hashlib.sha256(frame.raw).hexdigest() for frame in frames) == tuple(
-            row[2] for row in trace.emitted
-        )
-        required = {
-            index
-            for index in range(SustainedNativeFixture.frame_count)
-            if start <= trace.anchor_ns + SustainedNativeFixture.slot_ns(index) < end
-        }
-        late = sum(
-            1
-            for index, received_ns, _ in trace.emitted
-            if index in required
-            and received_ns - trace.anchor_ns - SustainedNativeFixture.slot_ns(index)
-            > 2_000_000_000
-        )
-        missing = len(required - set(indices))
-        complete = exact and indices == tuple(range(len(indices))) and not missing and not late
+        emitted = retained = late = 0
+        exact = contiguous = True
+        for index, received_ns, digest in trace.rows():
+            contiguous = contiguous and index == emitted
+            emitted += 1
+            frame = next(frames, None)
+            retained += frame is not None
+            exact = exact and frame == digest
+            if (
+                low <= index < high
+                and received_ns - trace.anchor_ns - fixture.slot_ns(index) > 2_000_000_000
+            ):
+                late += 1
+        unread = sum(1 for _ in frames)
+        retained += unread
+        exact = exact and not unread
+        missing = max(0, high - max(low, emitted))
+        complete = exact and contiguous and not missing and not late
         return {
             "status": "pass" if complete else "fail",
             "fixture_identity": trace.fixture_identity,
-            "emitted": len(indices),
-            "retained_frames": len(frames),
+            "emitted": emitted,
+            "retained_frames": retained,
             "exact_bytes_in_order": exact,
-            "required_slots": len(required),
+            "required_slots": high - low,
             "missing_required_slots": missing,
             "late_required_slots": late,
         }

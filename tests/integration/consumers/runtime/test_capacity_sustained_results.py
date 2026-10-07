@@ -12,6 +12,7 @@ from typing import cast
 # third party library imports
 import msgspec
 import pytest
+from capacity_inputs import FixtureReceipts
 from capacity_sustained import SustainedNativeFixture, SustainedWorkload
 from capacity_sustained_results import RollingPercentiles, SustainedResults, WindowBudget
 
@@ -112,17 +113,15 @@ class SustainedResultsFixture:
             for index, received, raw in frames
             if index != drop
         ]
-        receipts: dict[str, object] = {
-            "fixture_identity": fixture.identity,
-            "active_identity": fixture.identity,
-            "epoch": 1,
-            "anchor_ns": anchor,
-            "closed_ns": frames[-1][1] + _S,
-            "emitted": emitted,
-        }
         (trial / "fixture-epochs").mkdir(parents=True)
-        (trial / f"fixture-epochs/{source.name}.epoch-1-receipts.json").write_bytes(
-            msgspec.json.encode(receipts)
+        FixtureReceipts.write(
+            trial / f"fixture-epochs/{source.name}.epoch-1-receipts.jsonl",
+            fixture_identity=fixture.identity,
+            active_identity=fixture.identity,
+            epoch=1,
+            anchor_ns=anchor,
+            closed_ns=frames[-1][1] + _S,
+            emitted=emitted,
         )
         # The interval closes just after the last authored receipt and its durable clock.
         start, stop = anchor, anchor + SustainedNativeFixture.slot_ns(slots - 1) + 10 * _MS

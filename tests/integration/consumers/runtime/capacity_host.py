@@ -41,6 +41,18 @@ class _ProcessTimes(Protocol):
     system: float
 
 
+class _Memory(Protocol):
+    """Describe one process's resident memory."""
+
+    rss: int
+
+
+class _Disk(Protocol):
+    """Describe host-wide cumulative disk writes."""
+
+    write_bytes: int
+
+
 class HostSampler:
     """Append one host CPU row per second to a JSON-lines file until stopped."""
 
@@ -92,6 +104,24 @@ class HostSampler:
             return {self.trial_root}
         return {self.trial_root, *(cast(int, child.pid) for child in children)}  # type: ignore[attr-defined]  # [owner=runtime; rationale=untyped psutil child identity narrowed at one diagnostic boundary; expires=2027-02-01]
 
+    @staticmethod
+    def _rss(pids: set[int]) -> int:
+        """Return the summed resident bytes of the processes that are still alive."""
+        total = 0
+        for pid in pids:
+            try:
+                info: object = psutil.Process(pid).memory_info()  # type: ignore[misc]  # [owner=runtime; rationale=untyped psutil memory counters narrowed at one diagnostic boundary; expires=2027-02-01]
+            except psutil.Error:  # type: ignore[misc]  # [owner=runtime; rationale=untyped psutil exception narrowed at one diagnostic boundary; expires=2027-02-01]
+                continue
+            total += cast(_Memory, info).rss
+        return total
+
+    @staticmethod
+    def _disk_written() -> int | None:
+        """Return host-wide cumulative disk bytes written, when the platform reports it."""
+        counters: object = psutil.disk_io_counters()  # type: ignore[misc]  # [owner=runtime; rationale=untyped psutil disk counters narrowed at one diagnostic boundary; expires=2027-02-01]
+        return None if counters is None else cast(_Disk, counters).write_bytes
+
     def _run(self) -> None:
         """Write one row per second: host busy cores and the busiest visible processes."""
         busy, total = self._host()
@@ -118,6 +148,7 @@ class HostSampler:
                         "elapsed_seconds": elapsed,
                         "host_busy_cores": host_cores,
                         "host_cpus": round((next_total - total) / elapsed),
+                        "host_disk_written_bytes": self._disk_written(),
                         "visible_process_cores": sum(delta for delta, _ in deltas) / elapsed,
                         "top": [
                             {"pid": pid, "name": name, "cores": delta / elapsed}
@@ -130,6 +161,7 @@ class HostSampler:
                             sum(delta for delta, (pid, _) in deltas if pid in trial) / elapsed
                         )
                         row["trial_cores"] = trial_cores
+                        row["trial_rss_bytes"] = self._rss(trial)
                         row["non_trial_cores"] = max(0.0, host_cores - trial_cores)
                         row["top_non_trial"] = [
                             {"pid": pid, "name": name, "cores": delta / elapsed}
@@ -206,6 +238,63 @@ class HostGate:
                     :_TOP_PROCESSES
                 ]
             },
+        }
+
+
+class _ResourceRow(msgspec.Struct, frozen=True):
+    """Decode one row's trial resources."""
+
+    elapsed_seconds: float
+    trial_cores: float
+    trial_rss_bytes: int
+    host_disk_written_bytes: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceGate:
+    """Grade a sustained trial's own process tree: peak RSS, mean and p95 CPU demand.
+
+    Disk bytes written are host-wide and reported, not graded.
+    """
+
+    maximum_rss_bytes: int
+    mean_cores: float
+    p95_cores: float
+
+    def assess(self, rows: Iterable[bytes]) -> dict[str, object]:
+        """Return the trial's peak RSS, time-weighted mean and p95 cores and the outcome."""
+        cores: list[float] = []
+        weighted = seconds = 0.0
+        peak = 0
+        written: list[int] = []
+        for line in rows:
+            row = msgspec.json.decode(line, type=_ResourceRow)
+            cores.append(row.trial_cores)
+            weighted += row.trial_cores * row.elapsed_seconds
+            seconds += row.elapsed_seconds
+            peak = max(peak, row.trial_rss_bytes)
+            if row.host_disk_written_bytes is not None:
+                written.append(row.host_disk_written_bytes)
+        if not cores or not seconds:
+            return {"status": "unmeasured", "samples": 0}
+        cores.sort()
+        mean = weighted / seconds
+        p95 = cores[max(0, -(-95 * len(cores) // 100) - 1)]
+        passed = (
+            peak <= self.maximum_rss_bytes and mean <= self.mean_cores and p95 <= self.p95_cores
+        )
+        return {
+            "status": "pass" if passed else "fail",
+            "samples": len(cores),
+            "peak_trial_rss_bytes": peak,
+            "mean_trial_cores": mean,
+            "p95_trial_cores": p95,
+            "limits": {
+                "maximum_rss_bytes": self.maximum_rss_bytes,
+                "mean_cores": self.mean_cores,
+                "p95_cores": self.p95_cores,
+            },
+            "host_disk_written_bytes": written[-1] - written[0] if len(written) > 1 else None,
         }
 
 

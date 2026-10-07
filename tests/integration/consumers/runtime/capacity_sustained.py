@@ -23,6 +23,7 @@ from configuration import (
     PaperServiceConfiguration,
     PaperServiceSource,
     PaperSourceChain,
+    PaperTelemetryRetention,
 )
 from execution import AccountJournal, AccountObservation, AccountQuote
 from financial_units import Money, Price, Quantity
@@ -115,6 +116,20 @@ class SustainedNativeFixture(CapacityNativeFixture):
         }
 
 
+class Stage2bNativeFixture(SustainedNativeFixture):
+    """Emit the 2b day: 291 periods (87,300 seconds), 2,400,750 socket messages a source."""
+
+    periods: ClassVar[int] = 291
+    frame_count = periods * (SustainedNativeFixture.base_slots + SustainedNativeFixture.burst_slots)
+
+
+class Stage2bRehearsalFixture(SustainedNativeFixture):
+    """Emit a 2b rehearsal: 26 periods (7,800 seconds), 214,500 socket messages a source."""
+
+    periods: ClassVar[int] = 26
+    frame_count = periods * (SustainedNativeFixture.base_slots + SustainedNativeFixture.burst_slots)
+
+
 class SustainedWorkload(CapacityWorkload):
     """Select the 2a topology: four sources and owners, two target-holding instances each.
 
@@ -134,6 +149,9 @@ class SustainedWorkload(CapacityWorkload):
     chain: ClassVar[PaperSourceChain] = PaperSourceChain(
         max_messages=100_000, max_bytes=1024**3, max_segments=4
     )
+    fixture: ClassVar[type[SustainedNativeFixture]] = SustainedNativeFixture
+    # The offline projection replays six authored minutes, scaled to this window.
+    projection_window_minutes: ClassVar[int] = 45
 
     def service_configuration(self) -> PaperServiceConfiguration:
         """Derive 2a's sources, owners and duration from the four-owner stage-1 topology."""
@@ -201,7 +219,7 @@ class SustainedWorkload(CapacityWorkload):
         ):
             raise ValueError("sustained fixture requires the exact prepared service")
         return {
-            source.name: SustainedNativeFixture(
+            source.name: self.fixture(
                 source,
                 start_high=source.name in start_high,
                 epoch_path=None if epoch_root is None else epoch_root / f"{source.name}.epoch",
@@ -248,7 +266,7 @@ class SustainedWorkload(CapacityWorkload):
         orders per account are then scaled to the declared measured window.
         """
         service = self.service_configuration()
-        fixture = SustainedNativeFixture(service.sources[0])
+        fixture = self.fixture(service.sources[0])
         slots = sum(
             1
             for index in range(fixture.frame_count)
@@ -259,7 +277,7 @@ class SustainedWorkload(CapacityWorkload):
                 "segment_seconds": source.capture.duration_seconds,
                 "window_messages": slots,
                 "window_segments": math.ceil(window_minutes * 60 / source.capture.duration_seconds),
-                "authored": SustainedNativeFixture(source).authored_distribution(),
+                "authored": self.fixture(source).authored_distribution(),
             }
             for source in service.sources
         }
@@ -333,8 +351,8 @@ class SustainedWorkload(CapacityWorkload):
                 (
                     source.name,
                     self.venue_workload(source.capture.venue).input_identity(source),
-                    SustainedNativeFixture(source).identity,
-                    SustainedNativeFixture(source, start_high=True).identity,
+                    self.fixture(source).identity,
+                    self.fixture(source, start_high=True).identity,
                 )
                 for source in service.sources
             ),
@@ -352,7 +370,7 @@ class SustainedWorkload(CapacityWorkload):
             "projection": self.projection(
                 output / "projection",
                 minutes=6,
-                window_minutes=45,
+                window_minutes=self.projection_window_minutes,
                 reconcile_seconds=self.reconcile_seconds,
             ),
         }
@@ -446,7 +464,7 @@ class SustainedWorkload(CapacityWorkload):
             delivery_path=scratch / "deliveries.jsonl",
             clock=clock,
         )
-        fixture = SustainedNativeFixture(source)
+        fixture = self.fixture(source)
         replay = CaptureReplay(source.capture, book_factory=BookAdapters.create)
         records = [CaptureRecord(kind="session", epoch=0, received_ns=clock.ns(opening))]
         for index in range(fixture.frame_count):
@@ -542,3 +560,40 @@ class _ProjectionClock:
     def from_ns(value: int) -> datetime:
         """Convert Unix nanoseconds to an exact UTC instant at microsecond resolution."""
         return datetime(1970, 1, 1, tzinfo=UTC) + timedelta(microseconds=value // 1000)
+
+
+class Stage2bWorkload(SustainedWorkload):
+    """Select the counted 2b day: the 2a topology under a 25-hour cap and 26-hour grants.
+
+    Owners declare the approved 90,000-second service-life cap; each invocation is set
+    by the cohort's timings. Chains hold the whole day's 30-minute segments.
+    """
+
+    fixture: ClassVar[type[SustainedNativeFixture]] = Stage2bNativeFixture
+    service_life_seconds: ClassVar[int] = 90_000
+    supervisor_seconds: ClassVar[int] = 87_000
+    grant_seconds: ClassVar[int] = 26 * 3600
+    chain: ClassVar[PaperSourceChain] = PaperSourceChain(
+        max_messages=2_500_000, max_bytes=4 * 1024**3, max_segments=50
+    )
+    projection_window_minutes: ClassVar[int] = 1440
+
+    def service_configuration(self) -> PaperServiceConfiguration:
+        """Declare the profile's telemetry: at most eight million events, seven days old."""
+        service = msgspec.structs.replace(
+            super().service_configuration(),
+            telemetry=PaperTelemetryRetention(max_events=8_000_000, retention_days=7),
+        )
+        service.__post_init__()
+        return service
+
+
+class Stage2bRehearsalWorkload(Stage2bWorkload):
+    """Select a 2-hour 2b rehearsal under the same cap and grant life."""
+
+    fixture: ClassVar[type[SustainedNativeFixture]] = Stage2bRehearsalFixture
+    supervisor_seconds: ClassVar[int] = 7_800
+    chain: ClassVar[PaperSourceChain] = PaperSourceChain(
+        max_messages=250_000, max_bytes=1024**3, max_segments=6
+    )
+    projection_window_minutes: ClassVar[int] = 120

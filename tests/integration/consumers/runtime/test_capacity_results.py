@@ -12,7 +12,7 @@ from uuid import uuid4
 
 # third party library imports
 import pytest
-from capacity_inputs import CapacityWorkload
+from capacity_inputs import CapacityWorkload, FixtureReceipts
 from capacity_results import CapacityResultsCollector, _LatencySeries
 
 # project library imports
@@ -77,13 +77,14 @@ class TestCapacityResults:
             )
             for index in range(2300)
         )
-        trace = {
-            "fixture_identity": "b" * 64,
-            "active_identity": "b" * 64,
-            "epoch": 1,
-            "anchor_ns": anchor,
-            "closed_ns": anchor + 62_000_000_000,
-            "emitted": tuple(
+        FixtureReceipts.write(
+            trace_root / f"{source.name}.epoch-1-receipts.jsonl",
+            fixture_identity="b" * 64,
+            active_identity="b" * 64,
+            epoch=1,
+            anchor_ns=anchor,
+            closed_ns=anchor + 62_000_000_000,
+            emitted=tuple(
                 (
                     index,
                     anchor + CapacityResultsCollector._authored_slot_ns(index),
@@ -91,8 +92,7 @@ class TestCapacityResults:
                 )
                 for index, record in enumerate(records)
             ),
-        }
-        (trace_root / f"{source.name}.epoch-1-receipts.json").write_bytes(codec.encode_json(trace))
+        )
         collector = CapacityResultsCollector(tmp_path / "operating", tmp_path, reads)
         with patch.object(CaptureJournal, "records", return_value=iter(records)):
             result = collector._fixture_schedule(source.name, tmp_path, request)

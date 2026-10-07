@@ -7,7 +7,8 @@ import asyncio
 import hashlib
 import os
 import time
-from datetime import UTC, datetime
+from collections.abc import Iterable, Iterator
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import ClassVar, Literal
@@ -37,6 +38,131 @@ from runtime import InstalledIdentity
 from serialization import DomainCodec
 
 type CapacityVariant = Literal["base", "quiet", "oversize", "backpressure", "reconnect"]
+
+
+class _ReceiptsHeader(msgspec.Struct, frozen=True):
+    """Bind one fixture epoch to its authored input and schedule anchor."""
+
+    fixture_identity: str
+    epoch: int
+    anchor_ns: int
+
+
+class _ReceiptRow(msgspec.Struct, frozen=True, array_like=True):
+    """One emitted slot: authored index, monotonic emission clock and frame digest."""
+
+    index: int
+    emitted_ns: int
+    sha256: str
+
+    def as_tuple(self) -> tuple[int, int, str]:
+        """Return the row as ``(index, emitted_ns, sha256)``."""
+        return self.index, self.emitted_ns, self.sha256
+
+
+class _ReceiptsFooter(msgspec.Struct, frozen=True):
+    """Close one fixture epoch with its actual input and monotonic close clock."""
+
+    active_identity: str
+    closed_ns: int
+
+
+class FixtureReceipts:
+    """One fixture epoch's emitted slots, streamed as JSON lines while the fixture runs.
+
+    The first line binds the input and anchor, each later line is one emitted slot
+    ``[index, monotonic_ns, sha256]``, and a closed epoch ends with its footer. A long
+    run therefore never holds its emitted slots in memory, and neither does a reader.
+    """
+
+    codec: ClassVar[DomainCodec] = DomainCodec()
+
+    def __init__(self, path: Path) -> None:
+        """Read and check one epoch's header and footer; rows stay on disk."""
+        self.path = path
+        with path.open("rb") as stream:
+            self.header = msgspec.json.decode(stream.readline(), type=_ReceiptsHeader)
+        last = self._last_line(path)
+        footer = msgspec.json.decode(last, type=_ReceiptsFooter) if last.startswith(b"{") else None
+        self.fixture_identity = self.header.fixture_identity
+        self.epoch, self.anchor_ns = self.header.epoch, self.header.anchor_ns
+        self.active_identity = None if footer is None else footer.active_identity
+        self.closed_ns = None if footer is None else footer.closed_ns
+
+    @staticmethod
+    def _last_line(path: Path) -> bytes:
+        """Return the file's last nonempty line without reading the whole file."""
+        with path.open("rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            size = stream.tell()
+            stream.seek(max(0, size - 4096))
+            lines = stream.read().splitlines()
+        return lines[-1] if lines else b""
+
+    def rows(self) -> Iterator[tuple[int, int, str]]:
+        """Yield every emitted slot in emission order."""
+        with self.path.open("rb") as stream:
+            stream.readline()
+            for line in stream:
+                if line.startswith(b"["):
+                    yield self.codec.decode_json(line, _ReceiptRow).as_tuple()
+
+    @classmethod
+    def write(
+        cls,
+        path: Path,
+        *,
+        fixture_identity: str,
+        active_identity: str,
+        epoch: int,
+        anchor_ns: int,
+        closed_ns: int,
+        emitted: Iterable[tuple[int, int, str]],
+    ) -> None:
+        """Write one closed epoch whole, as a fixture would have streamed it."""
+        writer = _ReceiptsWriter(path, fixture_identity, epoch, anchor_ns)
+        for row in emitted:
+            writer.add(row)
+        writer.close(active_identity, closed_ns)
+
+
+class _ReceiptsWriter:
+    """Append one epoch's receipts in bounded batches, holding no file between batches."""
+
+    codec: ClassVar[DomainCodec] = DomainCodec()
+    batch: ClassVar[int] = 4096
+
+    def __init__(self, path: Path, fixture_identity: str, epoch: int, anchor_ns: int) -> None:
+        """Create the epoch's file with its header."""
+        self._path = path
+        self._rows: list[bytes] = []
+        with path.open("xb") as stream:
+            stream.write(
+                self.codec.encode_json(_ReceiptsHeader(fixture_identity, epoch, anchor_ns)) + b"\n"
+            )
+
+    def add(self, row: tuple[int, int, str]) -> None:
+        """Buffer one emitted slot, appending a full batch."""
+        self._rows.append(self.codec.encode_json(row) + b"\n")
+        if len(self._rows) >= self.batch:
+            self._flush()
+
+    def _flush(self) -> None:
+        """Append the buffered rows."""
+        if self._rows:
+            with self._path.open("ab") as stream:
+                stream.write(b"".join(self._rows))
+            self._rows.clear()
+
+    def close(self, active_identity: str, closed_ns: int) -> None:
+        """Append the remaining rows and the footer, and make the epoch durable."""
+        self._flush()
+        with self._path.open("ab") as stream:
+            stream.write(
+                self.codec.encode_json(_ReceiptsFooter(active_identity, closed_ns)) + b"\n"
+            )
+            stream.flush()
+            os.fsync(stream.fileno())
 
 
 class CapacityNativeFixture:
@@ -95,7 +221,7 @@ class CapacityNativeFixture:
         self.sequence = 0
         self.started_at: float | None = None
         self.last_source_ms = 0
-        self._emitted: list[tuple[int, int, str]] = []
+        self._receipts: _ReceiptsWriter | None = None
         self._closed = False
 
     @property
@@ -151,9 +277,22 @@ class CapacityNativeFixture:
         self.epoch = max(self.epoch + 1, marker_epoch)
         self.phase = 0
         self.sequence = 0
-        self._emitted = []
         self._closed = False
+        self._receipts = None
         return self
+
+    def _receipt(self, row: tuple[int, int, str]) -> None:
+        """Stream one emitted slot; the epoch's file starts with its first slot."""
+        if self.epoch_path is None:
+            return
+        if self._receipts is None:
+            self._receipts = _ReceiptsWriter(
+                self.epoch_path.with_suffix(f".epoch-{self.epoch}-receipts.jsonl"),
+                self.identity,
+                self.epoch,
+                int(self.epoch_path.read_bytes().splitlines()[1]),
+            )
+        self._receipts.add(row)
 
     @classmethod
     def _aligned_anchor_ns(cls) -> int:
@@ -226,31 +365,16 @@ class CapacityNativeFixture:
         else:
             self.last_source_ms = max(self.last_source_ms, time.time_ns() // 1_000_000)
             frame = self._native_frame(self.last_source_ms)
-        self._emitted.append((index, time.monotonic_ns(), hashlib.sha256(frame).hexdigest()))
+        self._receipt((index, time.monotonic_ns(), hashlib.sha256(frame).hexdigest()))
         return frame
 
     async def close(self) -> None:
-        """Retain exact emitted slots and bytes at close without changing the schedule."""
-        if self.epoch_path is None or self._closed:
+        """Close the epoch's streamed receipts without changing the schedule."""
+        if self._receipts is None or self._closed:
             return
-        closed_ns = time.monotonic_ns()
         self._closed = True
-        path = self.epoch_path.with_suffix(f".epoch-{self.epoch}-receipts.json")
-        with path.open("xb") as stream:
-            stream.write(
-                self.codec.encode_json(
-                    {
-                        "fixture_identity": self.identity,
-                        "active_identity": self.active_identity,
-                        "epoch": self.epoch,
-                        "anchor_ns": int(self.epoch_path.read_bytes().splitlines()[1]),
-                        "closed_ns": closed_ns,
-                        "emitted": self._emitted,
-                    }
-                )
-            )
-            stream.flush()
-            os.fsync(stream.fileno())
+        self._receipts.close(self.active_identity, time.monotonic_ns())
+        self._receipts = None
 
     def snapshot(self) -> bytes:
         """Refuse REST fallback for both WebSocket-snapshot feeds."""
@@ -380,6 +504,8 @@ class CapacityWorkload:
     """Own combined account definitions, signed inputs and finite fixture selection."""
 
     venues: ClassVar[tuple[Literal["okx"], Literal["bitfinex"]]] = ("okx", "bitfinex")
+    # Each grant's declared life: ordinary one-hour grants unless a stage declares longer.
+    grant_seconds: ClassVar[int] = 3600
     # Observed public Bitfinex ETH R0 reached 84.3 messages/s; 12,000 per 100 s capture
     # leaves 42% headroom. Fixture routes keep the stage-1 5,000-message cap.
     public_bitfinex_max_messages: ClassVar[int] = 12_000
@@ -654,7 +780,9 @@ class CapacityWorkload:
             workload = self.venue_workload(venue)
             deployment = workload.deployment(account, service, releases)
             deployment.require_configuration(account.configuration)
-            authorization = workload.authorization(deployment, at)
+            authorization = workload.authorization(
+                deployment, at, life=timedelta(seconds=self.grant_seconds)
+            )
             deployment.require_authorization(authorization)
             (output / f"deployment-{account.account_id}.json").write_bytes(
                 self.codec.encode_json(deployment)

@@ -25,6 +25,7 @@ from typing import Literal, cast
 from uuid import uuid4
 
 # project library imports
+from applications.execute.monitoring_store import MonitoringStore
 from applications.execute.service_candidates import PaperServiceCandidates
 from applications.execute.service_monitor import (
     DiagnosticReceipt,
@@ -261,7 +262,9 @@ class PaperServices:
         self.faulted_accounts: set[str] = set()
         self.unavailable_accounts: set[str] = set()
         self.failures: list[dict[str, object]] = []
-        self.monitor = PaperServiceMonitor(root / "monitoring")
+        self.monitor = PaperServiceMonitor(
+            root / "monitoring", MonitoringStore.retention(configuration)
+        )
         self.diagnostics: PaperServiceDiagnostics | None = None
         self.monitoring: dict[str, object] = {}
         self.account_phases: dict[str, object] = {}

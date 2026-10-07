@@ -4674,6 +4674,22 @@ suites pass unchanged in expectation, apart from:
 An earlier run of the same lanes failed only the engineering-standards check: nested
 and module-level helpers, and one missing docstring. They were moved to class owners.
 
+## Repository move (2026-10-07)
+
+The owner chose `~/Code/alpha-research-lab-private` (stage 2b trim 5).
+- **Clean-up.** Before the move, 28 cloud-only iCloud conflict copies were deleted:
+  `.git/AUTO_MERGE N`, `.git/index N`, and `jwt/* 2.py` in the worker environment.
+- **The move.** The checkout was then renamed out of iCloud Documents.
+- **Links.** The `.venv` and cache symlinks were kept. The `~/mr17t/r1b/src` worktree was
+  repaired. The Feast worker environment was rebuilt for the new path.
+- **Caches.** Bytecode caches compiled at the old path were cleared: their stale file
+  names failed the venue-secret tests' traceback checks.
+- **Recorded paths.** No tracked file named the old path. The harness tools
+  (`dev_journey.py`, `validate-isolated.sh` and `validate-parallel.sh`) were updated. The
+  rehearsal 1–8 declarations keep the old path as historical records.
+- **Effect on 2b.** The quiet-host gate no longer needs an iCloud waiver for the
+  repository.
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design
@@ -4692,7 +4708,10 @@ and module-level helpers, and one missing docstring. They were moved to class ow
    rehearsals to find remaining guide gaps.
 4. **M4 — MR15 R1 closure.** Done 2026-10-06 as the named profile R1b, qualified by
    extrapolation ([M4 result](#m4-result-r1b-qualified-by-extrapolation-2026-10-06)).
-5. **M5 — MR15 stage 2b** (P4–P6), under its own declaration and gates.
+5. **M5 — MR15 stage 2b** (P4–P6), under its own declaration and gates. Authority
+   approved, harness (M5a) and denial session done 2026-10-07; the rehearsal, counted
+   24-hour run and 72-hour retention wait for a static host
+   ([owner decision](runtime-capacity.md#owner-decision-long-runs-wait-for-a-static-host-2026-10-07)).
 6. **M6 — counted journey**, recorded here, and roadmap update.
 
 Each milestone (each M1 part) is one commit and passes the full suite, the integration lane and the

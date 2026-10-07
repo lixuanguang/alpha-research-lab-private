@@ -31,7 +31,13 @@ from accounting import (
     PaperScopeReport,
 )
 from applications.execute.candidate_telemetry import CandidateTelemetry
-from configuration import AccountConfiguration, PaperServiceConfiguration, PaperServiceSource
+from applications.execute.monitoring_store import MonitoringStore
+from configuration import (
+    AccountConfiguration,
+    PaperServiceConfiguration,
+    PaperServiceSource,
+    PaperTelemetryRetention,
+)
 from execution import (
     AccountExecutionRequest,
     AccountExecutionResult,
@@ -339,7 +345,8 @@ class PaperServiceDiagnostics:
         candidates: Path | None,
     ) -> None:
         """Consume the latest batch with read-only clients and retain actual report receipts."""
-        codec, monitor = DomainCodec(), PaperServiceMonitor(root)
+        codec = DomainCodec()
+        monitor = PaperServiceMonitor(root, MonitoringStore.retention(configuration))
         telemetry = CandidateTelemetry(
             configuration,
             owners,
@@ -526,12 +533,28 @@ class InspectedPaperAccount(SocketPaperAccount):
 class PaperServiceMonitor:
     """Observe committed state without retrying economic work after diagnostic failure."""
 
-    def __init__(self, root: Path) -> None:
-        """Bind separate diagnostic storage with no authority to alter accounts."""
+    def __init__(self, root: Path, retention: PaperTelemetryRetention | None = None) -> None:
+        """Bind separate diagnostic storage with no authority to alter accounts.
+
+        With ``retention`` the store holds at most its declared events, and samples
+        older than its declared days are pruned, at most once an hour, before an append.
+        """
         self.root = root
         self.codec = DomainCodec()
         self.failures = 0
         self.last_error: str | None = None
+        self.retention = retention
+        self._pruned_at: datetime | None = None
+
+    def _store(self, at: datetime) -> TelemetryStore:
+        """Open the store; as its only pruner, age out samples at most once an hour."""
+        store = MonitoringStore.open(self.root, self.retention)
+        if self.retention is None:
+            return store
+        if self._pruned_at is None or at - self._pruned_at >= timedelta(hours=1):
+            store.prune(at - timedelta(days=self.retention.retention_days))
+            self._pruned_at = at
+        return store
 
     @staticmethod
     def _unposted_scope(ledger: AccountLedger, instance_id: str) -> PaperScopeReport:
@@ -695,7 +718,7 @@ class PaperServiceMonitor:
             temporary = self.root / f".{owner.account_id}.json"
             temporary.write_bytes(self.codec.encode_json(snapshot))
             temporary.replace(self.root / f"{owner.account_id}.json")
-            TelemetryStore(self.root / "telemetry.sqlite3").append(events)
+            self._store(receipt).append(events)
             return {
                 "observed_at": receipt,
                 "state": state,

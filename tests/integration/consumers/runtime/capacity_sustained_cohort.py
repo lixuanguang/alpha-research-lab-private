@@ -15,6 +15,7 @@ import argparse
 import os
 import sys
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import Literal, cast
@@ -22,11 +23,15 @@ from typing import Literal, cast
 # third party library imports
 import msgspec
 from capacity_cohort import Cohort, Gate, _Tree
-from capacity_host import HostGate, HostSampler, QuietHostPrecheck
+from capacity_host import HostGate, HostSampler, QuietHostPrecheck, ResourceGate
 from capacity_results import CapacityResultsCollector
-from capacity_sustained import SustainedWorkload
+from capacity_sustained import (
+    Stage2bNativeFixture,
+    Stage2bRehearsalFixture,
+    SustainedNativeFixture,
+)
 from capacity_sustained_results import SustainedResults, WindowBudget
-from capacity_trial import TrialTimings
+from capacity_trial import TrialTimings, TrialWorkload, TrialWorkloads
 
 _MS = 1_000_000
 
@@ -97,14 +102,58 @@ class SustainedDeclaration:
     idle_seconds: float = 300
     interactive: frozenset[str] = INTERACTIVE_PROCESSES
     budgets: dict[str, WindowBudget] = field(default_factory=partial(dict, STAGE_BUDGETS))
+    # The stage: 2a's two phases with a fault, or 2b's one day (counted or rehearsal).
+    stage: Literal["2a", "2b", "2b-rehearsal"] = "2a"
+    workload: TrialWorkload = "sustained"
+    fixture: type[SustainedNativeFixture] = SustainedNativeFixture
+    day: TrialTimings | None = None
+    minimum_segments_day: int = 0
+    minimum_messages: int | None = None
+    minimum_source_share: float = 0.2
+    checkpoint_budget: WindowBudget = field(
+        default_factory=partial(WindowBudget, 250 * _MS, 750 * _MS, 2000 * _MS)
+    )
+    grade_checkpoints: bool = False
+    maximum_orders_per_day: int = 40
+    replay_speed: float = 4.0
+    resources: ResourceGate = field(default_factory=partial(ResourceGate, 24 * 1024**3, 7.0, 9.0))
 
     def __post_init__(self) -> None:
         """Require whole windows, a reconciliation inside the state-age budget and a fault."""
-        for timings in (self.phase_a, self.phase_b):
+        phases: tuple[TrialTimings, ...] = (self.phase_a, self.phase_b)
+        if self.day is not None:
+            phases = (*phases, self.day)
+        for timings in phases:
             if timings.interval_seconds % self.window_seconds:
                 raise ValueError("each sustained interval must be whole rolling windows")
         if not 0 < self.reconcile_seconds < 120 or not self.inject_owner_death:
             raise ValueError("sustained reconciliation must refresh inside 120 seconds")
+        if (self.stage == "2a") != (self.day is None):
+            raise ValueError("only stage 2b declares its single day phase")
+
+    @classmethod
+    def stage2b(cls) -> SustainedDeclaration:
+        """Declare the counted 24-hour day: 288 windows, graded checkpoint percentiles."""
+        return cls(
+            stage="2b",
+            workload="stage2b",
+            fixture=Stage2bNativeFixture,
+            day=TrialTimings(86_400, 87_000, 87_600),
+            minimum_segments_day=48,
+            minimum_messages=7_000_000,
+            grade_checkpoints=True,
+        )
+
+    @classmethod
+    def stage2b_rehearsal(cls) -> SustainedDeclaration:
+        """Declare a 2-hour rehearsal: the 2b shape, checkpoint percentiles reported only."""
+        return cls(
+            stage="2b-rehearsal",
+            workload="stage2b-rehearsal",
+            fixture=Stage2bRehearsalFixture,
+            day=TrialTimings(7_200, 7_800, 8_400),
+            minimum_segments_day=4,
+        )
 
 
 class _Observation(msgspec.Struct, frozen=True):
@@ -127,7 +176,7 @@ class SustainedGates:
     @classmethod
     def phase(
         cls,
-        phase: Literal["a", "b"],
+        phase: Literal["a", "b", "day"],
         summary: dict[str, object],
         results: dict[str, object],
         sustained: dict[str, object],
@@ -135,7 +184,13 @@ class SustainedGates:
         declaration: SustainedDeclaration,
     ) -> tuple[Gate, ...]:
         """Assess one phase: completion, inputs, parity, latency windows, commits and authority."""
-        timings = declaration.phase_a if phase == "a" else declaration.phase_b
+        timings = (
+            declaration.phase_a
+            if phase == "a"
+            else declaration.phase_b
+            if phase == "b"
+            else cast(TrialTimings, declaration.day)
+        )
         recordings = cast(dict[str, list[dict[str, object]]], sustained["recordings"])
         proofs = cast(dict[str, dict[str, object]], sustained["fixture_proofs"])
         latencies = cast(dict[str, object], sustained["latencies"])
@@ -169,13 +224,17 @@ class SustainedGates:
                 cls._delivery_statuses(results),
             ),
         ]
-        if phase == "a":
+        if phase in ("a", "day"):
+            minimum_segments = (
+                declaration.minimum_segments_phase_a
+                if phase == "a"
+                else declaration.minimum_segments_day
+            )
             gates.append(
                 Gate(
                     "segments_rolled_over",
                     all(
-                        max(cast(int, entry["segments"]) for entry in entries)
-                        >= declaration.minimum_segments_phase_a
+                        max(cast(int, entry["segments"]) for entry in entries) >= minimum_segments
                         for entries in recordings.values()
                     ),
                     {
@@ -204,7 +263,7 @@ class SustainedGates:
         minimum = SustainedArithmetic.math_floor(
             timings.interval_seconds / declaration.selection_seconds * declaration.selected_share
         )
-        opening = declaration.opening_orders_per_account if phase == "a" else 0
+        opening = declaration.opening_orders_per_account if phase in ("a", "day") else 0
         gates.extend(
             (
                 Gate(
@@ -249,7 +308,9 @@ class SustainedGates:
                 ),
             )
         )
-        if phase == "a":
+        if phase == "day":
+            gates.extend(cls._day(recordings, latencies, observations, declaration))
+        elif phase == "a":
             fence = cls._values(observations, "injected_owner_death")
             gates.append(
                 Gate(
@@ -271,6 +332,68 @@ class SustainedGates:
                 )
             )
         return tuple(gates)
+
+    @classmethod
+    def _day(
+        cls,
+        recordings: dict[str, list[dict[str, object]]],
+        latencies: dict[str, object],
+        observations: tuple[_Observation, ...],
+        declaration: SustainedDeclaration,
+    ) -> tuple[Gate, ...]:
+        """Grade 2b's day: native receipt, per-account checkpoint percentiles, daily orders."""
+        messages = {
+            name: sum(cast(int, entry["durable_records"]) for entry in entries)
+            for name, entries in recordings.items()
+        }
+        total = sum(messages.values())
+        receipt = Gate(
+            "native_receipt_volume",
+            bool(messages)
+            and (declaration.minimum_messages is None or total >= declaration.minimum_messages)
+            and all(
+                count >= declaration.minimum_source_share * total for count in messages.values()
+            ),
+            {
+                "total": total,
+                "by_source": messages,
+                "minimum": declaration.minimum_messages,
+                "minimum_source_share": declaration.minimum_source_share,
+            },
+        )
+        budget = declaration.checkpoint_budget
+        accounts = cast(
+            dict[str, dict[str, object]], latencies.get("selected_book_to_checkpoint_by_account")
+        )
+        summaries = {
+            name: {
+                key: summary.get(key) for key in ("count", "p50_ns", "p95_ns", "p99_ns", "max_ns")
+            }
+            for name, summary in (accounts or {}).items()
+        }
+        within = len(summaries) == 4 and all(
+            cast(int, item["count"]) >= 1000
+            and cast(int, item["p50_ns"]) <= budget.p50_ns
+            and cast(int, item["p95_ns"]) <= budget.p95_ns
+            and cast(int, item["p99_ns"]) <= budget.p99_ns
+            for item in summaries.values()
+        )
+        checkpoints = Gate(
+            "checkpoint_percentiles_per_account",
+            within or not declaration.grade_checkpoints,
+            {
+                "graded": declaration.grade_checkpoints,
+                "within_budget": within,
+                "budget_ns": (budget.p50_ns, budget.p95_ns, budget.p99_ns),
+                "accounts": summaries,
+            },
+        )
+        orders = Gate(
+            "orders_within_daily_target",
+            cls._orders_within(observations, declaration.maximum_orders_per_day),
+            declaration.maximum_orders_per_day,
+        )
+        return receipt, checkpoints, orders
 
     @staticmethod
     def _classes(latencies: dict[str, object], name: str) -> dict[str, dict[str, object]]:
@@ -338,9 +461,7 @@ class SustainedGates:
 
 
 class SustainedCohort(Cohort):
-    """Run the declared 2a sequence once, stopping at the first failed step."""
-
-    workload_type = SustainedWorkload
+    """Run the declared 2a or 2b sequence once, stopping at the first failed step."""
 
     def __init__(
         self,
@@ -368,6 +489,15 @@ class SustainedCohort(Cohort):
         )
         self.icloud_paused_attested, self.icloud_waived = icloud_paused_attested, icloud_waived
         self.declaration = SustainedDeclaration() if declaration is None else declaration
+        # The grant step builds the declared stage's workload, and so its grant life.
+        self.workload_type = type(
+            TrialWorkloads.trial_workload(
+                self.declaration.workload,
+                opening_at=datetime(2026, 1, 1, tzinfo=UTC),
+                socket_root=socket_base,
+                public_venue=None,
+            )
+        )
 
     def quiet_host(self) -> tuple[Gate, ...]:
         """Refuse interactive processes and a host whose idle non-trial load is too high."""
@@ -383,10 +513,16 @@ class SustainedCohort(Cohort):
         )
         return (Gate("quiet_host_precheck", result["status"] == "pass", result),)
 
-    def phase(self, name: str, phase: Literal["a", "b"]) -> tuple[Gate, ...]:
+    def phase(self, name: str, phase: Literal["a", "b", "day"]) -> tuple[Gate, ...]:
         """Run one sustained phase, collect its facts and assess its gates."""
         declaration = self.declaration
-        timings = declaration.phase_a if phase == "a" else declaration.phase_b
+        timings = (
+            declaration.phase_a
+            if phase == "a"
+            else declaration.phase_b
+            if phase == "b"
+            else cast(TrialTimings, declaration.day)
+        )
         output = self.root / name
         self.command(
             f"trial-{name}",
@@ -402,7 +538,7 @@ class SustainedCohort(Cohort):
                 str(self.launcher),
                 "--features",
                 "--workload",
-                "sustained",
+                declaration.workload,
                 "--interval-seconds",
                 str(timings.interval_seconds),
                 "--supervisor-seconds",
@@ -415,6 +551,8 @@ class SustainedCohort(Cohort):
                     ("--inject-owner-death", declaration.inject_owner_death)
                     if phase == "a"
                     else ("--recover",)
+                    if phase == "b"
+                    else ()
                 ),
             ],
         )
@@ -422,7 +560,10 @@ class SustainedCohort(Cohort):
             output / "operating", output / "measurements", output / "reads"
         ).write(output / "results.json")
         sustained = SustainedResults(
-            output, window_seconds=declaration.window_seconds, budgets=declaration.budgets
+            output,
+            window_seconds=declaration.window_seconds,
+            budgets=declaration.budgets,
+            fixture=declaration.fixture,
         ).collect()
         (output / "sustained-results.json").write_bytes(self.codec.encode_json(sustained))
         summary = msgspec.json.decode(
@@ -447,8 +588,76 @@ class SustainedCohort(Cohort):
         (self.output / "host-gate.json").write_bytes(self.codec.encode_json(result))
         return (Gate("host_quiet_throughout", result["status"] == "pass", result),)
 
+    def resources(self, rows: Path) -> tuple[Gate, ...]:
+        """Grade the trial process tree's peak RSS and CPU demand over the whole attempt."""
+        result = self.declaration.resources.assess(rows.read_bytes().splitlines())
+        (self.output / "resource-gate.json").write_bytes(self.codec.encode_json(result))
+        return (Gate("trial_resources_within_budget", result["status"] == "pass", result),)
+
+    def replay(self) -> tuple[Gate, ...]:
+        """Replay the day's retained deliveries and reconciliations at the declared speed."""
+        output = self.root / "day" / "economic-replay.json"
+        self.command(
+            "economic-replay",
+            [
+                str(self.python),
+                str(self.consumers / "capacity_parity.py"),
+                "--root",
+                str(self.root),
+                "--trial",
+                str(self.root / "day"),
+                "--output",
+                str(output),
+                "--sustained",
+                self.declaration.workload,
+                "--speed",
+                str(self.declaration.replay_speed),
+            ],
+        )
+        report = msgspec.json.decode(output.read_bytes(), type=dict[str, object])
+        return (
+            Gate(
+                "economic_replay_identical_at_speed",
+                report.get("qualified") is True,
+                {
+                    key: report.get(key)
+                    for key in ("speed", "required_speed", "replay_seconds", "qualified")
+                },
+            ),
+        )
+
+    def run_day(self) -> None:
+        """Run the declared 2b day once: one phase, its audit, host and resource gates."""
+        self.output.mkdir(parents=True, exist_ok=False)
+        awake = QuietHostPrecheck.hold_awake()
+        try:
+            self.step("freeze", self.freeze)
+            self.step("candidate", self.candidate)
+            self.step("quiet-host", self.quiet_host)
+            self.step("grant", partial(self.grant, self.root, None))
+            rows = self.output / "host-resources.jsonl"
+            sampler = HostSampler(rows, trial_root=os.getpid())
+            sampler.start()
+            try:
+                try:
+                    self.step("day", partial(self.phase, "day", "day"))
+                finally:
+                    self.step("cleanup-audit-day", partial(self.audit, self.root, "day"))
+            finally:
+                sampler.stop()
+            self.step("host-gate", partial(self.host, rows))
+            self.step("resource-gate", partial(self.resources, rows))
+            # The replay runs after the gates, while the retained day ages toward retention.
+            self.step("economic-replay", self.replay)
+        finally:
+            awake.terminate()
+            awake.wait(5)
+
     def run(self) -> None:
         """Run the declared 2a sequence once; ``make check`` stays a separate final step."""
+        if self.declaration.stage != "2a":
+            self.run_day()
+            return
         self.output.mkdir(parents=True, exist_ok=False)
         awake = QuietHostPrecheck.hold_awake()
         try:
@@ -488,6 +697,7 @@ class _Arguments(argparse.Namespace):
     label: str
     icloud_paused: bool
     icloud_waived: bool
+    stage: Literal["2a", "2b", "2b-rehearsal"]
 
 
 def main() -> None:
@@ -503,6 +713,7 @@ def main() -> None:
     ):
         parser.add_argument(option, type=Path, required=True)
     parser.add_argument("--label", required=True)
+    parser.add_argument("--stage", choices=("2a", "2b", "2b-rehearsal"), default="2a")
     parser.add_argument("--icloud-paused", action="store_true")
     # The owner may waive the iCloud pause; it is then retained as waived, never paused.
     parser.add_argument("--icloud-waived", action="store_true")
@@ -517,6 +728,11 @@ def main() -> None:
         label=args.label,
         icloud_paused_attested=args.icloud_paused,
         icloud_waived=args.icloud_waived,
+        declaration={
+            "2a": SustainedDeclaration,
+            "2b": SustainedDeclaration.stage2b,
+            "2b-rehearsal": SustainedDeclaration.stage2b_rehearsal,
+        }[args.stage](),
     )
     try:
         cohort.run()

@@ -21,6 +21,7 @@ from configuration import (
     PaperServiceConfiguration,
     PaperServiceInstance,
     PaperServiceSource,
+    PaperTelemetryRetention,
     ReferenceCandidate,
 )
 from configuration.accounts import InstrumentFeeRate
@@ -217,3 +218,17 @@ class TestServiceSelection:
                     ).instrument_id,
                 ),
             )
+
+    def test_telemetry_retention_is_optional_and_bounded(self) -> None:
+        """Unset retention keeps every existing identity; a declared one stays finite."""
+        configuration = self.configuration()
+        assert b'telemetry"' not in DomainCodec().encode_json(configuration)
+        retained = replace(
+            configuration,
+            telemetry=PaperTelemetryRetention(max_events=8_000_000, retention_days=7),
+        )
+        retained.__post_init__()
+        assert retained.identity != configuration.identity
+        for max_events, days in ((0, 7), (10_000_001, 7), (8_000_000, 0)):
+            with pytest.raises(ValueError, match="telemetry retention"):
+                PaperTelemetryRetention(max_events=max_events, retention_days=days)

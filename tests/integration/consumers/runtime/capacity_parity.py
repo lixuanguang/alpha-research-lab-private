@@ -10,6 +10,8 @@ from __future__ import annotations
 # standard library imports
 import argparse
 import hashlib
+import time
+from collections.abc import Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import ClassVar
@@ -17,6 +19,7 @@ from typing import ClassVar
 # third party library imports
 import msgspec
 from capacity_inputs import CapacityWorkload
+from capacity_trial import TrialWorkload, TrialWorkloads
 from paper_services import PaperServiceWorkload
 
 # project library imports
@@ -29,7 +32,13 @@ from configuration import (
     PaperServiceInstance,
     PaperServiceSource,
 )
-from execution import AccountExecutionRequest, AccountExecutionResult, AccountJournal, AccountQuote
+from execution import (
+    AccountExecutionRequest,
+    AccountExecutionResult,
+    AccountJournal,
+    AccountObservation,
+    AccountQuote,
+)
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookRegistry
 from market_data.contracts import RecordingRequest
@@ -59,6 +68,8 @@ class _Arguments(argparse.Namespace):
     trial: Path
     output: Path
     baseline: Path | None
+    sustained: TrialWorkload | None
+    speed: float
 
 
 class _ObservationKind(msgspec.Struct, frozen=True):
@@ -79,6 +90,37 @@ class _AccountFactsObservation(msgspec.Struct, frozen=True):
     """Decode the original account-fact envelope and its retained checkpoints."""
 
     values: _AccountFacts
+
+
+class _DeliveryStream:
+    """One retained delivery log, read line by line with a canonical-bytes check."""
+
+    codec: ClassVar[DomainCodec] = DomainCodec()
+
+    def __init__(self, request: RecordingRequest, path: Path) -> None:
+        """Bind the log and read only its first delivery's availability."""
+        self.request, self.path = request, path
+        with path.open("rb") as stream:
+            first = stream.readline()
+        if not first.endswith(b"\n"):
+            raise ValueError("retained capacity delivery stream is incomplete")
+        self.start = self.codec.decode_json(first[:-1], SharedBookDelivery).source.available_at
+
+    @staticmethod
+    def order(stream: _DeliveryStream) -> datetime:
+        """Order reconnect streams by their first availability."""
+        return stream.start
+
+    def __iter__(self) -> Iterator[SharedBookDelivery]:
+        """Yield every delivery, refusing a truncated log or non-canonical bytes."""
+        with self.path.open("rb") as stream:
+            for line in stream:
+                if not line.endswith(b"\n"):
+                    raise ValueError("retained capacity delivery stream is incomplete")
+                delivery = self.codec.decode_json(line[:-1], SharedBookDelivery)
+                if self.codec.encode_json(delivery) != line[:-1]:
+                    raise ValueError("capacity delivery differs from canonical event bytes")
+                yield delivery
 
 
 class CapacityEconomicParity:
@@ -189,15 +231,16 @@ class CapacityEconomicParity:
             maximum_fee=instance.maximum_fee,
         )
 
-    def _streams(
-        self, account_id: str, source: PaperServiceSource
-    ) -> tuple[tuple[RecordingRequest, tuple[SharedBookDelivery, ...]], ...]:
-        """Verify complete canonical logs and exact request/source identities."""
+    def _streams(self, account_id: str, source: PaperServiceSource) -> tuple[_DeliveryStream, ...]:
+        """Bind complete canonical logs to exact request/source identities, in start order.
+
+        Deliveries stream from disk as they are replayed, so a day's log is never held.
+        """
         source_directory = self.run_directory / source.name
         paths = tuple(source_directory.glob(f"*-{account_id}.jsonl"))
         if not paths:
             raise ValueError(f"capacity account has no retained delivery stream: {account_id}")
-        streams: list[tuple[RecordingRequest, tuple[SharedBookDelivery, ...]]] = []
+        streams: list[_DeliveryStream] = []
         for path in paths:
             # A single recording or a whole segment chain, named by its recording key.
             key = path.name.removesuffix(f"-{account_id}.jsonl")
@@ -208,27 +251,9 @@ class CapacityEconomicParity:
                 or request.implementation_identity != self.implementation
             ):
                 raise ValueError("retained delivery request differs from signed source")
-            raw = path.read_bytes()
-            if not raw or not raw.endswith(b"\n"):
-                raise ValueError("retained capacity delivery stream is incomplete")
-            deliveries = tuple(
-                self.codec.decode_json(line, SharedBookDelivery) for line in raw.splitlines()
-            )
-            if any(
-                self.codec.encode_json(delivery) != line
-                for delivery, line in zip(deliveries, raw.splitlines(), strict=True)
-            ):
-                raise ValueError("capacity delivery differs from canonical event bytes")
-            streams.append((request, deliveries))
-        streams.sort(key=self._stream_start)
+            streams.append(_DeliveryStream(request, path))
+        streams.sort(key=_DeliveryStream.order)
         return tuple(streams)
-
-    @staticmethod
-    def _stream_start(
-        item: tuple[RecordingRequest, tuple[SharedBookDelivery, ...]],
-    ) -> datetime:
-        """Order each reconnect stream by its retained first availability."""
-        return item[1][0].source.available_at
 
     def _signed_checkpoints(
         self, account: PaperServiceAccount, original: AccountExecutionResult
@@ -316,7 +341,8 @@ class CapacityEconomicParity:
         requirements = self.workload.venue_workload(source.capture.venue).candidates(source).inputs
         replayed = 0
         selections: list[dict[str, object]] = []
-        for request, stream in self._streams(account.account_id, source):
+        for stream in self._streams(account.account_id, source):
+            request = stream.request
             books = BookRegistry(
                 BookRegistryConfiguration(
                     selections=(
@@ -342,6 +368,7 @@ class CapacityEconomicParity:
                 delivery_path=None,
             )
             for delivery in stream:
+                self._before(account, journal, delivery)
                 # Replay recomputes the grid and refuses changed matching or input lineage.
                 observer.deliver(delivery)
                 selections.extend(
@@ -361,7 +388,16 @@ class CapacityEconomicParity:
                     for group in delivery.decisions
                 )
                 replayed += 1
+        self._after(account, journal)
         return replayed, tuple(selections)
+
+    def _before(
+        self, account: PaperServiceAccount, journal: AccountJournal, delivery: SharedBookDelivery
+    ) -> None:
+        """Apply any retained operation that preceded this delivery; none by default."""
+
+    def _after(self, account: PaperServiceAccount, journal: AccountJournal) -> None:
+        """Apply any retained operation after the last delivery; none by default."""
 
     def _journal_facts(
         self, account: PaperServiceAccount, journal: AccountJournal
@@ -697,8 +733,7 @@ class CapacityRecoveryEconomicParity(CapacityEconomicParity):
                 for _, request, result in operations:
                     self._apply_operator(journal, request, result)
                 first_suffix = min(
-                    stream[0].source.available_at
-                    for _, stream in self._streams(account.account_id, source)
+                    stream.start for stream in self._streams(account.account_id, source)
                 )
                 if self._request_at(operations[-1][1]) >= first_suffix:
                     raise ValueError("recovery operator request overlaps the replay suffix")
@@ -762,6 +797,118 @@ class CapacityRecoveryEconomicParity(CapacityEconomicParity):
         return report
 
 
+class _Reconciled(msgspec.Struct, frozen=True):
+    """Read one retained sustained reconciliation's account, identity and clock."""
+
+    account: str
+    identity: str
+    at: datetime
+    matched: bool
+
+    @staticmethod
+    def order(item: _Reconciled) -> datetime:
+        """Order reconciliations by their original clock."""
+        return item.at
+
+
+class _ReconciledObservation(msgspec.Struct, frozen=True):
+    """Read one retained reconciliation observation."""
+
+    values: _Reconciled
+
+
+class SustainedEconomicReplay(CapacityEconomicParity):
+    """Replay a sustained trial's deliveries and its 60 s reconciliations, and time it.
+
+    Each retained reconciliation is rebuilt from the replay journal's own facts at its
+    original clock, under its original identity, and applied before the first delivery
+    available after that clock. A faithful replay therefore reconciles the same facts.
+    The replay must run at least ``speed`` times the recorded interval.
+    """
+
+    def __init__(self, root: Path, trial: Path, workload: TrialWorkload, speed: float) -> None:
+        """Bind the trial, its declared workload (for the oracle) and the required speed."""
+        super().__init__(root, trial)
+        self.workload = TrialWorkloads.trial_workload(
+            workload,
+            opening_at=self.service.accounts[0].configuration.opening_at,
+            socket_root=Path(self.service.accounts[0].socket_path).parent,
+            public_venue=None,
+        )
+        self.speed = speed
+        self.pending: dict[str, list[_Reconciled]] = {}
+        for line in (trial / "observations.jsonl").read_bytes().splitlines():
+            if self.codec.decode_json(line, _ObservationKind).kind != "account_reconciled":
+                continue
+            reconciled = self.codec.decode_json(line, _ReconciledObservation).values
+            if not reconciled.matched:
+                raise ValueError("a retained reconciliation did not match; no replay")
+            self.pending.setdefault(reconciled.account, []).append(reconciled)
+        for items in self.pending.values():
+            items.sort(key=_Reconciled.order)
+
+    def _reconcile(self, journal: AccountJournal, item: _Reconciled) -> None:
+        """Reconcile the replay journal's own facts under the retained identity and clock."""
+        observation = AccountObservation(
+            identity=item.identity,
+            at=item.at,
+            snapshot=AccountLedger(journal.accounts()[0].ledger).snapshot(),
+            open_orders=(
+                *(
+                    tagged.order
+                    for tagged in journal.orders()
+                    if tagged.context is None and not tagged.order.is_terminal
+                ),
+                *(parent.order for parent in journal.net_orders() if not parent.order.is_terminal),
+            ),
+        )
+        if not journal.reconcile(observation):
+            raise ValueError(f"replayed facts do not reconcile at {item.at}")
+
+    def _before(
+        self, account: PaperServiceAccount, journal: AccountJournal, delivery: SharedBookDelivery
+    ) -> None:
+        """Apply every retained reconciliation at or before this delivery's availability."""
+        pending = self.pending.get(account.account_id, [])
+        while pending and pending[0].at < delivery.source.available_at:
+            self._reconcile(journal, pending.pop(0))
+
+    def _after(self, account: PaperServiceAccount, journal: AccountJournal) -> None:
+        """Apply the reconciliations retained after the last delivery."""
+        pending = self.pending.get(account.account_id, [])
+        while pending:
+            self._reconcile(journal, pending.pop(0))
+
+    def write(self, output: Path) -> dict[str, object]:
+        """Replay every account, then require the declared speed over the recorded interval."""
+        started = time.monotonic()
+        report = super().write(output)
+        seconds = time.monotonic() - started
+        interval = self.codec.decode_json(
+            (self.trial / "reads/summary.json").read_bytes(), _MeasuredInterval
+        )
+        recorded = (interval.scheduled_stop_monotonic_ns - interval.started_monotonic_ns) / 1e9
+        speed = recorded / seconds if seconds else float("inf")
+        report = {
+            **report,
+            "schema_version": "runtime-capacity-sustained-replay",
+            "replay_seconds": seconds,
+            "recorded_interval_seconds": recorded,
+            "speed": speed,
+            "required_speed": self.speed,
+            "qualified": report["qualified"] is True and speed >= self.speed,
+        }
+        output.write_bytes(self.codec.encode_json(report))
+        return report
+
+
+class _MeasuredInterval(msgspec.Struct, frozen=True):
+    """Read the measured interval's monotonic clocks."""
+
+    started_monotonic_ns: int
+    scheduled_stop_monotonic_ns: int
+
+
 def main() -> None:
     """Replay one completed retained capacity trial and publish exact comparisons."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -769,9 +916,13 @@ def main() -> None:
     parser.add_argument("--trial", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--baseline", type=Path)
+    parser.add_argument("--sustained", choices=("sustained", "stage2b", "stage2b-rehearsal"))
+    parser.add_argument("--speed", type=float, default=4.0)
     args = parser.parse_args(namespace=_Arguments())
     replay = (
-        CapacityEconomicParity(args.root, args.trial)
+        SustainedEconomicReplay(args.root, args.trial, args.sustained, args.speed)
+        if args.sustained is not None
+        else CapacityEconomicParity(args.root, args.trial)
         if args.baseline is None
         else CapacityRecoveryEconomicParity(args.root, args.trial, args.baseline)
     )
