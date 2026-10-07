@@ -3388,3 +3388,69 @@ result stand. Targets, budgets and requirements are unchanged and not waived.
   reviewed for that host.
 - **R1b.** It stays measured on this laptop. A 72-hour acquisition on the static host
   can then confirm it by measurement.
+
+**Clarification (owner, 2026-10-07).** Development and the M6 journey rehearsal continue
+on this MacBook Pro. Only the three 2b verification runs move to the static host:
+1. the 2-hour rehearsal (`--stage 2b-rehearsal`);
+2. the counted 24-hour run (`--stage 2b`);
+3. its 72-hour retention, with the 4× replay.
+
+The counted M6 needs the owner's separate approval, and the owner chooses where it runs.
+It may run during 2b's 72-hour retention; J8 is evaluated after retention passes. Code
+freezes at the 2b counted pass. Fixes that the 2b rehearsal finds come back to this
+laptop as commits.
+
+#### Static-host handoff checklist (prepared 2026-10-07)
+
+Work through this in order when the machine arrives. Each step is recorded here before
+the next one starts.
+
+1. **Declare the launch host.** Record the OS and version, the interpreter, CPU model and
+   core count, RAM, the disk and its free space (at least 512 GiB), and the power supply
+   (mains, sleep disabled). There is no iCloud account, or iCloud Drive is off. Targets,
+   budgets and gates are unchanged.
+2. **Install.**
+   - A fresh clone of `alpha-research-lab-private` at the frozen commit, outside any
+     synced folder.
+   - The owner copies `secrets/` (mode 600). Nobody else reads it.
+   - The project environment (`uv sync --frozen --no-editable`) and the Feast worker
+     environment.
+   - Run `validate-isolated.sh` on the clone. All four lanes must pass on the new host.
+3. **Quiet host.** List the host's own interactive and background processes, and review
+   `INTERACTIVE_PROCESSES` in `capacity_sustained_cohort.py` against them. Any change is
+   a commit on this laptop, made before the freeze.
+4. **Freeze.**
+   - A clean worktree at the frozen commit, such as `<root>/frozen`.
+   - A non-editable environment outside the checkout, built from the frozen worktree with
+     `UV_PROJECT_ENVIRONMENT=<root>/env uv sync --frozen --no-editable`. The freeze step
+     refuses an editable install.
+   - Copy `tests/integration/consumers/runtime/` to `<root>/consumers`, outside the
+     checkout.
+   - A short socket base, such as `/private/tmp/s2b`. A durable key root and output
+     roots, such as `<root>/keys` and `<root>/evidence`.
+5. **Rehearsal** (2 hours, about 2.5 hours with build and replay), from `<root>/consumers`:
+
+   ```sh
+   caffeinate -dims <root>/env/bin/python capacity_sustained_cohort.py \
+     --stage 2b-rehearsal --label stage2b-rehearsal-1 \
+     --output <root>/evidence/stage2b-rehearsal-1 \
+     --repository <root>/frozen \
+     --launcher <root>/env/bin/alpha-governance-artifacts \
+     --python <root>/env/bin/python \
+     --key-root <root>/keys --socket-base /private/tmp/s2b --icloud-paused
+   ```
+
+   Fixes go back to this laptop as commits, then a new freeze and step 4 again.
+6. **Counted run** (owner-booked; about 25 hours). Use the same command with
+   `--stage 2b --label stage2b-counted --output <root>/evidence/stage2b-counted`. The
+   driver runs the 4× economic replay after the day.
+7. **Retention**, at least 72 hours after the counted day ends:
+
+   ```sh
+   <root>/env/bin/python capacity_retention.py \
+     --day <root>/evidence/stage2b-counted/candidate/day \
+     --output <root>/evidence/stage2b-retention --hours 72
+   ```
+
+8. **R1b (optional).** A 72-hour acquisition on the static host can confirm R1b by
+   measurement.
