@@ -16,20 +16,25 @@ from msgspec.structs import replace
 from accounting import Fill
 from accounting.accounts import AccountLedger, AccountSnapshot
 from applications.execute import AccountExecutionApplication
+from configuration import PaperExecutionScenario
 from configuration.accounts import AccountConfiguration, InstrumentFeeRate, OpeningAccount
 from execution import (
+    AccountControl,
     AccountDecision,
     AccountExecutionRequest,
     AccountJournal,
     AccountObservation,
     AccountQuote,
     EventKind,
+    MarketTouch,
     NetFeeCorrection,
     OrderDecision,
     OrderEvent,
+    PaperMarket,
     PortfolioBatch,
     PortfolioContext,
     PortfolioDecision,
+    PortfolioResidual,
 )
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
@@ -146,20 +151,21 @@ class TestPortfolioAccounts:
         quantity: str = "2",
         maximum_fee: str = "1",
         bucket: str = "spot",
+        price: str = "100",
     ) -> PortfolioDecision:
-        """Create a tagged order with complete strategy and netting authority."""
+        """Create a tagged order at the quote with complete strategy and netting authority."""
         if side == "buy":
             intent = OrderIntent(
                 side="buy",
                 quantity=cls._quantity(quantity),
-                limit=cls._price(),
+                limit=cls._price(price),
                 time_in_force="gtc",
             )
         elif side == "sell":
             intent = OrderIntent(
                 side="sell",
                 quantity=cls._quantity(quantity),
-                limit=cls._price(),
+                limit=cls._price(price),
                 time_in_force="gtc",
             )
         else:
@@ -169,7 +175,7 @@ class TestPortfolioAccounts:
                 account_id="shared",
                 instance_id=instance,
                 decision=OrderDecision(identity=identity, at=at, intent=intent),
-                quote=AccountQuote(price=cls._price(), at=at),
+                quote=AccountQuote(price=cls._price(price), at=at),
                 maximum_fee=cls._money(maximum_fee),
                 checkpoint=f"{instance}:{identity}".encode(),
             ),
@@ -201,6 +207,88 @@ class TestPortfolioAccounts:
             effective=cls._price(),
             fee=cls._money(fee),
         )
+
+    @classmethod
+    def _holding(
+        cls, path: Path, *, quantity: str = "85", deviation_bps: int = 1000
+    ) -> AccountJournal:
+        """Leave alpha holding ``quantity`` bought at 100, by default 85 with 10% price checks.
+
+        Marked at 110, 85 are worth 9,350: over alpha's 9,000 ceiling with no new
+        order, while the account and firm ceilings (10,000 each) still hold.
+        """
+        config = cls._config()
+        config = replace(
+            config, budgets=replace(config.budgets, max_price_deviation_bps=deviation_bps)
+        )
+        journal = AccountJournal(path, config)
+        assert journal.reconcile(
+            AccountObservation(
+                identity="opening",
+                at=cls.opening_at,
+                snapshot=cls._opening(),
+                open_orders=(),
+            )
+        )
+        bought_at = cls.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=cls._price(), at=bought_at))
+        parent = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-holding",
+                at=bought_at + timedelta(microseconds=1),
+                decisions=(
+                    cls._decision(
+                        instance="alpha",
+                        identity="alpha-holding",
+                        at=bought_at,
+                        quantity=quantity,
+                        maximum_fee="0",
+                    ),
+                ),
+            )
+        ).net_orders[0]
+        filled_at = bought_at + timedelta(milliseconds=100)
+        journal.apply_net_event(
+            OrderEvent(
+                identity="alpha-holding-receipt",
+                order_id=parent.order.identity,
+                at=filled_at,
+                kind="fill",
+                fill=cls._fill(
+                    "alpha-holding-fill", parent.order.decision_at, filled_at, quantity, "0"
+                ),
+            )
+        )
+        return journal
+
+    @classmethod
+    def _cancelled_pair(cls, journal: AccountJournal, at: datetime) -> datetime:
+        """Leave alpha and beta each a residual buy of 2 at 100 and return its cancellation."""
+        journal.observe(AccountQuote(price=cls._price(), at=at))
+        parent = journal.coordinate(
+            PortfolioBatch(
+                identity="pair",
+                at=at + timedelta(microseconds=1),
+                decisions=tuple(
+                    cls._decision(instance=name, identity=f"{name}-buy", at=at, maximum_fee="0")
+                    for name in ("alpha", "beta")
+                ),
+            )
+        ).net_orders[0]
+        cancel_at = at + timedelta(seconds=1)
+        journal.control(
+            AccountControl(identity="cancel-pair", account_id="shared", kind="cancel", at=cancel_at)
+        )
+        cancelled_at = cancel_at + timedelta(milliseconds=100)
+        journal.apply_net_event(
+            OrderEvent(
+                identity="pair-cancelled",
+                order_id=parent.order.identity,
+                at=cancelled_at,
+                kind="cancelled",
+            )
+        )
+        return cancelled_at
 
     def test_partial_net_fill_retry_stop_and_other_strategy_reissue(self, tmp_path: Path) -> None:
         """Shared fills conserve cash and stopping alpha leaves beta's residual owned."""
@@ -388,6 +476,7 @@ class TestPortfolioAccounts:
                 decision=replace(
                     target.request.decision, intent=TargetIntent(quantity=self._quantity("1"))
                 ),
+                touch=MarketTouch(bid=self._price("99.99"), ask=self._price()),
             ),
         )
         held = journal.coordinate(
@@ -1264,3 +1353,448 @@ class TestPortfolioAccounts:
         )
         assert (blocked.status, blocked.reason) == ("rejected", "account_limit")
         assert journal.net_orders()[0].order.remaining == self._quantity("0.000000000000000001")
+
+    def test_stopping_a_strategy_keeps_an_unknown_direct_order_unknown(
+        self, tmp_path: Path
+    ) -> None:
+        """A stop requests cancellation but only reconciliation resolves an unknown order."""
+        journal = self._ready(tmp_path / "stop-unknown-direct.sqlite3")
+        scenario = PaperExecutionScenario(
+            venue="okx",
+            instrument_id=self.dimension.instrument_id,
+            entry_delay_us=0,
+            cancel_delay_us=0,
+            adverse=self._price("0.01"),
+            fee_rate=Decimal(0),
+            take_fraction=Decimal(1),
+            gas_inapplicable_reason="off-chain spot matching",
+        )
+        journal.bind_paper_scenario("shared", scenario)
+        decided_at = self.opening_at + timedelta(seconds=1)
+        alpha = self._decision(instance="alpha", identity="alpha-buy", at=decided_at).request
+        journal.observe(alpha.quote)
+        order_id = journal.admit(alpha).orders[0].identity
+        journal.apply_event(
+            OrderEvent(
+                identity="lost-ack",
+                order_id=order_id,
+                at=decided_at + timedelta(seconds=1),
+                kind="unknown",
+            )
+        )
+        journal.stop_instance("alpha", decided_at + timedelta(seconds=2))
+        stopped = next(item.order for item in journal.orders() if item.order.identity == order_id)
+        assert (stopped.status, stopped.cancel_requested) == ("unknown", True)
+        beta_at = decided_at + timedelta(seconds=3)
+        beta = self._decision(instance="beta", identity="beta-buy", at=beta_at).request
+        journal.observe(beta.quote)
+        refused = journal.admit(beta)
+        assert (refused.status, refused.reason) == ("rejected", "order_outcome_unknown")
+        # The touch is above the buy limit, so only a lifecycle effect could appear.
+        journal.match_public_market(
+            "shared",
+            PaperMarket(
+                identity="after-stop",
+                at=decided_at + timedelta(seconds=4),
+                bid=self._price("100.50"),
+                ask=self._price("101"),
+                bid_quantity=self._quantity("100"),
+                ask_quantity=self._quantity("100"),
+            ),
+            scenario,
+        )
+        unmatched = next(item.order for item in journal.orders() if item.order.identity == order_id)
+        assert (unmatched.status, unmatched.is_terminal) == ("unknown", False)
+        journal.apply_event(
+            OrderEvent(
+                identity="still-open",
+                order_id=order_id,
+                at=decided_at + timedelta(seconds=5),
+                kind="reconcile_open",
+            )
+        )
+        reconciled = next(
+            item.order for item in journal.orders() if item.order.identity == order_id
+        )
+        assert reconciled.status == "cancel_requested"
+
+    def test_stopping_a_strategy_keeps_an_unknown_physical_parent_unknown(
+        self, tmp_path: Path
+    ) -> None:
+        """A stop requests the parent's cancellation without resolving its unknown outcome."""
+        journal = self._ready(tmp_path / "stop-unknown-parent.sqlite3")
+        decided_at = self.opening_at + timedelta(seconds=1)
+        decisions = tuple(
+            self._decision(instance=name, identity=f"{name}-buy", at=decided_at)
+            for name in ("alpha", "beta")
+        )
+        journal.observe(decisions[0].request.quote)
+        parent_id = (
+            journal.coordinate(
+                PortfolioBatch(
+                    identity="pair",
+                    at=decided_at + timedelta(microseconds=1),
+                    decisions=decisions,
+                )
+            )
+            .net_orders[0]
+            .order.identity
+        )
+        journal.apply_net_event(
+            OrderEvent(
+                identity="lost-ack",
+                order_id=parent_id,
+                at=decided_at + timedelta(seconds=1),
+                kind="unknown",
+            )
+        )
+        journal.stop_instance("alpha", decided_at + timedelta(seconds=2))
+        parent = next(net.order for net in journal.net_orders() if net.order.identity == parent_id)
+        assert (parent.status, parent.cancel_requested) == ("unknown", True)
+
+    def test_a_strategy_over_its_ceiling_by_marks_alone_can_still_sell(
+        self, tmp_path: Path
+    ) -> None:
+        """Alpha's 85 marked at 110 exceed its 9,000 ceiling: it can sell but not buy."""
+        rally_at = self.opening_at + timedelta(seconds=2)
+        rally = AccountQuote(price=self._price("110"), at=rally_at)
+        direct = self._holding(tmp_path / "direct.sqlite3")
+        direct.observe(rally)
+        buy = self._decision(
+            instance="alpha", identity="alpha-buy", at=rally_at, quantity="1", price="110"
+        )
+        refused = direct.admit(buy.request)
+        assert (refused.status, refused.reason) == ("rejected", "instance_limit")
+        sell = self._decision(
+            instance="alpha",
+            identity="alpha-sell",
+            at=rally_at,
+            side="sell",
+            quantity="10",
+            price="110",
+        )
+        admitted = direct.admit(sell.request)
+        assert (admitted.status, admitted.reason) == ("committed", "reserved")
+        coordinated = self._holding(tmp_path / "coordinated.sqlite3")
+        coordinated.observe(rally)
+        committed = coordinated.coordinate(
+            PortfolioBatch(
+                identity="alpha-sell-batch",
+                at=rally_at + timedelta(microseconds=1),
+                decisions=(sell,),
+            )
+        )
+        assert committed.status == "committed"
+        assert committed.net_orders[0].order.intent.quantity == self._quantity("10")
+
+    def test_a_strategy_over_its_ceiling_does_not_freeze_its_neighbour(
+        self, tmp_path: Path
+    ) -> None:
+        """Beta's 220 buy fits beta and the account (9,570) while alpha is over its own."""
+        journal = self._holding(tmp_path / "neighbour.sqlite3")
+        rally_at = self.opening_at + timedelta(seconds=2)
+        journal.observe(AccountQuote(price=self._price("110"), at=rally_at))
+        committed = journal.coordinate(
+            PortfolioBatch(
+                identity="beta-buy-batch",
+                at=rally_at + timedelta(microseconds=1),
+                decisions=(
+                    self._decision(
+                        instance="beta",
+                        identity="beta-buy",
+                        at=rally_at,
+                        maximum_fee="0",
+                        price="110",
+                    ),
+                ),
+            )
+        )
+        assert committed.status == "committed"
+        assert committed.net_orders[0].order.intent.quantity == self._quantity("2")
+
+    def test_a_strategy_over_its_ceiling_holds_back_only_its_own_residual_buy(
+        self, tmp_path: Path
+    ) -> None:
+        """Alpha's residual buy waits visibly while the account restarts and beta trades on."""
+        journal = self._holding(tmp_path / "residual.sqlite3")
+        cancelled_at = self._cancelled_pair(journal, self.opening_at + timedelta(seconds=2))
+        # Marked at 110, alpha holds 9,350 and still reserves its 200 residual buy: 9,550
+        # against its 9,000 ceiling, while the account (9,750) stays within 10,000.
+        stop_at = cancelled_at + timedelta(seconds=1)
+        stopped = journal.control(
+            AccountControl(
+                identity="stop-1",
+                account_id="shared",
+                kind="stop",
+                at=stop_at,
+                reason="operator protection",
+            )
+        )
+        assert stopped.status == "applied"
+        restart_at = stop_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price("110"), at=restart_at))
+        assert journal.reconcile(
+            AccountObservation(
+                identity="after-stop",
+                at=restart_at,
+                snapshot=AccountLedger(journal.accounts()[0].ledger).snapshot(),
+                open_orders=(),
+            )
+        )
+        restarted = journal.control(
+            AccountControl(
+                identity="restart-1",
+                account_id="shared",
+                kind="restart",
+                at=restart_at,
+                expected_control_identity="stop-1",
+            )
+        )
+        assert (restarted.status, restarted.reason) == ("applied", None)
+        reissued = journal.reissue_pending("shared", restart_at + timedelta(microseconds=1))
+        children = {child.order.identity: child for child in journal.orders()}
+        assert [
+            (children[allocation.child_order_id].instance_id, allocation.quantity)
+            for parent in reissued
+            for allocation in parent.allocations
+        ] == [("beta", self._quantity("2"))]
+        alpha_residual = next(
+            child.order
+            for child in journal.orders()
+            if child.instance_id == "alpha" and not child.order.is_terminal
+        )
+        assert journal.portfolio_residuals("shared") == (
+            PortfolioResidual(
+                account_id="shared",
+                instance_id="alpha",
+                child_order_id=alpha_residual.identity,
+                remaining=self._quantity("2"),
+                reason="instance_limit",
+            ),
+        )
+        # Beta's 220 buy fits beta and the account (9,550 + 200 + 220 = 9,970).
+        trade_at = restart_at + timedelta(milliseconds=1)
+        journal.observe(AccountQuote(price=self._price("110"), at=trade_at))
+        traded = journal.coordinate(
+            PortfolioBatch(
+                identity="beta-more",
+                at=trade_at + timedelta(microseconds=1),
+                decisions=(
+                    self._decision(
+                        instance="beta",
+                        identity="beta-more",
+                        at=trade_at,
+                        maximum_fee="0",
+                        price="110",
+                    ),
+                ),
+            )
+        )
+        assert traded.status == "committed"
+        assert [parent.order.intent.quantity for parent in traded.net_orders] == [
+            self._quantity("2")
+        ]
+        assert [item.instance_id for item in journal.portfolio_residuals("shared")] == ["alpha"]
+
+    def test_a_strategy_over_its_ceiling_does_not_block_account_restart(
+        self, tmp_path: Path
+    ) -> None:
+        """A stopped account restarts though marks alone keep alpha over its ceiling."""
+        journal = self._holding(tmp_path / "restart.sqlite3")
+        stop_at = self.opening_at + timedelta(seconds=2)
+        stopped = journal.control(
+            AccountControl(
+                identity="stop-1",
+                account_id="shared",
+                kind="stop",
+                at=stop_at,
+                reason="operator protection",
+            )
+        )
+        assert stopped.status == "applied"
+        restart_at = stop_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price("110"), at=restart_at))
+        assert journal.reconcile(
+            AccountObservation(
+                identity="after-stop",
+                at=restart_at,
+                snapshot=AccountLedger(journal.accounts()[0].ledger).snapshot(),
+                open_orders=(),
+            )
+        )
+        restarted = journal.control(
+            AccountControl(
+                identity="restart-1",
+                account_id="shared",
+                kind="restart",
+                at=restart_at + timedelta(microseconds=1),
+                expected_control_identity="stop-1",
+            )
+        )
+        assert (restarted.status, restarted.phase) == ("applied", "running")
+
+    def test_a_target_enters_at_the_ask_and_exits_at_the_bid(self, tmp_path: Path) -> None:
+        """Targets of 85 then 80 buy at the 100.50 ask, then sell 5 at the 99.50 bid; both fill."""
+        journal = self._ready(tmp_path / "target-exit.sqlite3")
+        scenario = PaperExecutionScenario(
+            venue="okx",
+            instrument_id=self.dimension.instrument_id,
+            entry_delay_us=0,
+            cancel_delay_us=0,
+            adverse=self._price("0"),
+            fee_rate=Decimal(0),
+            take_fraction=Decimal(1),
+            gas_inapplicable_reason="off-chain spot matching",
+        )
+        journal.bind_paper_scenario("shared", scenario)
+        touch = MarketTouch(bid=self._price("99.50"), ask=self._price("100.50"))
+        orders: list[OrderIntent] = []
+        holdings: list[tuple[Quantity, ...]] = []
+        for step, target in enumerate(("85", "80"), start=1):
+            decided_at = self.opening_at + timedelta(seconds=step)
+            journal.observe(AccountQuote(price=touch.ask, at=decided_at))
+            decision = self._decision(
+                instance="alpha",
+                identity=f"alpha-target-{target}",
+                at=decided_at,
+                maximum_fee="0",
+                price="100.50",
+            )
+            request = replace(
+                decision.request,
+                decision=replace(
+                    decision.request.decision, intent=TargetIntent(quantity=self._quantity(target))
+                ),
+                touch=touch,
+            )
+            committed = journal.coordinate(
+                PortfolioBatch(
+                    identity=f"alpha-target-{target}-batch",
+                    at=decided_at + timedelta(microseconds=1),
+                    decisions=(replace(decision, request=request),),
+                )
+            )
+            orders.append(committed.net_orders[0].order.intent)
+            journal.match_public_market(
+                "shared",
+                PaperMarket(
+                    identity=f"after-target-{target}",
+                    at=decided_at + timedelta(milliseconds=500),
+                    bid=touch.bid,
+                    ask=touch.ask,
+                    bid_quantity=self._quantity("100"),
+                    ask_quantity=self._quantity("100"),
+                ),
+                scenario,
+            )
+            ledger = AccountLedger(journal.accounts()[0].ledger)
+            holdings.append(ledger.snapshot(instance_id="alpha").positions)
+        assert orders == [
+            OrderIntent(
+                side="buy", quantity=self._quantity("85"), limit=touch.ask, time_in_force="ioc"
+            ),
+            OrderIntent(
+                side="sell", quantity=self._quantity("5"), limit=touch.bid, time_in_force="ioc"
+            ),
+        ]
+        assert holdings == [(self._quantity("85"),), (self._quantity("80"),)]
+
+    def test_a_decision_mark_outside_its_touch_is_refused(self) -> None:
+        """The valuation mark lies within the bid and ask that a target crosses."""
+        request = self._decision(instance="alpha", identity="outside", at=self.opening_at).request
+        with pytest.raises(ValueError, match="outside its touch"):
+            AccountDecision(
+                account_id=request.account_id,
+                instance_id=request.instance_id,
+                decision=request.decision,
+                quote=request.quote,
+                maximum_fee=request.maximum_fee,
+                touch=MarketTouch(bid=self._price("101"), ask=self._price("102")),
+            )
+
+    def test_a_residual_whose_limit_drifted_is_held_back_and_freezes_no_one(
+        self, tmp_path: Path
+    ) -> None:
+        """A 1.5% rally strands both residuals beyond the 1% price bound; nothing freezes.
+
+        Alpha's 88 at 101.50 (8,932) plus its 200 residual exceed its 9,000 ceiling, and
+        each residual's limit of 100 lies 148 basis points from the quote.
+        """
+        journal = self._holding(tmp_path / "drift.sqlite3", quantity="88", deviation_bps=100)
+        cancelled_at = self._cancelled_pair(journal, self.opening_at + timedelta(seconds=2))
+        stop_at = cancelled_at + timedelta(seconds=1)
+        assert (
+            journal.control(
+                AccountControl(
+                    identity="stop-1",
+                    account_id="shared",
+                    kind="stop",
+                    at=stop_at,
+                    reason="operator protection",
+                )
+            ).status
+            == "applied"
+        )
+        restart_at = stop_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price("101.50"), at=restart_at))
+        assert journal.reconcile(
+            AccountObservation(
+                identity="after-stop",
+                at=restart_at,
+                snapshot=AccountLedger(journal.accounts()[0].ledger).snapshot(),
+                open_orders=(),
+            )
+        )
+        restarted = journal.control(
+            AccountControl(
+                identity="restart-1",
+                account_id="shared",
+                kind="restart",
+                at=restart_at,
+                expected_control_identity="stop-1",
+            )
+        )
+        assert (restarted.status, restarted.reason) == ("applied", None)
+        trade_at = restart_at + timedelta(milliseconds=1)
+        journal.observe(AccountQuote(price=self._price("101.50"), at=trade_at))
+        traded = journal.coordinate(
+            PortfolioBatch(
+                identity="beta-at-the-new-price",
+                at=trade_at + timedelta(microseconds=1),
+                decisions=(
+                    self._decision(
+                        instance="beta",
+                        identity="beta-new",
+                        at=trade_at,
+                        maximum_fee="0",
+                        price="101.50",
+                    ),
+                ),
+            )
+        )
+        assert (traded.status, traded.reason) == ("committed", "reserved")
+        assert [
+            (item.instance_id, item.reason) for item in journal.portfolio_residuals("shared")
+        ] == [("alpha", "price_deviation")]
+        # Alpha's residual is not this batch's, so beta's abstention reports itself.
+        abstain_at = trade_at + timedelta(milliseconds=1)
+        journal.observe(AccountQuote(price=self._price("101.50"), at=abstain_at))
+        abstention = self._decision(
+            instance="beta", identity="beta-abstains", at=abstain_at, price="101.50"
+        )
+        abstained = journal.coordinate(
+            PortfolioBatch(
+                identity="beta-abstains",
+                at=abstain_at + timedelta(microseconds=1),
+                decisions=(
+                    replace(
+                        abstention,
+                        request=replace(
+                            abstention.request,
+                            decision=replace(abstention.request.decision, intent=None),
+                        ),
+                    ),
+                ),
+            )
+        )
+        assert (abstained.status, abstained.reason) == ("committed", "no_intent")

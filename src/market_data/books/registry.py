@@ -171,8 +171,21 @@ class BookRegistry:
             and prior is not None
             and prior.market is not None
             and quote.epoch == prior.market.epoch
-            # A clock changes no book state, so it carries the prior boundary's market.
-            and (quote.outcome == "clock" or quote.state_identity == prior.market.state_identity)
+            and (
+                # A clock changes no book state, so it carries the prior boundary's market.
+                quote.outcome == "clock"
+                or quote.state_identity == prior.market.state_identity
+                # A heartbeat applies no book data. Exactly one sequence on from the prior
+                # boundary, with the market's source clock, it advanced only the sequence,
+                # which the state identity includes.
+                or (
+                    quote.outcome == "heartbeat"
+                    and quote.sequence is not None
+                    and prior.event.sequence is not None
+                    and quote.sequence == prior.event.sequence + 1
+                    and quote.source_time == prior.market.source_time
+                )
+            )
         ):
             market = prior.market
         if len(history) == self.config.history_capacity:

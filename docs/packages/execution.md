@@ -9,8 +9,12 @@ persisted writer epoch. Each mutation checks both the local lock and epoch.
 
 `commit_step` saves opaque candidate checkpoint bytes, source/result bytes, the
 portable `OrderDecision`, a visible admission result and all child orders in one
-SQLite transaction. A repeated step with the same bytes returns its result;
-changed bytes under the same step ID fail. Child IDs are stable over restart and
+SQLite transaction. A target or exposure decision also names the `MarketTouch`
+it was decided on, and the shared `SpotOrderLifecycle` lowers it to one IOC that
+crosses the touch on its own side: a buy at the ask, a sell at the bid. Exposure
+converts to whole lots at the touch midpoint, as research simulation converts
+it. Dedicated and shared accounts lower identically. A repeated step with the
+same bytes returns its result; changed bytes under the same step ID fail. Child IDs are stable over restart and
 quote legs are admitted together. Fixed authored spot grids without a selected
 reference identity have `qualification == "fixture"`; they are usable for
 modeled paper/shadow work only. A selected reference identity has
@@ -98,7 +102,9 @@ One `BEGIN IMMEDIATE` transaction reads every account, computes exact marked
 holdings plus pending/uncertain reservations, checks all three budget levels,
 and commits all child legs and the opaque candidate checkpoint. Competing
 clients cannot both consume the same headroom. An unfilled sell does not offset
-held exposure; buys reserve limit notional and remaining fee allowance. Instance
+held exposure; buys reserve limit notional and remaining fee allowance. Budget
+ceilings bound buys only: a sell, which owned inventory bounds, never meets one,
+so a strategy that price moves took over its ceiling can still reduce. Instance
 positions are tagged, targets use only their own positions, and quote legs are
 atomic. The direct tagged-order path rejects crossing opposite orders. The
 coordinated portfolio path below adds explicit compatible crossing and physical
@@ -109,8 +115,11 @@ partial fills, confirmed terminal outcomes and uncertainty. Here `event.at` is
 the normalized knowledge/receipt cutoff and `fill.filled_at` retains economic
 event time. New events cannot regress the account knowledge clock. Identical
 retries and repeated fill identities do not double-post. Unknown orders and
-cancel acknowledgements retain capacity over restart. Order and fill/cost
-postings commit together using [AccountLedger](accounting.md).
+cancel acknowledgements retain capacity over restart. A cancel request, including
+one from a strategy or account stop, records intent beside an unknown outcome but
+leaves it unknown: only reconciliation resolves it, so admission stays blocked and
+paper matching cannot cancel it first. Order and fill/cost postings commit
+together using [AccountLedger](accounting.md).
 
 `post(AccountPosting)` applies identified transfers, separate currency fees or
 rebates, late fills, and append-only corrections. Every new administrative
@@ -288,15 +297,25 @@ orders for unaffected residuals. `restart_instance(instance_id, at)` requires
 the stopped strategy's unresolved orders to be settled and the account recovery
 conditions to hold. Stop, physical cancellation and position reduction remain
 distinct operations. Account-level protection applies throughout.
-Residual reissue also rechecks fresh independent quotes, gross budgets, price
-deviation and funding; an old opening reconciliation cannot authorize recovery.
-The same fresh-mark check applies at the coordination cutoff, after all gross
-admissions and before any internal allocation or physical order is created.
-`portfolio_residuals(account_id)` and application inspection expose child
-quantities that cannot form a valid physical lot. These quantities stay reserved;
-they are never silently rounded away or reported as a matched target. Stopping
-their owning instance can retire an unattached reservation without inventing a
-physical cancellation.
+At the coordination cutoff, after all gross admissions and before any internal
+allocation or physical order is created, every newly admitted child must still
+have a fresh independent quote within the price-deviation bound, or the batch is
+rejected: admission-time risk alone cannot authorize a later send. Residual
+reissue requires funding and a current reconciliation; an old opening
+reconciliation cannot authorize recovery. Netting, in both, routes only what can
+be sent now. An earlier child whose quote is stale or whose limit drifted beyond
+the bound, and a buy whose owner, account or the firm is now over a ceiling at
+current marks, is held back without blocking any other order, so a strategy that
+price moves alone took over its ceiling holds back only its own buys.
+`portfolio_residuals(account_id)` and application inspection expose held-back
+children with their reason, and child quantities that cannot form a valid
+physical lot. These quantities stay reserved;
+they are never silently rounded away or reported as a matched target. A held-back
+child has no expiry of its own: a later coordination or reissue sends it at its
+original limit once it passes these checks, its owner's next paper decision
+replaces it, or stopping its owning instance retires the unattached reservation
+without inventing a physical cancellation. Outside paper mode, decisions do not
+replace working orders, so the operator retires a residual whose intent is too old.
 
 The [installed account command](execute-application.md#shared-account-command)
 exposes these operations without a transport or credentials. The
@@ -448,9 +467,10 @@ identified outcome in the same firm transaction as order and accounting state.
 `startup` is the first control transition; `stop` and `fault` block admission,
 coordination and residual reissue without changing economic facts. `restart`
 compares the exact current stop identity, requires a newer complete independent
-reconciliation and fresh marks, and rechecks gross funding and budgets. Unknown
-sends, unconfirmed cancellation and account contradictions prevent recovery.
-Known accepted open orders can survive recovery with their reservations intact.
+reconciliation and fresh marks, and rechecks gross funding. Recovery sends no
+residual, so held-back residuals do not prevent it. Unknown sends, unconfirmed cancellation
+and account contradictions prevent recovery. Known accepted open orders can
+survive recovery with their reservations intact.
 `block()` reasons remain independent and cannot be cleared by this API.
 
 `cancel` records requests on direct orders and physical net parents without

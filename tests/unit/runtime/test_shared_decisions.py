@@ -18,7 +18,14 @@ from accounting import AccountLedger, AccountSnapshot, Fill
 from applications.paper import SharedPaperDecision, run_shared_paper
 from configuration import AccountConfiguration, OpeningAccount
 from configuration.accounts import InstrumentFeeRate
-from execution import AccountJournal, AccountObservation, AccountQuote, OrderEvent, PortfolioContext
+from execution import (
+    AccountJournal,
+    AccountObservation,
+    AccountQuote,
+    MarketTouch,
+    OrderEvent,
+    PortfolioContext,
+)
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from research.experiments import CandidateStateContract
@@ -231,8 +238,8 @@ class TestSharedDecisions:
         )
 
     @classmethod
-    def _inputs(cls, at: datetime) -> tuple[SharedStrategyInput, ...]:
-        """Supply one exact then-available signal to each selected candidate."""
+    def _inputs(cls, at: datetime, signal: str = "1") -> tuple[SharedStrategyInput, ...]:
+        """Supply one exact then-available signal and a 99.50/100 touch to each candidate."""
         inputs = DecisionInputs(
             entity=str(cls.dimension.instrument_id),
             decision_at=at,
@@ -242,7 +249,7 @@ class TestSharedDecisions:
                     entity=str(cls.dimension.instrument_id),
                     event_at=at,
                     available_at=at,
-                    value=ExactRatio(numerator="1", denominator="1"),
+                    value=ExactRatio(numerator=signal, denominator="1"),
                     reason="authored",
                     lineage="reference-source",
                 ),
@@ -253,6 +260,10 @@ class TestSharedDecisions:
                 instance_id=name,
                 inputs=inputs,
                 quote=AccountQuote(price=cls._price(), at=at),
+                touch=MarketTouch(
+                    bid=Price(value=Decimal("99.50"), currency=cls.currency, per=cls.dimension),
+                    ask=cls._price(),
+                ),
             )
             for name in ("target", "orders")
         )
@@ -451,3 +462,62 @@ class TestSharedDecisions:
         assert continuation.step.status == "warming"
         assert continuation.step.decision is None
         assert continuation.step.checkpoint.observations == 1
+
+    def test_a_flat_target_sells_its_holding_at_the_bid(self, tmp_path: Path) -> None:
+        """After buying 2 at the 100 ask, a nonpositive signal sells both at the 99.50 bid."""
+        config, bindings = self._config(), self._bindings()
+        path = tmp_path / "flat.sqlite3"
+        at = self.at + timedelta(seconds=1)
+        entered = run_shared_paper(
+            config,
+            bindings=bindings,
+            journal_path=path,
+            events=(
+                self._opening(),
+                AccountQuote(price=self._price(), at=at),
+                SharedPaperDecision(
+                    identity="enter", at=at + timedelta(microseconds=1), inputs=self._inputs(at)[:1]
+                ),
+            ),
+        )
+        parent = entered.net_orders[0].order
+        assert parent.intent == OrderIntent(
+            side="buy", quantity=self._quantity("2"), limit=self._price(), time_in_force="ioc"
+        )
+        fill_at = at + timedelta(seconds=1)
+        entry = Fill(
+            identity="entry-fill",
+            decision_at=parent.decision_at,
+            filled_at=fill_at,
+            quantity=self._quantity("2"),
+            reference=self._price(),
+            effective=self._price(),
+            fee=self._money("0"),
+        )
+        later = fill_at + timedelta(seconds=1)
+        exited = run_shared_paper(
+            config,
+            bindings=bindings,
+            journal_path=path,
+            events=(
+                OrderEvent(
+                    identity="entered",
+                    order_id=parent.identity,
+                    at=fill_at,
+                    kind="fill",
+                    fill=entry,
+                ),
+                AccountQuote(price=self._price(), at=later),
+                SharedPaperDecision(
+                    identity="exit",
+                    at=later + timedelta(microseconds=1),
+                    inputs=self._inputs(later, signal="0")[:1],
+                ),
+            ),
+        )
+        assert exited.decisions[0].net_orders[0].order.intent == OrderIntent(
+            side="sell",
+            quantity=self._quantity("2"),
+            limit=Price(value=Decimal("99.50"), currency=self.currency, per=self.dimension),
+            time_in_force="ioc",
+        )

@@ -156,7 +156,7 @@ class TestServedFeatures:
     @staticmethod
     def _row(
         definition: FeatureStoreDefinition,
-        seconds: int,
+        seconds: float,
         value: str,
         *,
         available: int | None = None,
@@ -194,7 +194,7 @@ class TestServedFeatures:
         root: Path,
         definition: FeatureStoreDefinition,
         version: str,
-        seconds: int,
+        seconds: float,
     ) -> None:
         """Prepare, publish the generation, then append the snapshot, as a publisher does."""
         at = _AT + timedelta(seconds=seconds)
@@ -204,7 +204,12 @@ class TestServedFeatures:
 
     @staticmethod
     def _candidate(
-        definition: FeatureStoreDefinition, version: str, *, starts_at: datetime = _AT
+        definition: FeatureStoreDefinition,
+        version: str,
+        *,
+        starts_at: datetime = _AT,
+        instance: str = "served",
+        cadence_us: int = 1_000_000,
     ) -> LoadedCandidate:
         """Load an authored candidate that targets one unit while funding is positive."""
         dimension = Dimension(
@@ -218,9 +223,9 @@ class TestServedFeatures:
                 quantity=Quantity(value=Decimal(1), dimension=dimension),
                 confirmations=1,
             ),
-            instance="served",
+            instance=instance,
             entity=_ENTITY,
-            cadence_us=1_000_000,
+            cadence_us=cadence_us,
             starts_at=starts_at,
             source_identity="unused",
             state=CandidateStateContract(
@@ -354,8 +359,8 @@ class TestServedSharedDecisions:
         return Price(value=Decimal(value), currency=cls.currency, per=cls.dimension)
 
     @classmethod
-    def _account(cls) -> AccountConfiguration:
-        """Fund one paper account and the served instance's budget."""
+    def _account(cls, instances: tuple[str, ...] = ("served",)) -> AccountConfiguration:
+        """Fund one paper account and each served instance's budget."""
         quantity = Quantity(value=Decimal(10), dimension=cls.dimension)
         lot = Quantity(value=Decimal(1), dimension=cls.dimension)
         return AccountConfiguration(
@@ -372,18 +377,66 @@ class TestServedSharedDecisions:
                 valuation_currency=cls.currency,
                 firm_maximum=cls._money("1000"),
                 accounts=(AccountLimit(account_id="paper", maximum=cls._money("1000")),),
-                instances=(
+                instances=tuple(
                     InstanceLimit(
-                        instance_id="served",
+                        instance_id=instance,
                         account_id="paper",
                         maximum=cls._money("900"),
                         instruments=(cls.dimension.instrument_id,),
-                    ),
+                    )
+                    for instance in instances
                 ),
                 max_quote_age_us=5_000_000,
                 max_state_age_us=86_400_000_000,
                 max_price_deviation_bps=500,
                 max_order_notional=cls._money("900"),
+            ),
+        )
+
+    @staticmethod
+    def _ask() -> InputRequirement:
+        """Read the book's ask on receipt, the only native input these observers provide."""
+        return InputRequirement(
+            name="book",
+            family="book",
+            clock="receipt",
+            field=NumericField(name="ask", units="quote/base"),
+            max_age_us=5_000_000,
+        )
+
+    @classmethod
+    def _source_candidate(cls, *, starts_at: datetime, cadence_us: int) -> LoadedCandidate:
+        """Load a source-fed candidate that targets one unit while the ask is positive."""
+        ask = cls._ask()
+        return AuthoredCandidates(venue="okx").load(
+            name="source-ask",
+            feature=ProjectionFeature(
+                FeatureSchema(
+                    implementation="named-projection",
+                    inputs=(ask,),
+                    outputs=(ask.field,),
+                    parameters=(),
+                    mode="batch",
+                    ttl_us=5_000_000,
+                )
+            ),
+            policy=ConfirmedSignal(
+                field=ask.field,
+                quantity=Quantity(value=Decimal(1), dimension=cls.dimension),
+                confirmations=1,
+            ),
+            instance="source",
+            entity=_ENTITY,
+            cadence_us=cadence_us,
+            starts_at=starts_at,
+            source_identity="served-test-source",
+            state=CandidateStateContract(
+                feature_mode="batch",
+                warmup_observations=0,
+                checkpoint_schema="candidate-checkpoint",
+                on_gap="continue",
+                on_restart="restore",
+                policy_state_schema="confirmed-signal",
             ),
         )
 
@@ -409,40 +462,42 @@ class TestServedSharedDecisions:
 
     @classmethod
     def _observer(
-        cls, path: Path, served: ServedFeatures, candidate: LoadedCandidate, *, deliveries: int = 6
+        cls,
+        path: Path,
+        served: ServedFeatures,
+        *candidates: LoadedCandidate,
+        deliveries: int = 6,
     ) -> tuple[SharedPaperCaptureObserver, AccountJournal]:
-        """Bind the native book, a fresh account journal and the served candidate."""
+        """Bind the native book, a fresh account journal and each served candidate."""
         request = CaptureRequest(
             config=CaptureConfig.read(Path("configs/live/okx-btc-usdt.json")),
             recording_id="33333333-3333-4333-8333-333333333333",
             implementation_identity="a" * 64,
         )
-        ask = InputRequirement(
-            name="book",
-            family="book",
-            clock="receipt",
-            field=NumericField(name="ask", units="quote/base"),
-            max_age_us=5_000_000,
-        )
-        journal = AccountJournal(path, cls._account())
-        binding = SharedStrategyBinding(
-            instance_id="served",
-            account_id="paper",
-            entity=_ENTITY,
-            candidate=candidate,
-            context=PortfolioContext(
-                portfolio_id="served-portfolio",
-                strategy_id="served",
-                model_revision="rule-only",
-                config_revision="test",
-                horizon="short",
-                reason="served-feature-test",
-                venue="okx",
-                settlement="spot",
-                risk_bucket="cash",
-                authority_scope="paper",
-            ),
-            maximum_fee=cls._money("1"),
+        ask = cls._ask()
+        instances = tuple(candidate.deployment.instance for candidate in candidates)
+        journal = AccountJournal(path, cls._account(instances))
+        bindings = tuple(
+            SharedStrategyBinding(
+                instance_id=candidate.deployment.instance,
+                account_id="paper",
+                entity=_ENTITY,
+                candidate=candidate,
+                context=PortfolioContext(
+                    portfolio_id="served-portfolio",
+                    strategy_id=candidate.deployment.instance,
+                    model_revision="rule-only",
+                    config_revision="test",
+                    horizon="short",
+                    reason="served-feature-test",
+                    venue="okx",
+                    settlement="spot",
+                    risk_bucket="cash",
+                    authority_scope="paper",
+                ),
+                maximum_fee=cls._money("1"),
+            )
+            for candidate in candidates
         )
         observer = SharedPaperCaptureObserver(
             source=LiveBookDecisionSource(request, (ask,), history_capacity=20),
@@ -462,7 +517,7 @@ class TestServedSharedDecisions:
                 )
             ),
             journal=journal,
-            runtime=SharedDecisionRuntime(journal, (binding,)),
+            runtime=SharedDecisionRuntime(journal, bindings),
             account_id="paper",
             scenario=PaperExecutionScenario(
                 venue="okx",
@@ -536,9 +591,9 @@ class TestServedSharedDecisions:
             (5, _AT + timedelta(seconds=3)),
         ]
         waited = groups[1][1]
-        assert waited.coordinated_at == _AT + timedelta(seconds=4, microseconds=1)
-        # Priced at the market known when it was decided, not the instant's own.
-        assert waited.quote.at == _AT + timedelta(seconds=4)
+        # Decided when book 5 first read its snapshot, priced at the market known then.
+        assert waited.coordinated_at == _AT + timedelta(seconds=5, microseconds=1)
+        assert waited.quote.at == _AT + timedelta(seconds=5)
         served_items = [group.inputs[0].served for _, group in groups]
         assert [item.materialized_at for item in served_items if item is not None] == [
             _AT + timedelta(seconds=2),
@@ -572,7 +627,7 @@ class TestServedSharedDecisions:
                 ),
             ),
         )
-        shifted = replace(waited, coordinated_at=_AT + timedelta(seconds=4, microseconds=2))
+        shifted = replace(waited, coordinated_at=_AT + timedelta(seconds=5, microseconds=2))
         for forged, message in (
             (forged_value, "native input lineage"),
             (shifted, "coordination differs"),
@@ -583,6 +638,82 @@ class TestServedSharedDecisions:
                 fresh.deliver(delivery)
             with pytest.raises(ValueError, match=message):
                 fresh.deliver(replace(retained[5], decisions=(forged,)))
+
+    def test_a_served_decision_is_dated_when_read_and_fills_only_on_a_later_book(
+        self, tmp_path: Path
+    ) -> None:
+        """A snapshot first read at book 5 dates its decision at 5 s; book 6, not 5, fills it."""
+        setup = TestServedFeatures()
+        store, definition, _, bridge, served, _ = setup._setup(tmp_path)
+        candidate = TestServedFeatures._candidate(definition, "stream", starts_at=_AT)
+        observer, journal = self._observer(
+            tmp_path / "live.sqlite3", served, candidate, deliveries=7
+        )
+        assert journal.reconcile(self._opening())
+        for position in range(5):
+            observer.observe(*self._book(position, position))
+        store.append(definition, setup._row(definition, 3, "1/50"))
+        setup._publish(store, bridge, tmp_path, definition, "stream", 3)
+        observer.observe(*self._book(5, 5))
+        child = journal.orders()[-1].order
+        parent = journal.net_orders()[-1].order
+        assert child.decision_at == _AT + timedelta(seconds=5)
+        assert parent.decision_at == _AT + timedelta(seconds=5, microseconds=1)
+        assert parent.filled.value == 0
+        observer.observe(*self._book(6, 6))
+        assert journal.net_orders()[-1].order.status == "filled"
+
+    def test_two_served_decisions_read_on_one_book_both_commit(self, tmp_path: Path) -> None:
+        """Snapshots for 3 s and 3.5 s, both first read at book 5, coordinate in turn."""
+        setup = TestServedFeatures()
+        store, definition, _, bridge, served, _ = setup._setup(tmp_path)
+        first = TestServedFeatures._candidate(definition, "stream", starts_at=_AT)
+        second = TestServedFeatures._candidate(
+            definition, "stream", starts_at=_AT + timedelta(milliseconds=500), instance="other"
+        )
+        observer, journal = self._observer(tmp_path / "live.sqlite3", served, first, second)
+        assert journal.reconcile(self._opening())
+        for position in range(5):
+            observer.observe(*self._book(position, position))
+        for seconds in (3, 3.5):
+            store.append(definition, setup._row(definition, seconds, "1/50"))
+            setup._publish(store, bridge, tmp_path, definition, "stream", seconds)
+        observer.observe(*self._book(5, 5))
+        assert [(commit.status, commit.reason) for commit in observer.decisions[-2:]] == [
+            ("committed", "reserved"),
+            ("committed", "reserved"),
+        ]
+
+    def test_the_next_book_fills_a_served_decision_beside_a_source_fed_one(
+        self, tmp_path: Path
+    ) -> None:
+        """Book 6 decides source instant 5 before its match and served instant 4 after it.
+
+        Book 7 crosses no instant, but the served order still awaits a book, so it matches.
+        """
+        setup = TestServedFeatures()
+        store, definition, _, bridge, served, _ = setup._setup(tmp_path)
+        candidates = (
+            TestServedFeatures._candidate(definition, "stream", cadence_us=4_000_000),
+            self._source_candidate(starts_at=_AT + timedelta(seconds=1), cadence_us=4_000_000),
+        )
+        observer, journal = self._observer(
+            tmp_path / "live.sqlite3", served, *candidates, deliveries=8
+        )
+        assert journal.reconcile(self._opening())
+        for position in range(6):
+            observer.observe(*self._book(position, position))
+        assert observer.feature_pauses["served"] == "feature-pending"
+        store.append(definition, setup._row(definition, 4, "1/50"))
+        setup._publish(store, bridge, tmp_path, definition, "stream", 4)
+        observer.observe(*self._book(6, 6))
+        late = journal.net_orders()[-1].order
+        assert (late.decision_at, late.status) == (
+            _AT + timedelta(seconds=6, microseconds=1),
+            "intent",
+        )
+        observer.observe(*self._book(7, 7))
+        assert journal.net_orders()[-1].order.status == "filled"
 
     def test_a_published_snapshot_decides_on_the_next_clock(self, tmp_path: Path) -> None:
         """An awaited instant decides on a clock, and the next book matches its order."""

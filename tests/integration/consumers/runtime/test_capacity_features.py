@@ -224,7 +224,8 @@ class TestCapacityFeatures:
         generic = observer.index.registry.lookup(
             source.source.key, cutoff_ns=observer.index._unix_ns(at)
         )
-        assert generic.quote is None and generic.reason == "unavailable"
+        # The registry and the causal source agree that the heartbeat changed no book.
+        assert (generic.reason, generic.quote) == ("eligible", original)
         causal = source.lookup(observer.index, at)
         assert causal.quote == original
         assert causal.boundary is not None and causal.boundary.sequence == 3

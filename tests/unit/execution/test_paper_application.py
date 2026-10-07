@@ -522,6 +522,20 @@ class TestPaperExecutionApplication:
                 market=self._market(),
             )
 
+    def test_a_decide_request_naming_a_reference_price_is_refused(self) -> None:
+        """A request in the earlier format, with one reference price, no longer decodes."""
+        codec = DomainCodec()
+        fields = self._json_object(
+            codec.encode_json(
+                PaperExecutionRequest(
+                    action="decide", identity="decision", decision=self._decision()
+                )
+            ).decode()
+        )
+        fields["reference"] = self._json_object(codec.encode_json(self._price("100")).decode())
+        with pytest.raises(ValueError, match="reference"):
+            codec.decode_json(json.dumps(fields, sort_keys=True), PaperExecutionRequest)
+
     def test_existing_admission_commands_keep_their_read_only_output(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:

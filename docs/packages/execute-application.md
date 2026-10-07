@@ -79,10 +79,11 @@ and do not establish venue rule fidelity. Each result reports
 orders, event sequence and any durable account break.
 
 The `PaperExecutionRequest` JSON selects one action. `decide` supplies a portable
-`OrderDecision`, a stable request identity, optional target conversion price and
-opaque checkpoint bytes; the command atomically journals the candidate
-continuation, admission result and child orders. `replace` supplies the old
-order ID plus a new decision, optional reference and checkpoint; it admits a
+`OrderDecision`, a stable request identity, the optional `MarketTouch` (bid and
+ask) that a target or exposure crosses, and opaque checkpoint bytes; the command
+atomically journals the candidate continuation, admission result and child
+orders. `replace` supplies the old order ID plus a new decision, optional touch
+and checkpoint; it admits a
 replacement with durable lineage only after the old order has a confirmed
 terminal outcome. A cancel request or acknowledgement alone does not permit
 replacement. `market` supplies a finite
@@ -158,7 +159,9 @@ alpha-execute account --config /absolute/accounts.json \
 `AccountConfiguration` pins `account-runtime`, local `paper`/`shadow` mode,
 opening currency funding, spot instrument mechanics and a `BudgetPolicy`.
 `AccountExecutionRequest` selects exactly one action: `quote` records the
-independent market observation; `admit` submits an attributable `AccountDecision`;
+independent market observation; `admit` submits an attributable `AccountDecision`,
+whose target or exposure intent also needs the `touch` (bid and ask) it crosses,
+around the decision's valuation quote;
 `event` processes normalized order/fill facts; `post` applies transfers, costs or
 corrections; `reconcile` compares a complete independent `AccountObservation`;
 `block` stops new account exposure; `inspect` returns current state. Contradictory
@@ -183,7 +186,7 @@ The same command accepts the shared portfolio operations:
 | `net_event` | `net_event: OrderEvent` names a physical parent. The journal applies its lifecycle and allocates its fill/cost effects to strategy children in one transaction. |
 | `net_cost` | `net_cost: NetFeeCorrection` identifies a physical fill and its revised total fee. Append-only child corrections retain the original event and require account reconciliation before admission resumes. |
 | `stop_instance` | `instance_id`, UTC `at`. Block the selected instance and request shared-parent cancellation while retaining unresolved reservations. This action does not flatten positions or claim an exchange cancellation. |
-| `reissue_pending` | `account_id`, UTC `at`. After confirmed cancellation and complete reconciliation, route the unaffected strategy's reserved residuals through new physical parents. |
+| `reissue_pending` | `account_id`, UTC `at`. After confirmed cancellation and complete reconciliation, route the unaffected strategy's reserved residuals through new physical parents. A residual that cannot be sent now (stale quote, drifted limit, or an owner over a ceiling) stays visible with its reason. |
 | `restart_instance` | `instance_id`, UTC `at`. Resume local decision admission only after the journal's recovery conditions hold; independent account blocks remain in force. |
 
 Results expose both `orders` (attributed children) and `net_orders` (physical

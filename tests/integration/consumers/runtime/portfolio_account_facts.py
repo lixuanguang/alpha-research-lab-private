@@ -15,6 +15,7 @@ from configuration import AccountConfiguration, InstrumentFeeRate, OpeningAccoun
 from execution import (
     AccountDecision,
     AccountQuote,
+    MarketTouch,
     OrderDecision,
     OrderEvent,
     PortfolioBatch,
@@ -190,6 +191,7 @@ class PortfolioAccountFacts:
                 quote=AccountQuote(price=self.price(), at=at),
                 maximum_fee=self.money("1"),
                 checkpoint=f"{strategy_id}:{identity}".encode(),
+                touch=MarketTouch(bid=self.price("99.99"), ask=self.price()),
             ),
             context=PortfolioContext(
                 portfolio_id="reference-portfolio",

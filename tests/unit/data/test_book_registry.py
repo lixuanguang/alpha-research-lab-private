@@ -569,6 +569,89 @@ class TestBookRegistry:
         assert registry.lookup(selection.key, cutoff_ns=1_000_000_009).quote == snapshot
         assert registry.lookup(selection.key, cutoff_ns=1_000_000_010).reason == "unavailable"
 
+    def test_attached_native_bitfinex_heartbeat_keeps_the_touch(self) -> None:
+        """An in-sequence heartbeat advances only the sequence, so the touch stays eligible."""
+        capture = CaptureConfig.read(_RegistryScenario._ROOT / "configs/live/bitfinex-btc-usd.json")
+        request = CaptureRequest(
+            config=capture,
+            recording_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            implementation_identity="b" * 64,
+        )
+        selection = BookSelection(
+            instrument=InstrumentDefinition(
+                instrument_id=capture.instrument_id,
+                venue=capture.venue,
+                symbol=capture.symbol,
+                product="spot",
+                base_currency=capture.base_currency,
+                quote_currency=capture.quote_currency,
+                calendar="continuous-utc",
+            ),
+            source_id=request.identity,
+            capability=BookAdapters.capability(capture),
+            quantity_unit=QuantityKind.BASE_UNIT,
+            max_age_ns=1_000_000_000,
+            allow_degraded=True,
+        )
+        registry = BookRegistry(_RegistryScenario._configuration(selection))
+        registry.attach(request, book_factory=BookAdapters.create)
+        session = CaptureRecord(kind="session", epoch=0, received_ns=1_000_000_000)
+        frames = (
+            (1_001_000_000, b'{"event":"conf","status":"OK","flags":65536}'),
+            (
+                1_002_000_000,
+                b'{"event":"subscribed","chanId":7,"channel":"book","symbol":"tBTCUSD",'
+                b'"prec":"R0","freq":"F0","len":"25"}',
+            ),
+            (1_003_000_000, b"[7,[[1,100,2],[2,101,-1]],1]"),
+            (1_500_000_000, b'[7,"hb",2]'),
+        )
+        quotes = tuple(
+            registry.apply(selection.key, record, available_ns=record.received_ns)
+            for record in (
+                session,
+                *(
+                    CaptureRecord(kind="frame", epoch=0, received_ns=at, raw=raw)
+                    for at, raw in frames
+                ),
+            )
+        )
+        snapshot, heartbeat = quotes[3], quotes[4]
+        assert (heartbeat.outcome, heartbeat.sequence) == ("heartbeat", 2)
+        assert heartbeat.state_identity != snapshot.state_identity
+        assert registry.lookup(selection.key, cutoff_ns=1_500_000_000).quote == snapshot
+        # The carried touch keeps its own clock; a heartbeat never freshens it.
+        assert registry.lookup(selection.key, cutoff_ns=2_003_000_001).reason == "stale"
+
+    def test_a_heartbeat_that_skips_a_sequence_does_not_vouch_for_the_touch(self) -> None:
+        """A heartbeat one sequence on carries the touch; a skipped number or new clock does not."""
+        selected = _RegistryScenario._selection(
+            "bitfinex", _RegistryScenario._IDS[0], max_age_ns=20
+        )
+        market = _RegistryScenario._quote(
+            selected,
+            0,
+            100,
+            bid=_RegistryScenario._side("100", "2"),
+            ask=_RegistryScenario._side("101", "3"),
+        )
+        carried = BookRegistry(_RegistryScenario._configuration(selected))
+        carried.accept(market)
+        carried.accept(_RegistryScenario._quote(selected, 1, 110, outcome="heartbeat"))
+        assert carried.lookup(selected.key, cutoff_ns=115).quote == market
+        skipped = BookRegistry(_RegistryScenario._configuration(selected))
+        skipped.accept(market)
+        skipped.accept(
+            replace(_RegistryScenario._quote(selected, 1, 110, outcome="heartbeat"), sequence=2)
+        )
+        assert skipped.lookup(selected.key, cutoff_ns=115).reason == "unavailable"
+        reclocked = BookRegistry(_RegistryScenario._configuration(selected))
+        reclocked.accept(market)
+        reclocked.accept(
+            _RegistryScenario._quote(selected, 1, 110, outcome="heartbeat", source_time="105")
+        )
+        assert reclocked.lookup(selected.key, cutoff_ns=115).reason == "unavailable"
+
     def test_iso_source_fraction_does_not_leak_nanoseconds(self) -> None:
         """A sub-microsecond native clock remains future until its exact nanosecond."""
         selection = _RegistryScenario._selection(

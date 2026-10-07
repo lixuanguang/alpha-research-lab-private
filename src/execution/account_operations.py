@@ -250,9 +250,7 @@ class AccountOperations:
         return tuple(targets)
 
     def _cancel_order(self, order: OrderState, event: OrderEvent) -> OrderState:
-        """Keep an unknown send unknown while recording a local cancel request."""
-        if order.status == "unknown":
-            return replace(order, cancel_requested=True)
+        """Record a local cancel request through the shared spot lifecycle."""
         return SpotOrderLifecycle(self.admission.limits(order.intent.limit)).transition(
             order, event
         )

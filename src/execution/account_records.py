@@ -12,7 +12,7 @@ from typing import Literal
 from accounting import AccountSnapshot, AccountState, Fill
 from configuration import PaperExecutionScenario
 from execution.paper import PaperLiquidityState, PaperMarket
-from execution.records import DroppedLeg, OrderDecision, OrderEvent, OrderState
+from execution.records import DroppedLeg, MarketTouch, OrderDecision, OrderEvent, OrderState
 from financial_units import Currency, Dimension, Money, Price, Quantity
 from portfolio import PortfolioContext
 from serialization import DomainCodec, WireRecord
@@ -175,7 +175,11 @@ class AccountPaperCost(WireRecord, frozen=True):
 
 
 class AccountDecision(WireRecord, frozen=True):
-    """Carry an attributable portable intent across independent account admission."""
+    """Carry an attributable portable intent across independent account admission.
+
+    ``quote`` is the account's valuation mark. A target or exposure intent also
+    needs the ``touch`` it was decided on, since its order crosses the bid or ask.
+    """
 
     account_id: str
     instance_id: str
@@ -183,6 +187,7 @@ class AccountDecision(WireRecord, frozen=True):
     quote: AccountQuote
     maximum_fee: Money
     checkpoint: bytes = b""
+    touch: MarketTouch | None = None
 
     def __post_init__(self) -> None:
         """Validate ownership, exact economics and opaque candidate continuation."""
@@ -205,6 +210,17 @@ class AccountDecision(WireRecord, frozen=True):
         self.maximum_fee.model_copy()
         if self.maximum_fee.value < 0:
             raise ValueError("account fee reserve cannot be negative")
+        if self.touch is not None:
+            if type(self.touch) is not MarketTouch:
+                raise TypeError("account decision touch must be a MarketTouch")
+            self.touch.__post_init__()
+            if (
+                self.touch.bid.per != self.quote.price.per
+                or self.touch.bid.currency != self.quote.price.currency
+            ):
+                raise ValueError("account decision touch belongs to another market")
+            if not self.touch.bid.value <= self.quote.price.value <= self.touch.ask.value:
+                raise ValueError("account decision mark lies outside its touch")
 
 
 class DecisionOutcome(WireRecord, frozen=True):

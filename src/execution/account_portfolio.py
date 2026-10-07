@@ -33,6 +33,7 @@ from execution.account_state import (
 from execution.lifecycle import SpotOrderLifecycle
 from execution.records import DroppedLeg, OrderEvent, OrderState, StepCommit
 from financial_units import DecimalGrid, Money, Quantity
+from risk import BudgetEngine
 from serialization import DomainCodec
 from strategies import OrderIntent
 
@@ -101,6 +102,11 @@ class PortfolioCoordinator:
                 children.extend(transaction.order(order.identity) for order in step_commit.orders)
             for account_id in sorted({item.request.account_id for item in batch.decisions}):
                 self.admission.require_reissue_safe(transaction, account_id, batch.at)
+            # Admission-time risk alone cannot authorize a later send of this batch's orders.
+            for child in children:
+                reason = self.admission.send_reason(transaction, child.order, batch.at)
+                if reason is not None:
+                    raise ValueError(reason)
             crossed = (
                 self._cross_internal(transaction, batch, tuple(children))
                 if batch.crossing == "internal_at_quote"
@@ -116,12 +122,13 @@ class PortfolioCoordinator:
             residuals = tuple(
                 item for item in transaction.state.residuals if item.account_id in affected_accounts
             )
+            batch_ids = {child.order.identity for child in children}
             portfolio_result = PortfolioCommit(
                 status="committed",
                 reason="reserved"
                 if parents
                 else "unroutable_residual"
-                if residuals
+                if any(item.child_order_id in batch_ids for item in residuals)
                 else "internal_cross"
                 if crossed
                 else "no_intent"
@@ -375,10 +382,35 @@ class PortfolioCoordinator:
                     fill_ids.append(fill_id)
         return tuple(fill_ids)
 
+    def _exceeded_ceilings(
+        self, transaction: AccountTransaction, at: datetime, buyers: set[str]
+    ) -> dict[str, str]:
+        """Name the ceiling each buying owner now exceeds at current marks."""
+        if not buyers:
+            return {}
+        policy = self.config.budgets
+        commitments = self.admission.commitments(transaction, at)
+        engine = BudgetEngine()
+        reason = engine.recheck(policy, commitments, ())
+        if reason is not None:
+            raise ValueError(reason)
+        exceeded: dict[str, str] = {}
+        for buyer in sorted(buyers):
+            reason = engine.recheck(policy, commitments, (buyer,))
+            if reason is not None:
+                exceeded[buyer] = reason
+        return exceeded
+
     def _net_pending(
         self, transaction: AccountTransaction, account_id: str, at: datetime
     ) -> tuple[NetOrder, ...]:
-        """Group only unassigned compatible residual children into physical orders."""
+        """Group unassigned compatible children into physical orders.
+
+        A child that cannot be sent now (a stale quote, a limit beyond the price
+        bound, or a buy whose owner is over a ceiling at current marks) and a group
+        that cannot form a valid physical lot stay reserved as visible
+        ``PortfolioResidual`` values.
+        """
         assigned = {
             allocation.child_order_id
             for parent in transaction.state.net_orders
@@ -415,7 +447,35 @@ class PortfolioCoordinator:
             if reconciled_at is None or reconciled_at < outcome_at:
                 raise ValueError("reissue_requires_current_reconciliation")
         parents: list[NetOrder] = []
-        residuals: list[PortfolioResidual] = []
+        # A child that cannot be sent now stays a visible, reserved residual and holds
+        # back no other order: its quote is stale, its limit drifted beyond the price
+        # bound, or it is a buy whose owner, account or the firm is over a ceiling.
+        held: dict[str, str] = {}
+        for child in pending:
+            reason = self.admission.send_reason(transaction, child.order, at)
+            if reason is not None:
+                held[child.order.identity] = reason
+        buys = tuple(
+            child
+            for child in pending
+            if child.order.intent.side == "buy" and child.order.identity not in held
+        )
+        exceeded = self._exceeded_ceilings(transaction, at, {child.instance_id for child in buys})
+        for child in buys:
+            if child.instance_id in exceeded:
+                held[child.order.identity] = exceeded[child.instance_id]
+        residuals = [
+            PortfolioResidual(
+                account_id=child.account_id,
+                instance_id=child.instance_id,
+                child_order_id=child.order.identity,
+                remaining=child.order.remaining,
+                reason=held[child.order.identity],
+            )
+            for child in pending
+            if child.order.identity in held
+        ]
+        pending = [child for child in pending if child.order.identity not in held]
         while pending:
             first = pending.pop(0)
             if first.context is None or first.quote is None:

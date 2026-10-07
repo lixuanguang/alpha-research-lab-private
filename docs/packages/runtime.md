@@ -205,11 +205,18 @@ execution authority.
 `PortfolioContext` and maximum fee. The candidate's runtime placement must name
 the same instance and entity. Construction checks that the configured instance
 owns the account and entity and that the fee uses the account's valuation
-currency. `SharedStrategyInput` supplies that instance's causal `DecisionInputs`
-and an `AccountQuote`; the quote must be no later than the inputs' cutoff, and
-the journal independently verifies it was observed for risk use. The application
+currency. `SharedStrategyInput` supplies that instance's causal `DecisionInputs`,
+an `AccountQuote` and the `MarketTouch` of the same market; the quote must be no
+later than the inputs' cutoff, and the journal independently verifies it was
+observed for risk use. The quote is the valuation mark, while a target or
+exposure crosses the touch on its own side, so a target below the holding sells
+at the bid. The shared paper observer marks at the ask, so such a sell deviates
+from its mark by the spread: a spread wider than the account's price-deviation
+bound refuses the exit while entries pass. The application
 supplies an explicit batch identity, a UTC coordination time later than each
-decision, and a crossing policy.
+decision, and a crossing policy. The account learns each decision at that
+coordination and dates it one microsecond earlier, the latest instant at which the
+runtime can have decided it.
 
 `SharedDecisionRuntime.evaluate()` orders inputs by instance ID and runs each
 candidate step through its executor: `LocalCandidateExecutor` in process, or a
@@ -257,7 +264,9 @@ is current: an eligible book, or a capture `clock`, heartbeat or control that
 leaves the retained market current. At the first such delivery after an instant,
 the due candidates decide at that instant from the latest eligible market at or
 before it, whose quote the journal observes. The batch coordinates at the instant
-plus one microsecond, so the account's knowledge stays before that delivery. Only
+plus one microsecond, so the account's knowledge stays before that delivery, or one
+microsecond after an earlier group decided on the same or the previous delivery if
+that is later, so the account never learns decisions out of order. Only
 an eligible book matches orders: the first one at or after each crossing or
 decision. New orders therefore first meet the next book. A decision
 waits at most about one capture clock interval past its inputs' readiness,
@@ -266,8 +275,8 @@ least that entry delay. Deliveries between instants update monitoring only. An i
 skipped, and the candidate's gap rule (`pause`, `reset` or `continue`) governs it.
 `SharedBookDelivery` (`shared-candidate-delivery`) is persisted before effects
 with each decided instant's inputs, quote and coordination clock, and whether the
-book matched; only a snapshot or update matches, and one that decides always
-does. Replay recomputes the grid and refuses a retained delivery whose
+book matched; only a snapshot or update matches, and one that decides a
+source-fed instant always does. Replay recomputes the grid and refuses a retained delivery whose
 matching or decided inputs differ. Native invalidation blocks new independent
 admission while preserving pending exposure.
 
@@ -275,10 +284,12 @@ Shared accounts also run feature-served candidates. `SharedStrategyInput` carrie
 either source `inputs` or a `served` feature, and both executors accept either. The
 observer serves such a candidate at each instant through `ServedFeatures`. While
 the instant's snapshot is `feature-pending` the instant stays open and is retried
-on each later delivery that advances the grid. It decides once the snapshot is published, coordinated
-one microsecond after the preceding delivery and quoted at the latest market known
-then; the account dates that decision when both its inputs and its quote were
-known. It is skipped as `feature-not-published` when the delivery that opens the
+on each later delivery that advances the grid. It decides on the first such delivery
+that reads the published snapshot. The snapshot is known only then, so the decision
+is quoted at the latest market including that delivery's, coordinates one
+microsecond after the delivery (or after an earlier group of it) and is dated one
+microsecond before its coordination. That delivery's book is matched first, so only
+a later book can fill the decision. It is skipped as `feature-not-published` when the
 candidate's next instant still cannot decide it. Any other pause reason skips the
 instant like missing inputs; reasons are kept in `feature_pauses`. The delivery log
 retains the served vector and snapshot, and a replay reopens that snapshot, refuses

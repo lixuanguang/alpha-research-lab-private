@@ -658,6 +658,54 @@ class TestVenueAccounting:
             self._observation("net-wallet", source_at + timedelta(seconds=1), "600", "3.98")
         )
 
+    def test_dispatch_holds_back_only_the_buy_of_an_owner_over_its_ceiling(
+        self, tmp_path: Path
+    ) -> None:
+        """At 101, alpha's 2 held (202) plus a 201 buy reserve exceed 401: the buy waits."""
+        config = self._config()
+        ceiling = replace(config.budgets.instances[0], maximum=self._money("401"))
+        config = replace(config, budgets=replace(config.budgets, instances=(ceiling,)))
+        journal = AccountJournal(tmp_path / "ceiling.sqlite3", config)
+        assert journal.reconcile_venue(self._observation("opening", self.opening_at, "1000", "0"))
+        first_at = self.opening_at + timedelta(seconds=1)
+        first = self._buy(journal, first_at)
+        journal.apply_native_fill(
+            self._native(
+                first, first_at + timedelta(seconds=1), fee="0.01", fee_currency=self.quote
+            )
+        )
+        second_at = first_at + timedelta(seconds=2)
+        second = self._buy(journal, second_at, identity="second")
+        rally_at = second_at + timedelta(seconds=1)
+        rally = AccountQuote(price=self._price("101"), at=rally_at)
+        journal.observe(rally)
+        with (
+            pytest.raises(ValueError, match="instance_limit"),
+            journal.execution_guard("venue", second.identity, rally_at),
+        ):
+            pass
+        sell = journal.admit(
+            AccountDecision(
+                account_id="venue",
+                instance_id="alpha",
+                decision=OrderDecision(
+                    identity="sell",
+                    at=rally_at,
+                    intent=OrderIntent(
+                        side="sell",
+                        quantity=self._quantity("2"),
+                        limit=self._price("101"),
+                        time_in_force="gtc",
+                    ),
+                ),
+                quote=rally,
+                maximum_fee=self._money("1"),
+            )
+        )
+        assert sell.status == "committed"
+        with journal.execution_guard("venue", sell.orders[0].identity, rally_at) as permit:
+            assert permit.order.identity == sell.orders[0].identity
+
     @staticmethod
     def arm_and_die(path: str, order_id: str, at: datetime) -> None:
         """Arm a dispatch lease in a separate process, then exit without releasing it."""

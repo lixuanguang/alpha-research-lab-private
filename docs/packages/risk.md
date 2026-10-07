@@ -15,19 +15,25 @@ reason or `None`. The request carries a portable `OrderIntent`, its account and
 instance owner, a current typed quote, decision/quote/account-state UTC times,
 and a fee cap. Its price and size comparisons use exact rational arithmetic.
 The engine checks authorization, currency and dimensions, clock causality,
-freshness, price deviation, order notional, and the nested instance, account,
-and firm limits. It never clips an order.
+freshness, price deviation, order notional, and, for a buy, the nested
+instance, account, and firm limits. It never clips an order.
 
 An `ExposureCommitment` has one owner and nonnegative marked held exposure plus
 unresolved reservations. Pending and uncertain orders stay in reserved exposure
 until their confirmed terminal outcome; cancel acknowledgment alone does not
 release it. For cash spot, a new buy consumes full limit notional plus its fee
-cap. A sell consumes its fee cap, while the held position remains in marked
-exposure until the confirmed fill. The execution owner independently validates
-inventory, cash, venue grids and order lifecycle through `SpotLimits` and the
-ledger. There must be exactly one commitment record per instance in the supplied
-authoritative snapshot, including explicit zeros for flat instances; missing,
-unknown or duplicate owners fail closed.
+cap. A sell reserves its fee cap, while the held position remains in marked
+exposure until the confirmed fill. Owned inventory bounds a sell, so it can only
+lower exposure: no ceiling refuses it, even when price moves alone have taken its
+owner over one. Such a breach refuses only buys that would add to the exceeded
+ceiling. Before a physical send, `BudgetEngine.recheck(policy, commitments,
+buyers)` applies the same rule at current marks to the owners of the buys being
+sent, so one instance's breach never holds back a sell or another instance's
+in-limit buy. The execution owner independently validates inventory, cash,
+venue grids and order lifecycle through `SpotLimits` and the ledger. There must
+be exactly one commitment record per instance in the supplied authoritative
+snapshot, including explicit zeros for flat instances; missing, unknown or
+duplicate owners fail closed.
 
 The risk engine neither reads account state nor writes a reservation. The
 execution journal must obtain the authoritative snapshot, evaluate it, and

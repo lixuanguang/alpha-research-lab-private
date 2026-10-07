@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 from datetime import datetime
+from fractions import Fraction
 from typing import Literal
 
 # project library imports
@@ -37,6 +38,40 @@ type EventKind = Literal[
     "reconcile_cancelled",
     "reconcile_rejected",
 ]
+
+
+class MarketTouch(WireRecord, frozen=True):
+    """Pair the best bid and ask that one market observation offered a decision.
+
+    A target or exposure lowers to an order crossing the touch on its own side: a
+    buy crosses the ask and a sell the bid. The touch has no clock of its own; the
+    decision citing it must already have known it.
+    """
+
+    bid: Price
+    ask: Price
+
+    def __post_init__(self) -> None:
+        """Require a positive uncrossed touch in one currency and instrument."""
+        if type(self.bid) is not Price or type(self.ask) is not Price:
+            raise TypeError("market touch requires prices")
+        self.bid.model_copy()
+        self.ask.model_copy()
+        if (
+            self.bid.value <= 0
+            or self.ask.value <= self.bid.value
+            or self.bid.currency != self.ask.currency
+            or self.bid.per != self.ask.per
+        ):
+            raise ValueError("invalid market touch")
+
+    def crossed_by(self, side: Literal["buy", "sell"]) -> Price:
+        """Return the price an immediate order on this side crosses."""
+        return self.ask if side == "buy" else self.bid
+
+    def midpoint(self) -> Fraction:
+        """Return the exact midpoint, which values exposure as research simulation does."""
+        return (Fraction(self.bid.value) + Fraction(self.ask.value)) / 2
 
 
 class OrderDecision(WireRecord, frozen=True):
@@ -234,7 +269,7 @@ class StepRecord(WireRecord, frozen=True):
     input_bytes: bytes
     result_bytes: bytes
     decision: OrderDecision | None
-    reference: Price | None
+    touch: MarketTouch | None
     maximum_fee: Money
     commit: StepCommit
 
@@ -247,8 +282,8 @@ class StepRecord(WireRecord, frozen=True):
             raise ValueError("invalid durable candidate step")
         if self.decision is not None:
             self.decision.__post_init__()
-        if self.reference is not None:
-            self.reference.model_copy()
+        if self.touch is not None:
+            self.touch.__post_init__()
         self.maximum_fee.model_copy()
         self.commit.__post_init__()
 

@@ -1531,7 +1531,12 @@ class AccountJournal:
                         > reference * self.config.budgets.max_price_deviation_bps
                     ):
                         raise ValueError("dispatch price deviation")
-                    self._admission.require_reissue_safe(transaction, account_id, at)
+                    self._admission.require_reissue_safe(
+                        transaction,
+                        account_id,
+                        at,
+                        buyers=instance_ids if order.intent.side == "buy" else (),
+                    )
                     self._drop_ended_leases(transaction)
                     if transaction.lease_held(account_id=account_id):
                         raise ValueError("another dispatch is in progress")

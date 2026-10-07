@@ -27,6 +27,7 @@ from execution import (
     AccountDecision,
     AccountObservation,
     AccountQuote,
+    MarketTouch,
     OrderDecision,
     OrderEvent,
     OrderState,
@@ -179,6 +180,7 @@ class SharedAccountConsumer:
             quote=AccountQuote(price=cls._price("100"), at=quote_at or at),
             maximum_fee=cls._money(fee),
             checkpoint=checkpoint,
+            touch=MarketTouch(bid=cls._price("99.99"), ask=cls._price("100")),
         )
 
     @staticmethod
