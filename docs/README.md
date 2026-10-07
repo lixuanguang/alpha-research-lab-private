@@ -25,6 +25,115 @@ applicable gas fees. Paper economics do not qualify venue execution.
 | Operating paper services | [Operations runbook](governance/operations.md) and [local services](local-services/lakefs.md) |
 | Tracking delivery | [Roadmap](roadmap/overview.md) |
 
+## System map
+
+Paths are under `src/`. Solid arrows are imports or calls; dotted arrows are handoffs
+through retained artifacts.
+
+```mermaid
+flowchart TD
+    researcher(("Researcher"))
+    operator(("Operator"))
+
+    subgraph market["Market data"]
+        capture["Market capture<br/>market_data/collection/runner.py"]
+        publication["Dataset publication<br/>market_data/datasets/publication.py"]
+        query["Market-data queries<br/>market_data/query/reader.py"]
+    end
+
+    subgraph research["Research"]
+        observations["Observations<br/>research/observations/windows.py"]
+        features[("Feature store<br/>research/features/store.py")]
+        studies["Research studies<br/>research/studies/"]
+        simulation["Spot simulation<br/>simulation/"]
+        backtests["Costed backtests<br/>applications/backtest/workflow.py"]
+    end
+
+    subgraph runtime["Candidate runtime"]
+        packaging["Candidate packaging<br/>runtime/packaging.py"]
+        components["Runtime components<br/>runtime/components.py"]
+        worker["Candidate worker<br/>runtime/candidate_worker.py"]
+        decisions["Shared decision runtime<br/>runtime/portfolio.py"]
+    end
+
+    subgraph paper["Paper operations"]
+        supervisor["Paper services<br/>applications/execute/services.py"]
+        accounts["Account journal<br/>execution/accounts.py"]
+        accountstate[("Account state<br/>execution/account_state.py")]
+        admission["Account admission<br/>execution/account_admission.py"]
+        risk["Risk budgets and spot limits<br/>risk/budgets.py, risk/spot.py"]
+        allocation["Portfolio allocation<br/>portfolio/"]
+        recovery["Account backup and restore<br/>runtime/account_recovery.py"]
+        monitor["Service monitoring<br/>applications/execute/service_monitor.py"]
+    end
+
+    subgraph telemetry["Telemetry"]
+        events["Monitoring events<br/>telemetry/events.py"]
+        tstore[("Telemetry store<br/>telemetry/store.py")]
+        metrics["Metrics<br/>telemetry/metrics.py"]
+        tconfig["Monitoring configuration<br/>telemetry/configuration.py"]
+        tdefaults["Monitoring defaults<br/>telemetry/defaults.py"]
+        dashboard["Dashboards and alerts<br/>telemetry/dashboard.py"]
+    end
+
+    subgraph venue["Test-venue path (OKX demo)"]
+        venueapp["Venue operations<br/>applications/execute/venue.py"]
+        gateway["Venue gateway<br/>execution/venue_gateway.py"]
+    end
+
+    subgraph foundations["Shared foundations"]
+        configuration["Configuration<br/>configuration/"]
+        strategies["Strategy decisions<br/>strategies/decisions.py"]
+        units["Financial units<br/>financial_units/models.py"]
+        accounting["Accounting ledger<br/>accounting/"]
+    end
+
+    researcher -->|"captures"| capture
+    capture -.->|"recordings"| publication
+    publication -.->|"published datasets"| query
+    query -->|"as-of reads"| observations
+    observations -->|"materializes"| features
+    features -->|"study inputs"| studies
+    researcher -->|"frames questions"| studies
+    studies --> simulation
+    backtests --> studies
+    backtests --> simulation
+    backtests --> query
+    studies -.->|"selected candidate"| packaging
+    packaging -.->|"signed candidate"| worker
+    worker --> components
+    components --> strategies
+
+    operator -->|"operates"| supervisor
+    supervisor -->|"source captures"| capture
+    supervisor -->|"served features"| features
+    supervisor -->|"runs candidates"| worker
+    supervisor --> decisions
+    supervisor -->|"account requests over sockets"| accounts
+    accounts --> accountstate
+    accounts --> admission
+    admission --> risk
+    accounts --> allocation
+    accountstate --> accounting
+    operator -->|"backup and restore"| recovery
+    recovery -.->|"stopped workspaces"| accounts
+    supervisor -->|"monitors"| monitor
+    monitor -->|"retains events"| tstore
+
+    events --> tstore
+    events --> metrics
+    tstore -->|"panel inputs"| dashboard
+    metrics -->|"evaluates panels"| dashboard
+    tdefaults --> tconfig
+    tconfig -->|"configures views"| dashboard
+
+    operator -->|"demo orders"| venueapp
+    venueapp --> gateway
+
+    configuration -.->|"signed service and account definitions"| supervisor
+    units -.-> accounting
+```
+
 ## Documentation map
 
 | Area | Pages |
