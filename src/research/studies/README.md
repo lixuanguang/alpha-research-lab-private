@@ -158,8 +158,12 @@ belong to the [MR03 acceptance record](../../../docs/roadmap/README.md#mr03-deli
 
 `CapturedStudyMarket` reads one native partition of a published book snapshot
 (snapshot identity and request identity). It verifies the snapshot against its
-retained raw input once, when built, and each `read(window)` streams only that
-window, so memory is bounded by one window. An optional `max_levels` keeps only the
+retained raw input once, when built, and each `read(window)` streams that window
+row by row. A study consumes the rows once, in availability order, so memory is
+bounded by one row and the execution model's near-term events, not the window.
+Each fold retains `market-NNNN` as a `StudyMarketManifest` (market identity,
+window, row count, first and last clocks, SHA-256 of the consumed rows), not a copy
+of the rows: they are reproducible from the pinned snapshot. An optional `max_levels` keeps only the
 best levels per side; that bound is a declared modeling assumption and part of the
 market identity. It requires the original capture's research universe, preserving
 the separate collection, research, strategy and trading declarations. A study's

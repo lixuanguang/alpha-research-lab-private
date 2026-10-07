@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+from collections.abc import Iterable, Iterator
 from datetime import datetime
 
 # project library imports
@@ -46,11 +47,15 @@ class IntentSimulation:
     def run(
         self,
         decisions: tuple[DecisionRecord, ...],
-        market: tuple[IntentMarket, ...],
+        market: Iterable[IntentMarket],
     ) -> IntentSimulationResult:
-        """Require selected immutable inputs, then delegate to the injected model."""
-        if type(decisions) is not tuple or type(market) is not tuple:
-            raise TypeError("offline intent inputs require immutable tuples")
+        """Require immutable decisions and an ordered market, then delegate to the model.
+
+        The market is streamed: each row is validated as the model consumes it, and
+        rows the model leaves unread are validated after it returns.
+        """
+        if type(decisions) is not tuple:
+            raise TypeError("offline intent decisions require an immutable tuple")
         previous: datetime | None = None
         for decision in decisions:
             if type(decision) is not DecisionRecord:
@@ -64,6 +69,23 @@ class IntentSimulation:
             ):
                 raise ValueError("decision identity, sample or chronological order mismatch")
             previous = decision.at
+        admitted = self._admitted(market)
+        result = self.execution.run(self.spec, self.costs, self.ledger, decisions, admitted)
+        for _ in admitted:
+            pass
+        if type(result) is not IntentSimulationResult:
+            raise TypeError("execution model requires IntentSimulationResult")
+        result.__post_init__()
+        if (
+            result.spec != self.spec
+            or tuple(outcome.decision for outcome in result.decisions) != decisions
+            or result.ledger != self.ledger.state
+        ):
+            raise ValueError("execution result differs from injected sample, decisions or ledger")
+        return result
+
+    def _admitted(self, market: Iterable[IntentMarket]) -> Iterator[IntentMarket]:
+        """Yield each market row after checking identity, sample and availability order."""
         seen: set[str] = set()
         previous_market: tuple[datetime, datetime] | None = None
         for row in market:
@@ -93,14 +115,4 @@ class IntentSimulation:
                     or trade.price.per != self.spec.limits.maximum.dimension
                 ):
                     raise ValueError("market trade instrument or quote currency mismatch")
-        result = self.execution.run(self.spec, self.costs, self.ledger, decisions, market)
-        if type(result) is not IntentSimulationResult:
-            raise TypeError("execution model requires IntentSimulationResult")
-        result.__post_init__()
-        if (
-            result.spec != self.spec
-            or tuple(outcome.decision for outcome in result.decisions) != decisions
-            or result.ledger != self.ledger.state
-        ):
-            raise ValueError("execution result differs from injected sample, decisions or ledger")
-        return result
+            yield row

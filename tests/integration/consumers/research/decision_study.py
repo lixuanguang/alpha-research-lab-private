@@ -39,6 +39,7 @@ from research.studies import (
     ReportMonitoringBridge,
     StudyArtifact,
     StudyFoldResult,
+    StudyMarketManifest,
     StudyMonitoringExporter,
     StudyReportBuilder,
     StudyReportReader,
@@ -447,7 +448,6 @@ class _Run:
         # third party library imports
         from research_workflows.scenario import (
             _DecisionInputClock,
-            _MarketClocks,
             _OrderPolicy,
             _Scenario,
             _ShiftedDecisionSource,
@@ -635,16 +635,16 @@ class _Run:
             publication=local,
         )
         assert boundary_history.status == "completed"
+        # The fold retains a manifest of the market rows it consumed, not the rows.
         retained_market = msgspec.json.decode(
             store.artifact(boundary_history.start.attempt_id, "market-0000"),
-            type=tuple[_MarketClocks, ...],
+            type=StudyMarketManifest,
         )
-        assert retained_market
-        assert max(row.source_at for row in retained_market) < boundary_fold.split.holdout.start
-        assert (
-            max(max(row.source_at, row.known_at) for row in retained_market)
-            < boundary_fold.split.holdout.start
-        )
+        assert retained_market.rows
+        assert retained_market.last_source_at is not None
+        assert retained_market.last_available_at is not None
+        assert retained_market.last_source_at < boundary_fold.split.holdout.start
+        assert retained_market.last_available_at < boundary_fold.split.holdout.start
         shifted_source_study = scenario.study(
             flat, fitted=False, family="installed-shifted-source-rejected"
         )

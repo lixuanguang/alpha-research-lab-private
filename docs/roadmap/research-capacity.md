@@ -1,8 +1,9 @@
 # MR15 research launch capacity
 
-Owner: quant development. Status: numeric profiles and measured diagnostic
-changes delivered; finite original-clock acquisition armed under a separate
-approved 32 GiB staging cap; representative research acceptance pending. The historical R1 continuation
+Owner: quant development. Status (2026-10-06): R1 is not accepted. The named profile
+[R1b](#named-profile-r1b-declared-2026-10-06-by-extrapolation) is qualified by
+extrapolation from a measured two-hour capture; a 72-hour acquisition stays a later
+confirmation. The historical R1 continuation
 starts from reviewed `main` at `613bcb0` on `codex/mr15-r1-native-capacity`. Profile declared
 before qualification on 2026-09-27. Baseline: `main` at `9106a48`.
 MR15 remains open until both this profile and the
@@ -702,3 +703,130 @@ canonical evidence (removed 2026-09-29; kept in git history) appends the acquisi
 assessment, exact run/ownership/status references and unchanged-budget dependency;
 every pre-existing evidence value is preserved. The collectors remain
 `waiting_start` at the final observation; arming is not corpus acceptance.
+
+## Named profile R1b (declared 2026-10-06, by extrapolation)
+
+**What R1b is.** R1b is R1's launch profile re-based on the full-rate OKX BTC/ETH corpus
+that the journey and the runtime consume. R1's 100,000-record minimum fitted its
+original budgets, but a full-rate corpus has about 8 million records in 72 hours.
+
+**How it was decided.**
+- The owner decided R1b on 2026-10-06 ([M4a design note addenda](qr-onboarding.md#m4a-design-note-compact-market-data-storage-direction-approved-2026-10-06)).
+- The host is a laptop that sleeps in transit, so no 72-hour acquisition runs now.
+- R1b is qualified from measured runs on a two-hour capture, extrapolated linearly to
+  72 hours. Every extrapolated value is labelled as one.
+- R1 and its failed evidence stay as recorded above.
+
+**Kept from R1.** R1b keeps R1's inputs (two spot instruments, 72 consecutive UTC
+hours, original clocks, no stretching or replication), provenance, decisions
+(one-minute cadence, 4,320 decisions per instrument, 8,640 feature rows, two families
+of two trials, two workers), features, retention periods, correctness and recovery
+rules. Its throughput, reopen and storage limits are re-based below, with the rationale
+beside each.
+
+### Why a linear model holds
+
+- Every path that grew faster than linearly with corpus length is gone:
+  - full-state book storage (M4a);
+  - per-segment chain replay (CH-1);
+  - re-derivation on every reopen (RV-1);
+  - whole-history book indexes, whole-window study markets and per-fold market copies
+    ([M4b](qr-onboarding.md#m4b-design-note-r1s-workflow-streams-the-captured-corpus-2026-10-06)).
+- Each remaining stage is one or more forward passes over the stored rows.
+- Each stage is fitted as `fixed + per_hour × hours` from two corpora on the same code:
+  - a 6-minute pilot, 2026-10-06 12:22:14–12:28:14 UTC, with 2-minute segments;
+  - the 2-hour corpus.
+- The fit is then evaluated at 72 hours.
+- Two points cannot show curvature. The structural argument above is the reason to
+  expect none.
+
+### Corpus
+
+- **Capture.** A fresh capture, 2026-10-06 12:13:43–14:13:43 UTC. Four `capture-run`s
+  (OKX BTC-USDT and ETH-USDT, books at depth 400 and trades), 30-minute segments, the
+  laptop on AC and held awake.
+- **Size.** 221,240 raw positions: books 67,189 and 67,053, trades 49,361 and 37,637.
+  At this rate 72 hours is about 7.96 million positions (extrapolation).
+- **Replay.** Four segments per run. Every run ended on its deadline, with chained
+  replay parity.
+- **Gap.** One real ETH trades disconnect (`disconnect_unknown_loss` at 12:29:30 UTC) is
+  retained as an explicit gap.
+- **Where it is kept.** The corpus is at `~/mr17t/r1b/corpus`. Its configurations,
+  window, run records and replay logs are in
+  `~/AlphaResearchEvidence.noindex/mr17/r1b/corpus`.
+
+### Workflow and correctness
+
+[`native_capacity.py`](../../tests/integration/consumers/research/native_capacity.py)
+runs R1's combined workflow on the corpus, from the M4b working tree (installed
+implementation `1e292b45…`, consumer `2d91241d…`). The Feast worker is the separately
+locked one.
+- **Publication.** Native publication of the four chains, then a digest reopen and an
+  explicit re-derivation audit.
+- **Features.** A completed-return feature (`CompletedReturnFeature`, one-minute
+  cadence) over each instrument's captured best bid, materialized with Feast online
+  generation.
+  - 238 rows: 119 decisions × 2 instruments. 236 are present; the 2 missing are each
+    instrument's first close, with no previous close.
+  - Every PIT cell equals an independent recomputation from the stored book rows,
+    outside the query layer: 0 mismatches.
+  - Four bounded offline Feast chunks reconciled every present cell.
+- **Trials.**
+  - Two families (one per instrument), each with two `ConfirmedSignal` trials (one and
+    two confirmations), costed with exact fees on two workers.
+  - Slippage is declared zero: a target lowers to an IOC at the touch, which no adverse
+    cost could fill (stage 2a, S4).
+  - The trials made 26–60 fills each. Every fee and terminal NAV equals an independent
+    recomputation from the fills.
+  - Two runs gave identical outcomes.
+- **Recovery.**
+  - One worker was killed with SIGKILL after its trial became durable. Its attempt is
+    retained as abandoned, and the retry's result equals an uninterrupted control
+    exactly.
+  - Backup and restore of inputs, features and results reopened the snapshot,
+    regenerated Feast online and matched every result.
+  - The holdout was not consumed.
+
+### Measurements and limits
+
+Measured on the 2-hour corpus (`corpus-3`). The 72-hour values are the linear fit,
+labelled as extrapolation.
+
+| Dimension | R1 limit | Measured, 2 h | 72 h (extrapolated) | R1b limit and rationale |
+| --- | --- | --- | --- | --- |
+| Publication | ≤ 300 s, ≥ 333 records/s | 291.0 s, 760 positions/s | 10,521 s (2.9 h) | **≤ 4 h for 72 h, ≥ 550 positions/s.** Publication decodes, frames and stores every 400-level book, then re-derives it from raw before visibility. That is one linear pass per record, at about 760 a second on one process. |
+| Re-derivation audit | (part of reopen) | 144.4 s | 5,226 s | **Reported, ≤ 2 h.** RV-1 made it explicit and off the reopen path. |
+| Reopen | ≤ 60 s | 0.22 s | 7.3 s | **≤ 60 s, unchanged.** |
+| Feature source initialization | ≤ 60 s | 1.05 s (both) | 16 s | **≤ 60 s, unchanged.** Books stream (SB-1), so initialization no longer reads the corpus. |
+| Warm closes | p50/p95/p99 ≤ 50/100/250 ms; ≥ 4,320 per instrument | 2,878 at a 5 s cadence (1,439 per instrument): 23.3/66.9/81.5 ms, max 198 ms | Unchanged by length | **R1's latencies, unchanged, at ≥ 1,000 calls per instrument.** A close's work is the book rows since the previous close, so it depends on cadence, not corpus length. The 5 s cadence gives percentile samples in two hours. The 32-row query batch keeps closes even (a 256-row batch gave p95 160 ms). |
+| Materialization (8,640 rows, Feast included) | ≤ 300 s, ≥ 28.8 rows/s | 80.1 s for 238 rows | 2,606 s for 8,640 rows | **≤ 1 h, ≥ 2.4 rows/s.** Each one-minute close streams a minute of 400-level books, so materialization is one pass over the book corpus. |
+| PIT retrieval | p50/p95/p99 ≤ 10/50/100 ms | 238 calls, 0.069 s total, max 15 ms | Unchanged by length | **R1's limits, unchanged.** Fewer than 1,000 samples, so totals and range only. |
+| Feast boundary | ≥ 3 chunks ≤ 4,096 cells and 16 MiB; generation/reopen ≤ 60 s | 4 chunks, 2.6–2.8 s each; generation 3.7 s | 3 chunks of 2,880 cells; about 20 s | **Unchanged.** A chunk's time is mostly SDK startup. |
+| Studies | ≤ 600 s total, ≤ 300 s per trial | Two waves 245.7 s, per trial ≤ 123.2 s; control 59.6 s | Two waves 8,858 s (2.5 h); per trial about 4,430 s | **≤ 3.5 h total, ≤ 1.75 h per trial.** A trial streams its book twice: features, then the market. Both passes are linear and hold one batch or one row. |
+| Report and result reopen | ≤ 30 s each | ≤ 0.19 s | About 5 s each | **≤ 30 s, unchanged.** |
+| Recovery | Retry or reopen ≤ 60 s; backup and restore ≤ 120 s | Kill 1.7 s after durable start; retry wave 123.2 s (recomputes the trial); backup 0.33 s, restore 0.20 s, equivalence 7.4 s | Retry about 1.2 h; backup, restore and checks about 96 s | **Claim and abandon ≤ 60 s; a retry recomputes the trial within the trial limit; backup and restore ≤ 120 s, unchanged.** The retry's result equals the uninterrupted control. |
+| Memory | Process tree ≤ 8 GiB | Tree peak 473 MB, parent 374 MB | Tree about 2.3 GB; parent about 5.4 GB | **≤ 8 GiB, unchanged.** The parent's peak is trade publication, which holds a trade partition whole (M4a kept that format). The trade format moves to the streamed frame container if a measured run nears 8 GiB. Book publication's Python heap stays at about 18 MB. |
+| CPU | ≤ 8 logical | Peak 3.6 sampled; host-wide peak 95% | Not length-driven | **≤ 8, unchanged.** |
+| Source input | ≤ 2 GiB stored | 18.7 MB raw (9.39 MB/h) | 0.63 GiB | **≤ 2 GiB, unchanged.** |
+| Workspace | ≤ 10 GiB | 82.2 MB, backup 78.9 MB | 2.75 GiB, backup 2.64 GiB | **≤ 10 GiB, unchanged.** Canonical snapshots are 26.25 MB/h, or 1.76 GiB for 72 h. Studies keep market manifests (MK-1), not rows. |
+| 30-day retained input forecast | ≤ 100 GiB | 35.6 MB/h raw plus canonical | 23.9 GiB for 30 days of continuous capture; 47.8 GiB with the independent backup | **≤ 100 GiB, unchanged.** Measured bytes per hour, extrapolated to 720 hours. |
+
+**Assessment.** Every extrapolated value is inside its R1b limit. On that basis,
+**R1b is qualified by extrapolation** from the measured 2-hour and 6-minute runs.
+
+**What it is not.**
+- No 72-hour corpus was captured. R1b does not establish all six instrument-days
+  or 72 hours of original-clock coverage.
+- A full-length acquisition on an always-on host remains the confirmation.
+
+**Run conditions.** The runs shared the laptop with this session's editor and terminal.
+The OS page cache was uncontrolled. Process-tree sampling ran every 0.2 s, with no
+enumeration failure.
+
+**Evidence.** Measurements, samples, resource rows, growth, PIT and trial outcomes for
+`pilot-4` and `corpus-3` are kept in `~/AlphaResearchEvidence.noindex/mr17/r1b/attempts`,
+with the consumer. The measurement digests are `c7e0df0e…` and `72920b3b…`.
+- `pilot-3` and `corpus-2` are kept beside them. They used a 256-row batch, which led
+  to the batch choice.
+- Earlier development runs (`pilot-1`, `pilot-2` and `corpus-1`) found M4b's defects
+  and the zero-fill cost declaration. They are not retained.

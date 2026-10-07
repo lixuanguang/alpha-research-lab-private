@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 # standard library imports
-from collections.abc import Mapping
+import hashlib
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from fractions import Fraction
@@ -16,7 +17,13 @@ from msgspec.structs import replace
 # project library imports
 from accounting import Ledger, LedgerState
 from financial_units import ExactRatio
-from research.experiments import AttemptHistory, AttemptStore, ExperimentSpec, SampleInterval
+from research.experiments import (
+    AttemptHistory,
+    AttemptStore,
+    ExperimentSpec,
+    SampleInterval,
+    TimeWindow,
+)
 from research.features import FeatureKernel, FeatureSession, FeatureVector, FittedTransform
 from research.models import EstimatorLifecycle
 from research.observations import DecisionSource
@@ -38,6 +45,7 @@ from research.studies import (
     StudyArtifact,
     StudyFold,
     StudyFoldResult,
+    StudyMarketManifest,
     StudyMarketSource,
     StudyOutcomeSource,
     StudyReportBuilder,
@@ -46,7 +54,7 @@ from research.studies import (
 )
 from runtime import ImplementationIdentity
 from serialization import DomainCodec
-from simulation import IntentCostModel, IntentExecutionModel, IntentSimulation
+from simulation import IntentCostModel, IntentExecutionModel, IntentMarket, IntentSimulation
 from strategies import DecisionContext, DecisionPolicy, DecisionRecord, DecisionSession
 
 if TYPE_CHECKING:
@@ -334,20 +342,15 @@ class StudyComponents:
             )
         window = run.window(fold)
         market_window = run.market_window(fold)
-        market = self.market.read(market_window)
-        if any(
-            row.source_at > market_window.end or row.available_at > market_window.end
-            for row in market
-        ):
-            raise ValueError("execution source exceeded its admitted evaluation cutoff")
-        store.retain(attempt, f"market-{index:04d}", codec.encode_json(market))
+        market = _MarketStream(self.market.identity, market_window)
         spec = replace(run.economics, start=window.start, end=window.end)
         ledger = Ledger(
             LedgerState(initial_cash=spec.initial_cash, dimension=spec.limits.lot.dimension)
         )
         economics = IntentSimulation(spec, self.execution, self.costs, ledger).run(
-            tuple(decisions), market
+            tuple(decisions), market.rows(self.market.read(market_window))
         )
+        store.retain(attempt, f"market-{index:04d}", codec.encode_json(market.manifest()))
         return StudyFoldResult(
             name=fold.name,
             split=split,
@@ -361,6 +364,43 @@ class StudyComponents:
             feature_state=feature_session.checkpoint(),
             policy_state=policy.checkpoint(),
             economics=economics,
+        )
+
+
+class _MarketStream:
+    """Pass a fold's market rows through once, refusing any past its cutoff, and digest them."""
+
+    def __init__(self, source_identity: str, window: TimeWindow) -> None:
+        """Bind the market source and the fold's admitted market window."""
+        self._source_identity, self._window = source_identity, window
+        self._digest = hashlib.sha256()
+        self._codec = DomainCodec()
+        self._rows = 0
+        self._first: datetime | None = None
+        self._last: tuple[datetime, datetime] | None = None
+
+    def rows(self, market: Iterable[IntentMarket]) -> Iterator[IntentMarket]:
+        """Yield each row after the cutoff check, recording it in the manifest."""
+        for row in market:
+            if row.source_at > self._window.end or row.available_at > self._window.end:
+                raise ValueError("execution source exceeded its admitted evaluation cutoff")
+            self._digest.update(self._codec.encode_json(row) + b"\n")
+            self._rows += 1
+            if self._first is None:
+                self._first = row.available_at
+            self._last = (row.available_at, row.source_at)
+            yield row
+
+    def manifest(self) -> StudyMarketManifest:
+        """Describe every row consumed so far."""
+        return StudyMarketManifest(
+            source_identity=self._source_identity,
+            window=self._window,
+            rows=self._rows,
+            first_available_at=self._first,
+            last_available_at=None if self._last is None else self._last[0],
+            last_source_at=None if self._last is None else self._last[1],
+            sha256=self._digest.hexdigest(),
         )
 
 

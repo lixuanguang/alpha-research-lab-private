@@ -1,7 +1,7 @@
 """Expose exact price features, offline retrieval and scheduled batch parity contracts."""
 
 # project library imports
-from research.features.completed import CompletedReturn
+from research.features.completed import CompletedReturn, CompletedReturnFeature
 from research.features.contracts import (
     FeatureCheckpoint,
     FeatureKernel,
@@ -72,6 +72,7 @@ from research.features.windows import (
 __all__ = [
     "CenterColumns",
     "CompletedReturn",
+    "CompletedReturnFeature",
     "FeastGeneration",
     "FeastOfflineWorker",
     "FeastServedRow",

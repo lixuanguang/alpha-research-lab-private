@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import random
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -25,7 +26,12 @@ from research.exploration import (
     ResearchSelection,
     SavedDecisionSource,
 )
-from research.observations import InputRequirement, LiveBookDecisionSource, NumericField
+from research.observations import (
+    DecisionInputs,
+    InputRequirement,
+    LiveBookDecisionSource,
+    NumericField,
+)
 from research.studies import CapturedStudyMarket
 from simulation import IntentMarket
 
@@ -171,7 +177,7 @@ class TestCapturedStudyMarket:
         )
         start = CapturedMarketFixture.at(_START_NS + 1_000_000 * 10_000)
         window = TimeWindow(start=start, end=start + timedelta(milliseconds=50))
-        rows = market.read(window)
+        rows = tuple(market.read(window))
         assert len(rows) == 51
         assert all(window.start <= row.known_at <= window.end for row in rows)
         assert all(len(self.book(row).bids) == 2 and len(self.book(row).asks) == 2 for row in rows)
@@ -187,7 +193,7 @@ class TestCapturedStudyMarket:
             clock_assumption="receipt-as-matching",
         )
         assert full.identity != market.identity
-        assert len(self.book(full.read(window)[0]).bids) == 3
+        assert len(self.book(next(iter(full.read(window)))).bids) == 3
 
     def test_capture_clocks_are_no_market_boundaries(self, tmp_path: Path) -> None:
         """Interleaved clocks leave the simulator's market rows unchanged."""
@@ -237,6 +243,41 @@ class TestCapturedStudyMarket:
 class TestSavedBookFields:
     """Read imbalance and the touch from a published book exactly as the live source does."""
 
+    @staticmethod
+    def source(
+        tmp_path: Path,
+        snapshot: str,
+        request: CaptureRequest,
+        requirements: tuple[InputRequirement, ...],
+        batch_size: int,
+    ) -> SavedDecisionSource:
+        """Select the published book over two minutes around the fixture start."""
+        start = CapturedMarketFixture.at(_START_NS)
+        return SavedDecisionSource(
+            ResearchReader(
+                tmp_path / "snapshots", RawStore(tmp_path / "raw"), readers=SourceAdapters()
+            ),
+            ResearchSelection(
+                inputs=(
+                    BookSelection(
+                        name="book",
+                        query=BookQuery(
+                            snapshot_id=snapshot,
+                            request_identity=request.identity,
+                            instrument=request.config.instrument_id,
+                            start=start - timedelta(minutes=1),
+                            end=start + timedelta(minutes=1),
+                            known_at=start + timedelta(seconds=10),
+                            columns=("bids", "asks"),
+                            batch_size=batch_size,
+                            max_bytes=_LIMIT,
+                        ),
+                    ),
+                )
+            ),
+            requirements,
+        )
+
     def test_live_and_saved_book_fields_agree(self, tmp_path: Path) -> None:
         """Every field matches at cutoffs between, on and after updates."""
         spacing = 100_000_000
@@ -270,33 +311,14 @@ class TestSavedBookFields:
             )
         )
         start = CapturedMarketFixture.at(_START_NS)
-        saved = SavedDecisionSource(
-            ResearchReader(tmp_path / "snapshots", raw, readers=SourceAdapters()),
-            ResearchSelection(
-                inputs=(
-                    BookSelection(
-                        name="book",
-                        query=BookQuery(
-                            snapshot_id=snapshot,
-                            request_identity=request.identity,
-                            instrument=request.config.instrument_id,
-                            start=start - timedelta(minutes=1),
-                            end=start + timedelta(minutes=1),
-                            known_at=start + timedelta(seconds=10),
-                            columns=("bids", "asks"),
-                            batch_size=1000,
-                            max_bytes=_LIMIT,
-                        ),
-                    ),
-                )
-            ),
-            requirements,
-        )
+
+        saved = self.source(tmp_path, snapshot, request, requirements, 1000)
         live = LiveBookDecisionSource(request, requirements, history_capacity=1000)
         replay = CaptureReplay(request.config, book_factory=BookAdapters.create)
         records = CapturedMarketFixture.records(updates=40, spacing_ns=spacing)
         entity = str(request.config.instrument_id)
         index, present = 0, 0
+        seen: dict[datetime, DecisionInputs] = {}
         for step in range(1, 90):
             at = start + timedelta(milliseconds=50 * step)
             while (
@@ -309,5 +331,13 @@ class TestSavedBookFields:
                 index += 1
             expected = [row.value for row in live.read(entity, at).observations]
             assert [row.value for row in saved.read(entity, at).observations] == expected, at
+            seen[at] = saved.read(entity, at)
             present += sum(value is not None for value in expected)
         assert present > 200
+        # The book streams forward through small batches; an earlier cutoff restarts it,
+        # so any order of cutoffs reads exactly what a forward pass read.
+        stepped = self.source(tmp_path, snapshot, request, requirements, 3)
+        cutoffs = list(seen)
+        random.Random(7).shuffle(cutoffs)
+        for at in (*reversed(seen), *cutoffs):
+            assert stepped.read(entity, at) == seen[at], at

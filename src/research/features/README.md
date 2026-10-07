@@ -38,7 +38,13 @@ corrupt or incompatible state fail; inference/restart never silently refits.
 
 `ProjectionFeature` retains arbitrary named scalar inputs in declared order.
 `RunningMeanFeature` computes exact expanding means per column, resetting a column
-on missing input. Batch application iteration and checkpoint continuation use
+on missing input. `CompletedReturnFeature` (`completed-return`, incremental, one
+input, a `cadence_seconds` parameter) freezes each decision's then-known close, for
+example a captured trade `price` from `SavedDecisionSource`, and returns it against
+the previous decision's close when both exist exactly one cadence apart; otherwise
+the return is missing with its reason. It is the native-capture counterpart of
+`ScheduledFeatures`, which reads the original REST trade format only. Batch
+application iteration and checkpoint continuation use
 these same transitions. Fresh kernels can change formulas and output width through
 the public protocol without adding branches to shared runners.
 

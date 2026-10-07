@@ -29,8 +29,9 @@ For repeat use, the existing keys can live in the Git-ignored, mode-600
 `secrets/local-services.env`. `make local-services-up` loads it automatically and
 starts both local services; `make local-services-status` shows their state, and
 `make local-services-down` stops them without deleting volumes. The private file's
-`CLEARML_LOCAL_PROJECT` selects an existing project (this workspace retains
-`alpha-workspace-studies-restored`); omission preserves `alpha-clearml-local`.
+`CLEARML_LOCAL_PROJECT` selects another project; omission uses `alpha-clearml-local`.
+This workspace retains no ClearML data: every local volume was deleted on 2026-10-06,
+so the server starts empty under its default project and needs no setup.
 See the [lakeFS startup guide](../lakefs/README.md#local-services) for the shared
 file and project selection. SDK callers still explicitly select this file via
 `ALPHA_CLEARML_LOCAL_ENV` when using the publication verifier. Browser sign-in
@@ -223,5 +224,5 @@ reconciliation subprocess changes directory.
 MR04's local service run uses separate `alpha-workspace-studies` and
 `alpha-workspace-studies-restored` projects with task-owned volumes and the same
 pinned images. The owning [acceptance record](../../../docs/roadmap/README.md#mr04-delivery-and-acceptance)
-links the stopped-volume backup and post-restore byte checks. Pre-existing
-ClearML volumes and the serial worker environment remain unchanged.
+links the stopped-volume backup and post-restore byte checks. Those projects' volumes
+were deleted on 2026-10-06; the record keeps the evidence.

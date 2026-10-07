@@ -196,6 +196,9 @@ class _Measurements:
         self.started = time.perf_counter()
         self.implementation = implementation
         self.input_configuration: dict[str, object] = {}
+        # A native consumer reuses this measurement and names its own scope and bytes.
+        self.scope = "synthetic-diagnostic"
+        self.consumer = Path(__file__)
         self._tracked_pids = {os.getpid()}
         self._stop = threading.Event()
         self._resource_samples = 0
@@ -398,12 +401,12 @@ class _Measurements:
         child = resource.getrusage(resource.RUSAGE_CHILDREN)
         scale = 1 if sys.platform == "darwin" else 1024
         payload = {
-            "scope": "synthetic-diagnostic",
+            "scope": self.scope,
             "status": status,
             "reason": reason,
             "implementation": self.implementation,
             "input_configuration": self.input_configuration,
-            "consumer_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "consumer_sha256": hashlib.sha256(self.consumer.read_bytes()).hexdigest(),
             "elapsed_seconds": time.perf_counter() - self.started,
             "stages": stages,
             "cpu_user_seconds": own.ru_utime + child.ru_utime,

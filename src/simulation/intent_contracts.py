@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -434,7 +435,11 @@ class IntentExecutionModel(Protocol):
         costs: IntentCostModel,
         ledger: Ledger,
         decisions: tuple[DecisionRecord, ...],
-        market: tuple[IntentMarket, ...],
+        market: Iterable[IntentMarket],
     ) -> IntentSimulationResult:
-        """Return exact offline lifecycle and terminal economics."""
+        """Return exact offline lifecycle and terminal economics.
+
+        The market is consumed once, in nondecreasing availability order, so a
+        model holds only the rows it still needs rather than the whole sample.
+        """
         ...
