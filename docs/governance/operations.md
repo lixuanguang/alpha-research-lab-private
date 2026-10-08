@@ -289,12 +289,24 @@ uv run --frozen alpha-governance-artifacts run \
    a fresh observed quote, explicit sell limit and maximum fee. While a shared
    observer is live it observes every eligible book, so take the quote from the
    account's `valuation` projection (`inspect` with only `query_instrument`) and
-   send it unchanged; on `unobserved_quote` read it again and resend. Never send a
-   `quote` of your own then: one stamped after a book's availability but applied
-   before that book's own observation makes the observer's observation regress,
-   which faults the account and stops its matching. Accepted means
-   an IOC sell reservation. Only subsequent eligible public liquidity can create
-   fills. Stale/disconnected input, unknown outcomes, unreconciled state or
+   send it unchanged. Never send a `quote` of your own then: one stamped after a
+   book's availability but applied before that book's own observation makes the
+   observer's observation regress, which faults the account and stops its matching.
+   The account saves each reduction's outcome under its request `identity`, and
+   resending that identity returns the saved outcome:
+   - **Definitive rejection.** After a response with a saved `unobserved_quote`
+     rejection (the next book replaced the valuation first), read the `valuation`
+     projection again and submit a new request: a new `identity`, the fresh quote,
+     and an `at` no earlier than that quote and still current. The same identity
+     with the new quote is refused as reused with different content.
+   - **Uncertain outcome** (timeout or lost response). First read the `reductions`
+     projection for the original identity. If it holds a result, act on that result.
+     If not, you may resend the original payload unchanged; it returns the saved
+     outcome if one was committed meanwhile. If that resend is refused as
+     `paper_reduction_stale_or_future`, submit a new request as above.
+
+   Accepted means an IOC sell reservation. Only subsequent eligible public liquidity
+   can create fills. Stale/disconnected input, unknown outcomes, unreconciled state or
    insufficient owned inventory produce explicit refusal; budget ceilings never
    refuse a reduction. Partial/unfilled quantities are reported without claiming
    liquidation. Other strategies' inventory is never used to satisfy the request.
