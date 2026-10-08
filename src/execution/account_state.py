@@ -778,18 +778,25 @@ class _HistoryTables:
         return None if payload is None else self.codec.decode_json(payload, AccountPaperTrace)
 
     def trace_page(
-        self, account_id: str | None, after: int, limit: int
-    ) -> list[tuple[int, AccountPaperTrace]]:
-        """Return up to ``limit`` committed traces after a position, with their positions."""
+        self, account_id: str | None, after: int, limit: int, limit_bytes: int
+    ) -> tuple[list[tuple[int, AccountPaperTrace]], bool]:
+        """Return committed traces after a position, with positions, and whether more may follow.
+
+        The page holds at most ``limit`` traces and, beyond the first, at most
+        ``limit_bytes`` of their stored bytes; it may continue when it stopped at
+        either bound.
+        """
         parameters = (after, limit) if account_id is None else (account_id, after, limit)
         cursor = self.connection.execute(_TRACE_PAGE[account_id is not None], parameters)
-        return [
-            (
-                cast(int, row[0]),
-                self.codec.decode_json(self._blob(row[1]), AccountPaperTrace),
-            )
-            for row in cast(Iterator[tuple[object, ...]], cursor)
-        ]
+        rows: list[tuple[int, AccountPaperTrace]] = []
+        used = 0
+        for row in cast(Iterator[tuple[object, ...]], cursor):
+            payload = self._blob(row[1])
+            if rows and used + len(payload) > limit_bytes:
+                return rows, True
+            used += len(payload)
+            rows.append((cast(int, row[0]), self.codec.decode_json(payload, AccountPaperTrace)))
+        return rows, len(rows) == limit
 
     def export_traces(self, account_id: str | None, stream: BinaryIO) -> int:
         """Write committed trace bytes as one JSON array, checking the whole chain.
@@ -1057,10 +1064,10 @@ class _AccountSnapshot:
         return self.tables.summary.paper_traces
 
     def trace_page(
-        self, account_id: str | None, after: int, limit: int
-    ) -> list[tuple[int, AccountPaperTrace]]:
-        """Return up to ``limit`` committed traces after a position, with their positions."""
-        return self.tables.trace_page(account_id, after, limit)
+        self, account_id: str | None, after: int, limit: int, limit_bytes: int
+    ) -> tuple[list[tuple[int, AccountPaperTrace]], bool]:
+        """Return bounded committed traces after a position and whether more may follow."""
+        return self.tables.trace_page(account_id, after, limit, limit_bytes)
 
     def latest_trace(
         self, account_id: str, instrument_id: InstrumentId

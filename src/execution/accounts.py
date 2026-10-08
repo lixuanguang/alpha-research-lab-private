@@ -667,7 +667,7 @@ class AccountJournal:
         return self._paper.apply(account_id, market, scenario)
 
     def paper_trace_page(self, account_id: str | None = None, *, after: int = -1) -> PaperTracePage:
-        """Read at most ``PaperTracePage.maximum`` committed traces after a position.
+        """Read one bounded page of committed traces after a position; see ``PaperTracePage``.
 
         Args:
             account_id: One account's traces, or every account's when ``None``.
@@ -744,11 +744,13 @@ class AccountJournal:
         history = snapshot.trace_history
         if type(after) is not int or not -1 <= after < history.count:
             raise ValueError("paper trace position is outside the committed history")
-        rows = snapshot.trace_page(account_id, after, PaperTracePage.maximum)
+        rows, more = snapshot.trace_page(
+            account_id, after, PaperTracePage.maximum, PaperTracePage.maximum_bytes
+        )
         return PaperTracePage(
             after=after,
             traces=tuple(trace for _, trace in rows),
-            next_after=rows[-1][0] if len(rows) == PaperTracePage.maximum else None,
+            next_after=rows[-1][0] if more else None,
             history=history,
         )
 

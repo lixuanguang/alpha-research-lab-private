@@ -259,11 +259,14 @@ The trace history grows with every eligible book, so it is read in bounded piece
 never whole:
 - `paper_trace(account_id, market_identity)` reads one market's trace, if the
   account applied it;
-- `paper_trace_page(account_id, after=...)` reads at most `PaperTracePage.maximum`
-  (256) traces after a journal-wide position, from -1. Each page names the
-  position to continue from and the whole history's `HistoryDigest`: its count and
-  the hash chain over every trace's exact bytes, so pages joined from successive
-  snapshots can be checked against it. `iter_paper_traces` joins pages;
+- `paper_trace_page(account_id, after=...)` reads the traces after a journal-wide
+  position, from -1: at most `PaperTracePage.maximum` (256) and, beyond the first,
+  at most `PaperTracePage.maximum_bytes` (512 KiB) of stored trace bytes, so a page
+  stays well inside a 1 MiB socket response. A page that stopped at either bound
+  names the position to continue from; one that did not ends the history. Each page
+  carries the journal's whole trace history as a `HistoryDigest`, every account's:
+  its count and the hash chain over every trace's exact bytes, so pages joined from
+  successive snapshots can be checked against it. `iter_paper_traces` joins pages;
 - `latest_paper_traces(account_id)` reads the newest trace of each bound instrument;
 - `paper_trace_history()` reads the history's count and chain;
 - `export_paper_traces(destination, account_id)` publishes the codec's encoding of
@@ -280,8 +283,9 @@ replaying into it skips a book older than that valuation as already applied.
 Installed clients read one market's trace with the `market_trace` projection
 (`account_id`, `query_market`), a page with the `traces` projection
 (`query_after`), and the history with `trace_history`; a full inspection states
-`paper_trace_history` instead of returning trace bodies, and `monitoring` adds
-each bound instrument's newest trace. The one-shot `export_traces` command
+`paper_trace_history`, the journal-wide history even when it names one account,
+instead of returning trace bodies, and `monitoring` adds each bound instrument's
+newest trace. The one-shot `export_traces` command
 (`export_path`, optional `account_id`) runs the export in the signed runner.
 Reconciliation still requires a complete independently supplied
 `AccountObservation` with physical cash, positions, costs, posting identities and

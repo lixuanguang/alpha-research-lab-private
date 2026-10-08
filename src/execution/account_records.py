@@ -179,14 +179,17 @@ class PaperTracePage(WireRecord, frozen=True):
     """Return a bounded run of committed traces after a history position.
 
     Positions are the journal-wide commit sequence, from zero, and ``after`` is -1
-    to start. ``traces`` follow ``after`` in commit order, at most ``maximum`` of
-    them, optionally within one account. A full page names the position of its last
-    trace in ``next_after`` to continue from; a shorter page ends the history at its
-    snapshot and has none. ``history`` is that snapshot's whole trace history, so a
-    reader can verify that the pages it joined are the history, not a part of it.
+    to start. ``traces`` follow ``after`` in commit order, optionally within one
+    account: at most ``maximum`` of them and, beyond the first, at most
+    ``maximum_bytes`` of stored trace bytes, so a page stays well inside a socket
+    response. A page that stopped at either bound names the position of its last
+    trace in ``next_after`` to continue from; a page without one ends the history at
+    its snapshot. ``history`` is that snapshot's whole journal trace history, every
+    account's, so a reader can verify that the pages it joined are the history.
     """
 
     maximum: ClassVar[int] = 256
+    maximum_bytes: ClassVar[int] = 524_288
 
     after: int
     traces: tuple[AccountPaperTrace, ...]
@@ -201,11 +204,12 @@ class PaperTracePage(WireRecord, frozen=True):
             or not -1 <= self.after < self.history.count
             or type(self.traces) is not tuple
             or len(self.traces) > self.maximum
-            or (len(self.traces) == self.maximum) != (self.next_after is not None)
+            or (len(self.traces) == self.maximum and self.next_after is None)
             or (
                 self.next_after is not None
                 and (
                     type(self.next_after) is not int
+                    or not self.traces
                     or not self.after < self.next_after < self.history.count
                 )
             )

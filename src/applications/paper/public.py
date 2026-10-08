@@ -78,7 +78,9 @@ async def run_live_shared_paper(
     this workflow never derives reconciliation facts from its own ledger.
 
     The absent output directory receives an immutable resolved manifest, bounded
-    native capture, fsynced delivery/decision envelopes and final account result.
+    native capture, fsynced delivery/decision envelopes and final account result. A
+    relative ``output`` is resolved against the working directory before any effect,
+    so a signed account runner, which has its own, writes the trace export there too.
     On failure the retained account is blocked without releasing open exposure.
     Completion releases no reservations and performs no liquidation. Reopening
     uses a fresh recording and waits for synchronized fresh public input.
@@ -86,6 +88,7 @@ async def run_live_shared_paper(
     config.__post_init__()
     scenario.__post_init__()
     request.__post_init__()
+    output = output.absolute()
     if (
         config.mode != "paper"
         or not bindings

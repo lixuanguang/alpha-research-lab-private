@@ -347,7 +347,11 @@ class TestAccountResponseProjection:
         assert account.paper_restore_quarantined() == full.paper_restore_quarantined
         assert account.paper_activations() == full.paper_activations
         assert account.paper_reductions() == full.paper_reductions
-        assert tuple(account.iter_paper_traces("shared")) == full.paper_traces
+        assert full.paper_traces == ()
+        assert full.paper_trace_history == journal.paper_trace_history()
+        assert tuple(account.iter_paper_traces("shared")) == tuple(
+            journal.iter_paper_traces("shared")
+        )
         assert account.paper_report_facts("shared") == (full.paper_fills, full.paper_costs)
         assert account.portfolio_residuals("shared") == full.residuals
         assert account.checkpoint("alpha") == b"candidate-state"

@@ -71,7 +71,7 @@ class PaperAccount(Protocol):
         ...
 
     def paper_trace_page(self, account_id: str | None = None, *, after: int = -1) -> PaperTracePage:
-        """Read at most ``PaperTracePage.maximum`` committed traces after a history position."""
+        """Read one count- and byte-bounded page of committed traces after a history position."""
         ...
 
     def iter_paper_traces(

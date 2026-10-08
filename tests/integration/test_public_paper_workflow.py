@@ -144,3 +144,28 @@ class TestPublicPaperWorkflow:
             assert refused.returncode != 0
             assert "unsupported shared book delivery schema" in refused.stderr
             assert (output / "replay-verification.json").read_bytes() == verified
+
+    @pytest.mark.integration
+    def test_a_relative_output_directory_receives_the_trace_export(self, tmp_path: Path) -> None:
+        """A run given a relative output resolves it before any effect and exports there."""
+        repository = Path(__file__).parents[2]
+        consumer = tmp_path / "public_paper.py"
+        shutil.copyfile(Path(__file__).parent / "consumers/runtime/public_paper.py", consumer)
+        config = tmp_path / "capture.json"
+        shutil.copyfile(repository / "configs/live/okx-btc-usdt.json", config)
+        command = [
+            sys.executable,
+            "-I",
+            str(consumer),
+            "--config",
+            str(config),
+            "--output",
+            "relative-output",
+        ]
+        result = subprocess.run(
+            command, cwd=tmp_path, capture_output=True, text=True, timeout=90, check=False
+        )
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        exported = tmp_path / "relative-output/run/execution-traces.json"
+        assert exported.read_bytes().startswith(b"[{")
+        assert (tmp_path / "relative-output/run/cost-report.json").is_file()

@@ -1579,37 +1579,35 @@ class JourneyPaper:
         print(self.codec.encode_json(verification.gates()).decode())
 
     def reconcile(self) -> None:
-        """Reconcile every account as the phase starts, then each period, until stopped.
+        """Reconcile each account on its own clock from the phase's start until stopped.
 
-        The reclaims before a phase reconciled each account one after another, so the
-        first round does not wait a whole period: it reconciles each account as soon
-        as the supervisor reports that account's first accepted market, and stamps
-        the observation at it; an account still without one when a period has passed
-        is reconciled then at its own clock. A stamp at the account's own clock alone
-        would leave its reconciliation as old as the reclaim. A mismatch stops the
-        reconciler.
+        The reclaims before a phase reconciled each account one after another, so an
+        account is reconciled as soon as the supervisor reports its first accepted
+        market, stamped at it; a stamp at the account's own clock alone would leave
+        its reconciliation as old as the reclaim. An account still without a market
+        when a period has passed is reconciled at its own clock, and again at its
+        first market when that arrives. After that, each account is reconciled one
+        period after its own previous reconciliation, whatever the others take. A
+        mismatch stops the reconciler.
         """
         arguments = self.arguments
         clients = self.served_accounts()
         log = arguments.plan / "reconciliation.jsonl"
-        first_round_ends = time.monotonic() + arguments.period
-        waiting = sorted(clients)
-        while waiting and not arguments.stop.exists():
-            for account_id in tuple(waiting):
-                if (
-                    self.accepted_market(account_id) is not None
-                    or time.monotonic() >= first_round_ends
-                ):
-                    self.reconcile_account(clients[account_id], account_id, log)
-                    waiting.remove(account_id)
-            if waiting:
-                time.sleep(0.5)
+        started = time.monotonic()
+        due = dict.fromkeys(clients, started + arguments.period)
+        awaiting = set(clients)
         while not arguments.stop.exists():
-            time.sleep(arguments.period)
-            if arguments.stop.exists():
-                break
-            for account_id, installed in sorted(clients.items()):
-                self.reconcile_account(installed, account_id, log)
+            for account_id in sorted(clients):
+                market = self.accepted_market(account_id)
+                first_market = account_id in awaiting and market is not None
+                if first_market or time.monotonic() >= due[account_id]:
+                    self.reconcile_account(clients[account_id], account_id, log)
+                    due[account_id] = time.monotonic() + arguments.period
+                    if market is not None:
+                        awaiting.discard(account_id)
+                    if arguments.stop.exists():
+                        return
+            time.sleep(0.5)
 
     def reconcile_account(self, installed: SocketPaperAccount, account_id: str, log: Path) -> None:
         """Reconcile one account at its last accepted market and record the outcome."""

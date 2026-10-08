@@ -302,6 +302,23 @@ class TestBoundedTraceReads:
         with pytest.raises(ValueError, match="invalid paper trace page"):
             PaperTracePage(after=-1, traces=traces[:2], next_after=None, history=history)
 
+    def test_pages_also_stop_at_their_byte_bound_and_continue(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A page holds its first trace whatever its size, then stops before the byte bound."""
+        path = tmp_path / "byte-pages.sqlite3"
+        result = AccountHistoryFixture.operate(path)
+        traces = cast(tuple[AccountPaperTrace, ...], result["traces"])
+        journal = AccountJournal(path, _Matching._config())
+        sizes = [len(DomainCodec().encode_json(trace)) for trace in traces]
+        monkeypatch.setattr(PaperTracePage, "maximum_bytes", sizes[0] + sizes[1] - 1)
+        first = journal.paper_trace_page("shared")
+        assert (first.traces, first.next_after) == (traces[:1], 0)
+        assert tuple(journal.iter_paper_traces("shared")) == traces
+        monkeypatch.setattr(PaperTracePage, "maximum_bytes", 1)
+        assert journal.paper_trace_page("shared", after=1).traces == traces[2:]
+        assert tuple(journal.iter_paper_traces("shared")) == traces
+
     def test_export_is_the_codec_encoding_and_refuses_a_changed_history(
         self, tmp_path: Path
     ) -> None:

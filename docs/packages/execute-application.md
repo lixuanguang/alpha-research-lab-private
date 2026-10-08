@@ -171,7 +171,8 @@ files are bounded to one MiB. Use `DomainCodec` for exact financial wire values.
 An opening account must reconcile before its first admission. Refresh market
 observations separately from decisions. Reusing an admitted decision ID returns
 its original result and checkpoint; replacing its bytes fails. Every result
-reports `submission_attempted=false`. Normalized fill/account facts remain
+reports `submission_attempted=false`; the encoding omits that default, and a result
+naming any other value is refused. Normalized fill/account facts remain
 modeled local input; no success is a physical venue observation. A contradiction
 returns a nonzero CLI exit and retains the account block. The maintained
 [shared-account consumer](../../tests/integration/consumers/runtime/shared_account.py)
@@ -194,7 +195,8 @@ parents), plus `stopped_instances`, retained `failed_net_events` and unroutable
 `residuals` with their owner, quantity and physical-grid reason. Use the
 parent identity when supplying normalized physical events;
 strategy child identities remain accounting and risk lineage. Inspection and
-all mutations report `submission_attempted=false`. Failed physical facts remain
+all mutations report `submission_attempted=false` (omitted from the encoding as
+the default). Failed physical facts remain
 durable and block new risk. See the [portfolio journal contract](execution.md#portfolio-coordination-and-recovery)
 for compatibility, costs, residuals and the stop/reconciliation sequence.
 
@@ -449,7 +451,7 @@ checkpoint lookup does not transfer unrelated order and accounting history.
 Explicit operator inspection remains complete for state; the paper trace history,
 which grows with every eligible book, is stated by its count and hash chain
 (`paper_trace_history`) and read through the `traces` projection in pages of at
-most 256 after a `query_after` position, through `market_trace` one market at a
+most 256 traces and 512 KiB after a `query_after` position, through `market_trace` one market at a
 time, or whole by `export_traces`. Requests and results encode only fields that
 differ from their defaults. An operator reads every saved
 decision's outcome with the `decisions` projection (optionally narrowed by

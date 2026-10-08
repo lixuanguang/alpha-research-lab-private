@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import time
 from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
 from typing import cast
 
@@ -20,13 +21,15 @@ class _RecordedReconciler(JourneyPaper):
 
     Each account's first market is accepted ``markets[account]`` seconds after the
     reconciler starts, or never; reconciliations are recorded, not sent, and the
-    reconciler stops after its first periodic round.
+    reconciler stops after ``rounds`` of them.
     """
 
-    def __init__(self, arguments: JourneyPaperArguments, markets: dict[str, float]) -> None:
-        """Bind the authored market offsets and an empty record."""
+    def __init__(
+        self, arguments: JourneyPaperArguments, markets: dict[str, float], rounds: int
+    ) -> None:
+        """Bind the authored market offsets, the stopping count and an empty record."""
         super().__init__(arguments)
-        self.markets = markets
+        self.markets, self.rounds = markets, rounds
         self.started = time.monotonic()
         self.reconciled: list[tuple[str, float, datetime | None]] = []
 
@@ -44,30 +47,55 @@ class _RecordedReconciler(JourneyPaper):
         self.reconciled.append(
             (account_id, time.monotonic() - self.started, self.accepted_market(account_id))
         )
-        if len(self.reconciled) == 2 * len(self.markets):
+        if len(self.reconciled) == self.rounds:
             self.arguments.stop.touch()
+
+    def times(self, account_id: str) -> list[tuple[float, bool]]:
+        """Return one account's reconciliation offsets and whether each was stamped at a market."""
+        return [
+            (at, market is not None) for name, at, market in self.reconciled if name == account_id
+        ]
 
 
 class TestJourneyReconciler:
-    """Reconcile as the phase starts, not one period later."""
+    """Reconcile as the phase starts and on each account's own clock after."""
+
+    @staticmethod
+    def _arguments(tmp_path: Path) -> JourneyPaperArguments:
+        """Bind a two-second period and a stop file under the test root."""
+        arguments = JourneyPaperArguments()
+        arguments.plan, arguments.stop, arguments.period = tmp_path, tmp_path / "stop", 2.0
+        return arguments
 
     def test_each_account_is_reconciled_at_its_first_market(self, tmp_path: Path) -> None:
         """A live account reconciles at once although a quiet account sorts before it.
 
         The quiet account, whose market never arrives, is reconciled at its own clock
-        when one period has passed; both are reconciled again a period after that.
+        when one period has passed.
         """
-        arguments = JourneyPaperArguments()
-        arguments.plan, arguments.stop, arguments.period = tmp_path, tmp_path / "stop", 2.0
-        reconciler = _RecordedReconciler(arguments, {"a-quiet": float("inf"), "b-live": 0.0})
+        reconciler = _RecordedReconciler(
+            self._arguments(tmp_path), {"a-quiet": float("inf"), "b-live": 0.0}, rounds=3
+        )
         reconciler.reconcile()
-        first = {account: (at, market) for account, at, market in reconciler.reconciled[:2]}
-        assert [account for account, _, _ in reconciler.reconciled] == [
-            "b-live",
-            "a-quiet",
-            "a-quiet",
-            "b-live",
-        ]
-        assert first["b-live"][0] < 1.0 and first["b-live"][1] is not None
-        assert first["a-quiet"][0] >= 2.0 and first["a-quiet"][1] is None
-        assert all(at >= 4.0 for _, at, _ in reconciler.reconciled[2:])
+        live, quiet = reconciler.times("b-live"), reconciler.times("a-quiet")
+        assert live[0][0] < 1.0 and live[0][1]
+        assert 2.0 <= quiet[0][0] < 3.0 and not quiet[0][1]
+        assert 2.0 <= live[1][0] - live[0][0] < 2.8
+
+    def test_a_late_market_and_each_period_follow_the_account_s_own_clock(
+        self, tmp_path: Path
+    ) -> None:
+        """A market after the first period is reconciled at once; periods do not drift.
+
+        The late account is reconciled at its own clock after a period, then at its
+        first market three seconds in; the live account every period from its own
+        previous reconciliation.
+        """
+        reconciler = _RecordedReconciler(
+            self._arguments(tmp_path), {"a-late": 3.0, "b-live": 0.0}, rounds=6
+        )
+        reconciler.reconcile()
+        late, live = reconciler.times("a-late"), reconciler.times("b-live")
+        assert 2.0 <= late[0][0] < 3.0 and not late[0][1]
+        assert 3.0 <= late[1][0] < 3.8 and late[1][1]
+        assert all(2.0 <= later - earlier < 2.8 for (earlier, _), (later, _) in pairwise(live))
