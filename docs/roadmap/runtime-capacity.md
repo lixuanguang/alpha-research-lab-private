@@ -99,6 +99,29 @@ measures; the budgets are unchanged. In this profile a "selected" book is one th
 decides a three-second grid instant; the per-book `market_selected` measurement now
 equals `market_eligible`, so selected economic books are the deciding books.
 
+**Step-3 development diagnostics (uncounted, 2026-10-08, not results).** One 300 s
+interval of the sustained input, including one 10 s burst at 100 messages a second a
+source, on the development host:
+- Each matched book took about 25 ms at p50 and 85 ms at p99, almost all of it three
+  account requests (membership, quote, match). During the burst the shared observer
+  fell behind until books were stale and faulted all four accounts
+  (`public_input_invalid`), before and after that step's fixes. The day run meets the
+  burst every 300 s, so its receipt and burst budgets are at risk; a per-book path
+  change must be selected and measured before the day-run rehearsal is booked.
+- Account journals grew about 37 MB an account in 300 s (2.6 KB a trace), an
+  estimated 10.7 GB an account-day. `capacity_retention.py` now reports them per
+  account as their own class; no ceiling names them, so they are not graded.
+- At a synthetic day of history (2.2 million traces an account) the cold monitoring
+  and facts reads take 13–16 ms. A full inspection, the trace export and full
+  verification still read every trace and exceeded 300 s. Account backup and restore
+  verify the whole journal: at about 7,800 traces a restore already took 17.5 s of
+  its 30 s limit.
+- Retained account request files no longer grow with requests: one log per process
+  life replaced about 74,000 files an account. The bytes are unchanged: an estimated
+  81 GiB a day of supervisor request logs, which the retention check classes as
+  scratch (8 GiB ceiling), and about 37 GiB of service request logs beside the
+  journals. The retention ceilings are therefore at risk as well.
+
 ## Day run
 
 The approved declaration (owner, 2026-10-07). Targets and budgets are the launch
