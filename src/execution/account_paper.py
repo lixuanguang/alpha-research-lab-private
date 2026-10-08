@@ -21,6 +21,8 @@ from execution.account_records import (
     AccountPaperCost,
     AccountPaperFill,
     AccountPaperTrace,
+    AccountQuote,
+    PaperMarketOutcome,
 )
 from execution.account_state import AccountStateStore, AccountTransaction, _AccountSnapshot
 from execution.paper import PaperMarket, PaperMatchEvaluator
@@ -118,39 +120,51 @@ class AccountPaperMatching:
                 raise ValueError("unknown account")
             return tuple(snapshot.iter_traces(account_id))
 
-    def market_seen(
+    def trace(
         self, account_id: str, market_identity: str, *, snapshot: _AccountSnapshot | None = None
-    ) -> bool:
-        """Inspect committed or failed membership under the snapshot's current owner."""
+    ) -> AccountPaperTrace | None:
+        """Read the account's committed or failed trace of one market identity, if any."""
         if (
             type(account_id) is not str
             or not account_id
             or type(market_identity) is not str
             or not market_identity
         ):
-            raise ValueError("market membership requires account and market identities")
+            raise ValueError("paper trace lookup requires account and market identities")
         if snapshot is None:
             with self.store.snapshot() as fresh:
-                return self.market_seen(account_id, market_identity, snapshot=fresh)
-        transaction = AccountTransaction(snapshot.state, snapshot.tables)
-        transaction.account(account_id)
-        if self.owner is not None:
-            self.owner.__post_init__()
-        PaperAuthority.require_owner(
-            transaction, account_id, self.owner, at=self.clock(), new_exposure=False
-        )
-        return snapshot.find_trace(market_identity, account_id=account_id) is not None
+                return self.trace(account_id, market_identity, snapshot=fresh)
+        if account_id not in {account.ledger.account_id for account in snapshot.state.accounts}:
+            raise ValueError("unknown account")
+        return snapshot.find_trace(market_identity, account_id=account_id)
 
-    def match(
+    def apply(
         self, account_id: str, market: PaperMarket, scenario: PaperExecutionScenario
-    ) -> AccountPaperTrace:
-        """Commit finite liquidity, modeled lifecycle and child economics together."""
-        self._require_paper()
+    ) -> PaperMarketOutcome:
+        """Observe one eligible book's ask as valuation and match it, in one transaction.
+
+        Under the owner fence and the bound scenario, the market identity is resolved
+        against the whole committed history before any effect. A market this account
+        already applied is an exact retry: it returns the saved outcome and writes
+        nothing, so valuation, liquidity, accounting and checkpoints are unchanged.
+        The same identity with other input, in any account, is refused. Only a new
+        market is observed and, in paper mode, matched. Shadow mode keeps no trace and
+        only observes; observing the identical quote at the valuation's clock again
+        changes nothing, and any other quote at or before it is refused.
+
+        Raises:
+            ValueError: The owner, scenario, identity, clock or freshness is refused,
+                or the book's modeled effect was refused; that failure is committed as
+                the market's trace first, and an exact retry raises it again.
+        """
+        self._require_binding_mode()
         market.__post_init__()
         scenario.__post_init__()
         limits = self._limits(scenario)
         if market.bid.per != limits.lot.dimension:
             raise ValueError("paper market instrument differs from scenario")
+        valuation = AccountQuote(price=market.ask, at=market.at)
+        trace: AccountPaperTrace | None = None
         failure: str | None = None
         with self.store.write() as transaction:
             activation = PaperAuthority.require_owner(
@@ -164,35 +178,65 @@ class AccountPaperMatching:
                 raise ValueError("paper scenario is not bound")
             if binding.scenario != scenario:
                 raise ValueError("paper scenario changed after binding")
-            # Every trace of one venue market identity holds the same input bytes.
-            prior = transaction.find_trace(
-                market.identity, venue=scenario.venue, instrument_id=scenario.instrument_id
-            )
-            if prior is not None and prior.market != market:
-                raise ValueError("paper market identity reused with different input")
-            saved = transaction.find_trace(
+            if self.config.mode == "shadow":
+                self.admission.observe_quote(transaction, valuation)
+            else:
+                trace = self._saved_trace(transaction, account_id, market, scenario)
+                if trace is None:
+                    if activation is not None:
+                        now = self.clock()
+                        if market.at > now or now - market.at > timedelta(
+                            microseconds=self.config.budgets.max_quote_age_us
+                        ):
+                            raise ValueError("paper_market_stale_or_future")
+                    # Matching never reads valuation, so the effects are the same in
+                    # either order; matching first keeps its ordering refusals first.
+                    trace, failure = self._match_new(transaction, account_id, binding, market)
+                    self.admission.observe_quote(transaction, valuation)
+                elif trace.status == "failed":
+                    failure = trace.reason
+        if failure is not None:
+            raise ValueError(f"account blocked: {failure}")
+        return PaperMarketOutcome(
+            account_id=account_id,
+            market_identity=market.identity,
+            trace_sha256=(
+                None if trace is None else hashlib.sha256(self.codec.encode_json(trace)).hexdigest()
+            ),
+        )
+
+    @staticmethod
+    def _saved_trace(
+        transaction: AccountTransaction,
+        account_id: str,
+        market: PaperMarket,
+        scenario: PaperExecutionScenario,
+    ) -> AccountPaperTrace | None:
+        """Resolve a market identity against all history before any new effect.
+
+        Every trace of one venue market identity holds the same input bytes, so a
+        reused identity with other input is refused wherever it was first applied.
+        """
+        prior = transaction.find_trace(
+            market.identity, venue=scenario.venue, instrument_id=scenario.instrument_id
+        )
+        if prior is None:
+            return None
+        if prior.market != market:
+            raise ValueError("paper market identity reused with different input")
+        saved = (
+            prior
+            if prior.account_id == account_id
+            else transaction.find_trace(
                 market.identity,
                 account_id=account_id,
                 venue=scenario.venue,
                 instrument_id=scenario.instrument_id,
             )
-            if saved is not None:
-                if saved.scenario != scenario:
-                    raise ValueError("paper scenario changed after binding")
-                if saved.status == "failed":
-                    failure = saved.reason
-                result = saved
-            else:
-                if activation is not None:
-                    now = self.clock()
-                    if market.at > now or now - market.at > timedelta(
-                        microseconds=self.config.budgets.max_quote_age_us
-                    ):
-                        raise ValueError("paper_market_stale_or_future")
-                result, failure = self._match_new(transaction, account_id, binding, market)
-        if failure is not None:
-            raise ValueError(f"account blocked: {failure}")
-        return result
+        )
+        if saved is not None and saved.scenario != scenario:
+            raise ValueError("paper scenario changed after binding")
+        return saved
 
     def _committed_trace_facts(
         self, account_id: str, snapshot: _AccountSnapshot
@@ -312,13 +356,8 @@ class AccountPaperMatching:
     ) -> tuple[AccountPaperTrace, str | None]:
         """Apply a never-seen quote or retain one rejected modeled economic fact."""
         scenario = binding.scenario
-        latest = next(
-            transaction.iter_traces(
-                account_id, instrument_id=scenario.instrument_id, newest_first=True
-            ),
-            None,
-        )
-        if latest is not None and market.at < latest.market.at:
+        latest_at = transaction.latest_trace_market_at(account_id, scenario.instrument_id)
+        if latest_at is not None and market.at < latest_at:
             raise ValueError("paper market availability regressed")
         account_view = transaction.account(account_id)
         if account_view.fault is not None:
@@ -492,11 +531,6 @@ class AccountPaperMatching:
         if scenario.fee_rate > self.config.fee_rate(scenario.instrument_id).rate:
             raise ValueError("paper scenario fee rate exceeds the configured worst case")
         return limits
-
-    def _require_paper(self) -> None:
-        """Prevent simulated fills in shadow and authorized venue journals."""
-        if self.config.mode != "paper":
-            raise ValueError("automatic matching requires paper account mode")
 
     def _require_binding_mode(self) -> None:
         """Allow immutable source assumptions for paper and non-filling shadow."""

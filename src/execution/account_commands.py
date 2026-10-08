@@ -29,6 +29,7 @@ from execution.account_records import (
     DecisionOutcome,
     NetFeeCorrection,
     NetOrder,
+    PaperMarketOutcome,
     PortfolioBatch,
     PortfolioCommit,
     PortfolioResidual,
@@ -53,7 +54,7 @@ type AccountResponseProjection = Literal[
     "paper_activations",
     "quarantine",
     "traces",
-    "market_membership",
+    "market_trace",
     "valuation",
     "reconciliation",
     "facts",
@@ -90,7 +91,7 @@ class AccountExecutionRequest(WireRecord, frozen=True):
         "revoke_paper",
         "claim_paper",
         "bind_paper_scenario",
-        "paper_market",
+        "public_market",
         "reduce_paper",
         "serve_paper",
         "shutdown_paper",
@@ -140,7 +141,7 @@ class AccountExecutionRequest(WireRecord, frozen=True):
             "paper_activations",
             "quarantine",
             "traces",
-            "market_membership",
+            "market_trace",
             "valuation",
             "reconciliation",
             "facts",
@@ -160,18 +161,18 @@ class AccountExecutionRequest(WireRecord, frozen=True):
             raise ValueError("checkpoint projection requires an instance query")
         if self.projection == "saved_batch" and self.query_batch is None:
             raise ValueError("saved batch projection requires a batch query")
-        if self.projection == "market_membership":
+        if self.projection == "market_trace":
             if (
                 type(self.account_id) is not str
                 or not self.account_id
                 or type(self.query_market) is not str
                 or not self.query_market
             ):
-                raise ValueError("market membership requires account and market identities")
+                raise ValueError("market trace requires account and market identities")
             if self.query_instance is not None or self.query_batch is not None:
-                raise ValueError("market membership requires only an account and market query")
+                raise ValueError("market trace requires only an account and market query")
         elif self.query_market is not None:
-            raise ValueError("market query requires the membership projection")
+            raise ValueError("market query requires the market trace projection")
         if self.projection == "valuation":
             if type(self.query_instrument) is not Dimension or any(
                 value is not None
@@ -195,7 +196,7 @@ class AccountExecutionRequest(WireRecord, frozen=True):
             "net_cost": self.net_cost,
             "install_paper": self.deployment,
             "authorize_paper": self.authorization,
-            "paper_market": self.market,
+            "public_market": self.market,
             "reduce_paper": self.reduction,
         }
         if self.action not in (
@@ -228,11 +229,6 @@ class AccountExecutionRequest(WireRecord, frozen=True):
             self.control.__post_init__()
         if self.paper_owner is not None:
             self.paper_owner.__post_init__()
-            if (
-                self.projection == "market_membership"
-                and self.account_id != self.paper_owner.account_id
-            ):
-                raise ValueError("market membership account differs from its owner")
             if self.action not in (
                 "inspect",
                 "admit",
@@ -246,7 +242,7 @@ class AccountExecutionRequest(WireRecord, frozen=True):
                 "block",
                 "control",
                 "bind_paper_scenario",
-                "paper_market",
+                "public_market",
                 "reduce_paper",
                 "stop_instance",
                 "restart_instance",
@@ -276,7 +272,7 @@ class AccountExecutionRequest(WireRecord, frozen=True):
             or self.control.account_id != self.paper_owner.account_id
         ):
             raise ValueError("paper service shutdown requires matching owner and stop control")
-        if self.action in ("bind_paper_scenario", "paper_market"):
+        if self.action in ("bind_paper_scenario", "public_market"):
             if not self.account_id or self.scenario is None:
                 raise ValueError("paper market requires account and scenario")
             self.scenario.__post_init__()
@@ -316,7 +312,7 @@ class AccountExecutionRequest(WireRecord, frozen=True):
                 "revoke_paper",
                 "claim_paper",
                 "bind_paper_scenario",
-                "paper_market",
+                "public_market",
             )
             and self.account_id is not None
         ) or self.reason is not None:
@@ -391,10 +387,9 @@ class AccountExecutionResult(WireRecord, frozen=True):
     paper_costs: tuple[AccountPaperCost, ...] = ()
     checkpoint: bytes | None = None
     saved_batch: PortfolioBatch | None = None
-    matched_market: AccountPaperTrace | None = None
+    public_market: PaperMarketOutcome | None = None
     reduction_result: PaperReductionResult | None = None
     claimed_owner: PaperOwner | None = None
-    market_seen: bool | None = None
     valuation: AccountQuote | None = None
     # The account's knowledge clock, answered only by the reconciliation projection:
     # an observation stamped at it is never earlier than the account's own facts.
@@ -404,8 +399,6 @@ class AccountExecutionResult(WireRecord, frozen=True):
         """Keep result authority closed and validate its retained financial records."""
         if self.submission_attempted is not False:
             raise ValueError("account application cannot submit")
-        if self.market_seen is not None and type(self.market_seen) is not bool:
-            raise ValueError("market membership result must be Boolean")
         if self.valuation is not None:
             self.valuation.__post_init__()
         if self.known_at is not None:
@@ -462,8 +455,8 @@ class AccountExecutionResult(WireRecord, frozen=True):
             raise ValueError("account checkpoint must be immutable bytes")
         if self.saved_batch is not None:
             self.saved_batch.__post_init__()
-        if self.matched_market is not None:
-            self.matched_market.__post_init__()
+        if self.public_market is not None:
+            self.public_market.__post_init__()
         if self.reduction_result is not None:
             self.reduction_result.__post_init__()
         if self.claimed_owner is not None:

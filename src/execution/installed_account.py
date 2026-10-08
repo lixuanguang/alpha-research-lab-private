@@ -32,6 +32,7 @@ from execution.account_records import (
     AccountQuote,
     AccountView,
     NetOrder,
+    PaperMarketOutcome,
     PortfolioBatch,
     PortfolioCommit,
     PortfolioResidual,
@@ -142,7 +143,6 @@ class InstalledPaperAccount:
                 query_market=market,
                 query_instrument=instrument,
                 projection=projection,
-                paper_owner=self.paper_owner if projection == "market_membership" else None,
             )
         )
 
@@ -174,14 +174,17 @@ class InstalledPaperAccount:
         """Read original public quotes and committed modeled effects."""
         return self._inspect(account_id=account_id, projection="traces").paper_traces
 
-    def paper_market_seen(self, account_id: str, market_identity: str) -> bool:
-        """Inspect fresh account-scoped membership under the bound installed owner."""
-        result = self._inspect(
-            account_id=account_id, market=market_identity, projection="market_membership"
-        )
-        if type(result.market_seen) is not bool:
-            raise ValueError("installed paper response lacks Boolean market membership")
-        return result.market_seen
+    def paper_trace(self, account_id: str, market_identity: str) -> AccountPaperTrace | None:
+        """Read the account's trace of one market identity from installed state."""
+        traces = self._inspect(
+            account_id=account_id, market=market_identity, projection="market_trace"
+        ).paper_traces
+        if len(traces) > 1 or any(
+            trace.account_id != account_id or trace.market.identity != market_identity
+            for trace in traces
+        ):
+            raise ValueError("installed paper response differs from its market trace query")
+        return traces[0] if traces else None
 
     def valuation(self, instrument: Dimension) -> AccountQuote | None:
         """Read the latest observed valuation quote of one instrument from installed state."""
@@ -222,13 +225,13 @@ class InstalledPaperAccount:
             )
         )
 
-    def match_public_market(
+    def apply_public_market(
         self, account_id: str, market: PaperMarket, scenario: PaperExecutionScenario
-    ) -> AccountPaperTrace:
-        """Match one finite eligible quote under the current durable owner."""
+    ) -> PaperMarketOutcome:
+        """Observe and match one finite eligible book under the current durable owner."""
         result = self.execute(
             AccountExecutionRequest(
-                action="paper_market",
+                action="public_market",
                 account_id=account_id,
                 market=market,
                 scenario=scenario,
@@ -236,9 +239,14 @@ class InstalledPaperAccount:
                 projection="operation",
             )
         )
-        if result.matched_market is None:
-            raise ValueError("installed paper response lacks matching result")
-        return result.matched_market
+        outcome = result.public_market
+        if (
+            outcome is None
+            or outcome.account_id != account_id
+            or outcome.market_identity != market.identity
+        ):
+            raise ValueError("installed paper response lacks this market's outcome")
+        return outcome
 
     def coordinate(self, batch: PortfolioBatch) -> PortfolioCommit:
         """Commit the selected policy cohort through installed risk and reservations."""

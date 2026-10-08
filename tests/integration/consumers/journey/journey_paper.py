@@ -682,12 +682,12 @@ class PaperRecovery:
         )
         observed["cancel"] = cancel.status
         if market is not None:
-            settled = self.installed.match_public_market(
+            settled = self.installed.apply_public_market(
                 account_id,
                 msgspec.structs.replace(market, identity=uuid4().hex, at=datetime.now(UTC)),
                 activation.deployment.scenario,
             )
-            observed["settled"] = settled.status
+            observed["settled"] = settled.trace_sha256
         observation = PaperObservation(self.installed, account_id).observe(datetime.now(UTC))
         observed["reconciled"] = self.installed.reconcile(observation)
         observed["open_orders"] = len(observation.open_orders)

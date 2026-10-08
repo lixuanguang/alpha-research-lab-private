@@ -536,7 +536,7 @@ class CapacityRecovery:
                 "modified_ns": item.modified_ns,
             }
             for item, request in decoded
-            if request.action == "paper_market"
+            if request.action == "public_market"
             and item.stable_before_cutoff
             and request.account_id == trace.account_id == account_id
             and request.paper_owner is not None
@@ -670,18 +670,19 @@ class CapacityRecovery:
         workload = self.trial.workload.venue_workload(venue)
         for scenario in deployment.scenarios:
             at = datetime.now(UTC)
+            # The book's ask becomes the valuation, so it keeps the 100 reference:
+            # a higher ask would put the retained 98 sell limits outside the
+            # unchanged 5% risk band. Every order's cancel has taken effect, so
+            # nothing fills on it.
             market = PaperMarket(
                 identity=uuid4().hex,
                 at=at,
                 bid=workload.price("99", scenario.adverse.per),
-                ask=workload.price("104", scenario.adverse.per),
+                ask=workload.price("100", scenario.adverse.per),
                 bid_quantity=workload.quantity("4", scenario.adverse.per),
                 ask_quantity=workload.quantity("4", scenario.adverse.per),
             )
-            # Keep the original 100 reference: a 104 quote makes the
-            # retained 98 sell limits exceed the unchanged 5% risk band.
-            admin.observe(AccountQuote(price=workload.price("100", scenario.adverse.per), at=at))
-            admin.match_public_market(name, market, scenario)
+            admin.apply_public_market(name, market, scenario)
         settled = admin.execute(AccountExecutionRequest(action="inspect"))
         with (self.trial.output / f"recovery-settled-{name}.json").open("xb") as stream:
             stream.write(self.codec.encode_json(settled))

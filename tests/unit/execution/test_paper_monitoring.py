@@ -11,6 +11,7 @@ from pathlib import Path
 # third party library imports
 import pytest
 from msgspec.structs import replace
+from paper_books import PaperBooks
 
 # project library imports
 from accounting import (
@@ -502,7 +503,7 @@ class TestPaperMonitoring:
             bid_quantity=self._quantity("3"),
             ask_quantity=self._quantity("3"),
         )
-        trace = journal.match_public_market("shared", market, scenario)
+        trace = PaperBooks.apply(journal, "shared", market, scenario)
         assert trace.status == "committed"
         fills, costs = journal.paper_report_facts("shared")
         report = PaperAccountReporter().build(

@@ -83,7 +83,8 @@ _FILL_TRACES = 1000
 # History-size-dependent readers timed in a fresh interpreter at the full history.
 _READERS = ("monitoring", "facts", "traces", "verify", "newest", "retry")
 # Existing market identities spread over the whole history, looked up as a replay
-# into the existing journal does for every book: membership, then the match's two.
+# into the existing journal does for every book: the one per-book command resolves
+# each identity against the whole history.
 _RETRY_SAMPLES = 1000
 _LEVELS = (0, 25, 50, 75, 100)
 # Mean item bytes of the measured single-document OKX shared journal.
@@ -309,7 +310,7 @@ class HistoryJournalFixture:
         )
         if committed.status != "committed":
             raise ValueError("template portfolio batch was not committed")
-        journal.match_public_market(
+        journal.apply_public_market(
             _ACCOUNT,
             PaperMarket(
                 identity="template-market",
@@ -377,7 +378,11 @@ class HistoryMeasurements:
         trace: AccountPaperTrace,
         scenario: PaperExecutionScenario,
     ) -> None:
-        """Perform the public-market match's idempotency and ordering lookups."""
+        """Perform the per-book command's identity and ordering lookups for a new book.
+
+        A new identity is absent from every account, so the command makes one
+        history-wide lookup, then reads the account instrument's newest market clock.
+        """
         identity = trace.market.identity
         if (
             transaction.find_trace(
@@ -386,18 +391,7 @@ class HistoryMeasurements:
             is not None
         ):
             raise ValueError("synthetic market identity repeats")
-        transaction.find_trace(
-            identity,
-            account_id=trace.account_id,
-            venue=scenario.venue,
-            instrument_id=scenario.instrument_id,
-        )
-        next(
-            transaction.iter_traces(
-                trace.account_id, instrument_id=scenario.instrument_id, newest_first=True
-            ),
-            None,
-        )
+        transaction.latest_trace_market_at(trace.account_id, scenario.instrument_id)
 
     @staticmethod
     def cold_open(path: Path) -> int:
@@ -590,9 +584,9 @@ class HistoryReaders:
     def retry(path: Path, config: AccountConfiguration, history: int) -> dict[str, int]:
         """Time exact-retry lookups of identities spread over the whole history.
 
-        Each sample performs the three lookups a replay into the existing journal
-        makes for one book: account membership, then the match's cross-account and
-        account-scoped saved-trace reads.
+        Each sample performs the lookup a replay into the existing journal makes for
+        one book: the per-book command's history-wide saved-trace read, which finds
+        this account's own trace.
         """
         scenario = HistoryJournalFixture.scenario()
         store = AccountStateStore(path, config, DomainCodec())
@@ -601,20 +595,11 @@ class HistoryReaders:
             for sample in range(_RETRY_SAMPLES):
                 identity = HistoryItems.history_identity(sample * history // _RETRY_SAMPLES)
                 started = time.perf_counter_ns()
-                found = (
-                    snapshot.find_trace(identity, account_id=_ACCOUNT),
-                    snapshot.find_trace(
-                        identity, venue=scenario.venue, instrument_id=scenario.instrument_id
-                    ),
-                    snapshot.find_trace(
-                        identity,
-                        account_id=_ACCOUNT,
-                        venue=scenario.venue,
-                        instrument_id=scenario.instrument_id,
-                    ),
+                found = snapshot.find_trace(
+                    identity, venue=scenario.venue, instrument_id=scenario.instrument_id
                 )
                 samples.append(time.perf_counter_ns() - started)
-                if any(item is None for item in found):
+                if found is None or found.account_id != _ACCOUNT:
                     raise ValueError("history retry identity is missing")
         return {
             f"lookup_{name}": value

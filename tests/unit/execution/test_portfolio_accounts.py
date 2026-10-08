@@ -12,6 +12,7 @@ from typing import Literal
 # third party library imports
 import pytest
 from msgspec.structs import replace
+from paper_books import PaperBooks
 
 # project library imports
 from accounting import Fill
@@ -655,8 +656,8 @@ class TestPortfolioAccounts:
             )
         )
         assert cancel.status == "applied"
-        expiry = journal.match_public_market(
-            "shared", self._book("expiry", at + timedelta(milliseconds=3), "101"), scenario
+        expiry = PaperBooks.apply(
+            journal, "shared", self._book("expiry", at + timedelta(milliseconds=3), "101"), scenario
         )
         assert [event.kind for event in expiry.physical_events] == [
             "request_ack",
@@ -684,8 +685,11 @@ class TestPortfolioAccounts:
             )
         )
         assert (abstained.status, abstained.net_orders) == ("committed", ())
-        journal.match_public_market(
-            "shared", self._book("at-limit", next_at + timedelta(milliseconds=3), "100"), scenario
+        PaperBooks.apply(
+            journal,
+            "shared",
+            self._book("at-limit", next_at + timedelta(milliseconds=3), "100"),
+            scenario,
         )
         assert AccountLedger(journal.accounts()[0].ledger).snapshot() == self._opening()
 
@@ -727,8 +731,11 @@ class TestPortfolioAccounts:
         )
         assert (replaced.status, replaced.reason) == ("committed", "no_intent")
         assert journal.net_orders()[0].order.cancel_requested
-        expiry = journal.match_public_market(
-            "shared", self._book("expiry", replace_at + timedelta(milliseconds=1), "101"), scenario
+        expiry = PaperBooks.apply(
+            journal,
+            "shared",
+            self._book("expiry", replace_at + timedelta(milliseconds=1), "101"),
+            scenario,
         )
         assert [event.kind for event in expiry.physical_events] == [
             "request_ack",
@@ -755,8 +762,11 @@ class TestPortfolioAccounts:
         assert [parent.order.intent.quantity for parent in bought.net_orders] == [
             self._quantity("2")
         ]
-        journal.match_public_market(
-            "shared", self._book("at-limit", buy_at + timedelta(milliseconds=3), "100"), scenario
+        PaperBooks.apply(
+            journal,
+            "shared",
+            self._book("at-limit", buy_at + timedelta(milliseconds=3), "100"),
+            scenario,
         )
         ledger = AccountLedger(journal.accounts()[0].ledger)
         assert ledger.snapshot(instance_id="alpha").positions == (self._quantity("2"),)
@@ -798,7 +808,8 @@ class TestPortfolioAccounts:
                 decisions=(self._abstention("alpha", "alpha-abstains", replace_at),),
             )
         )
-        crossed = journal.match_public_market(
+        crossed = PaperBooks.apply(
+            journal,
             "shared",
             self._book("crossing", replace_at + timedelta(milliseconds=1), "100"),
             scenario,
@@ -841,20 +852,26 @@ class TestPortfolioAccounts:
             )
         )
         parent_id = pair.net_orders[0].order.identity
-        resting = journal.match_public_market(
-            "shared", self._book("resting", at + timedelta(milliseconds=2), "101"), scenario
+        resting = PaperBooks.apply(
+            journal,
+            "shared",
+            self._book("resting", at + timedelta(milliseconds=2), "101"),
+            scenario,
         )
         assert [event.kind for event in resting.physical_events] == ["request_ack", "accepted"]
         stop_at = at + timedelta(milliseconds=3)
         assert [parent.order.identity for parent in journal.stop_instance("alpha", stop_at)] == [
             parent_id
         ]
-        early = journal.match_public_market(
-            "shared", self._book("early", stop_at + timedelta(milliseconds=4), "101"), scenario
+        early = PaperBooks.apply(
+            journal,
+            "shared",
+            self._book("early", stop_at + timedelta(milliseconds=4), "101"),
+            scenario,
         )
         assert early.physical_events == ()
         due_at = stop_at + timedelta(milliseconds=5)
-        due = journal.match_public_market("shared", self._book("due", due_at, "101"), scenario)
+        due = PaperBooks.apply(journal, "shared", self._book("due", due_at, "101"), scenario)
         assert [event.kind for event in due.physical_events] == ["cancelled_on_request"]
         beta = next(item.order for item in journal.orders() if item.instance_id == "beta")
         assert self._statuses(journal)["alpha"] == "cancelled"
@@ -1830,7 +1847,8 @@ class TestPortfolioAccounts:
         refused = journal.admit(beta)
         assert (refused.status, refused.reason) == ("rejected", "order_outcome_unknown")
         # The touch is above the buy limit, so only a lifecycle effect could appear.
-        journal.match_public_market(
+        PaperBooks.apply(
+            journal,
             "shared",
             PaperMarket(
                 identity="after-stop",
@@ -2114,7 +2132,8 @@ class TestPortfolioAccounts:
                 )
             )
             orders.append(committed.net_orders[0].order.intent)
-            journal.match_public_market(
+            PaperBooks.apply(
+                journal,
                 "shared",
                 PaperMarket(
                     identity=f"after-target-{target}",

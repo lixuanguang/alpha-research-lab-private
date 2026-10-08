@@ -42,10 +42,12 @@ from execution import (
     AccountDecision,
     AccountJournal,
     AccountObservation,
+    AccountPaperTrace,
     AccountQuote,
     MarketTouch,
     OrderDecision,
     PaperMarket,
+    PaperMarketOutcome,
     PaperReductionRequest,
     PortfolioContext,
 )
@@ -149,6 +151,37 @@ class _RejectedControl:
             recovery_generation=0,
             reason="test refusal",
         )
+
+
+class _CountedJournal(AccountJournal):
+    """Record each account operation the observer sends while it applies books."""
+
+    def __init__(self, path: Path, config: AccountConfiguration) -> None:
+        """Open the journal with no recorded operations."""
+        super().__init__(path, config)
+        self.calls: list[str] = []
+
+    def apply_public_market(
+        self, account_id: str, market: PaperMarket, scenario: PaperExecutionScenario
+    ) -> PaperMarketOutcome:
+        """Record the per-book command, then apply it."""
+        self.calls.append("apply_public_market")
+        return super().apply_public_market(account_id, market, scenario)
+
+    def observe(self, quote: AccountQuote) -> None:
+        """Record a separate valuation request, then apply it."""
+        self.calls.append("observe")
+        super().observe(quote)
+
+    def valuation(self, instrument: Dimension) -> AccountQuote | None:
+        """Record a valuation read, then answer it."""
+        self.calls.append("valuation")
+        return super().valuation(instrument)
+
+    def paper_trace(self, account_id: str, market_identity: str) -> AccountPaperTrace | None:
+        """Record a trace lookup, then answer it."""
+        self.calls.append("paper_trace")
+        return super().paper_trace(account_id, market_identity)
 
 
 class TestSharedPublicPaper:
@@ -764,12 +797,13 @@ class TestSharedPublicPaper:
             started, finished = cast(int, item["book_started_ns"]), cast(int, item["finished_ns"])
             assert started <= phases["retained_ns"] <= finished
             if item["policy_selected"]:
-                assert phases["retained_ns"] <= phases["evaluated_ns"] <= phases["observed_ns"]
+                assert phases["retained_ns"] <= phases["evaluated_ns"] <= phases["matched_ns"]
             else:
                 assert "evaluated_ns" not in phases
+            # One account command observes and matches each matched book.
+            assert "observed_ns" not in phases
             if item["market_selected"]:
-                assert phases["retained_ns"] <= phases["observed_ns"] <= phases["matched_ns"]
-                assert phases["matched_ns"] <= finished
+                assert phases["retained_ns"] <= phases["matched_ns"] <= finished
         codec = DomainCodec()
         retained_bytes = path.with_suffix(".jsonl").read_bytes().splitlines()
         retained = tuple(SharedBookDelivery.decode(line, codec) for line in retained_bytes)
@@ -1539,6 +1573,46 @@ class TestSharedPublicPaper:
             shadow_reopened.checkpoint("alpha"),
         ) == shadow_before
         assert shadow_reopened.paper_traces("paper") == ()
+
+    @pytest.mark.parametrize("mode", ("paper", "shadow"))
+    def test_each_matched_book_is_one_account_command(
+        self, tmp_path: Path, mode: Literal["paper", "shadow"]
+    ) -> None:
+        """A live matched book sends one fenced command and nothing else.
+
+        Replay into the same journal sends the same command again in paper, which the
+        account resolves to the saved trace; shadow keeps no trace, so it first reads
+        the valuation and skips each book older than it.
+        """
+        deliveries: tuple[SharedBookDelivery, ...] = (
+            self._session(),
+            *(self._priced(position, position * 1_000_000) for position in range(1, 5)),
+        )
+        path = tmp_path / f"{mode}.sqlite3"
+        journal = _CountedJournal(path, replace(self._config(), mode=mode))
+        observer, _ = self._observer(
+            path,
+            clock=_SequenceClock(tuple(item.source.available_at for item in deliveries)),
+            cadence_us=3_000_000,
+            retain=True,
+            journal=journal,
+        )
+        assert journal.reconcile(self._opening())
+        journal.calls.clear()
+        self._observe(observer, *deliveries)
+        assert journal.calls == ["apply_public_market"] * 4
+        assert len(journal.paper_traces("paper")) == (4 if mode == "paper" else 0)
+
+        journal.calls.clear()
+        replay, _ = self._observer(path, cadence_us=3_000_000, journal=journal)
+        for delivery in self._retained(path.with_suffix(".jsonl")):
+            replay.deliver(delivery)
+        assert journal.calls == (
+            ["apply_public_market"] * 4
+            if mode == "paper"
+            else ["valuation"] * 3 + ["valuation", "apply_public_market"]
+        )
+        assert len(journal.paper_traces("paper")) == (4 if mode == "paper" else 0)
 
     def test_replay_into_a_managed_live_journal_is_an_exact_retry(self, tmp_path: Path) -> None:
         """A managed owner's live journal replays its own stream without any write.
@@ -2660,7 +2734,7 @@ class TestSharedPublicPaper:
         journal.observe(other_order.quote)
         admitted = journal.admit(other_order)
         assert admitted.status == "committed", admitted.reason
-        trace = journal.match_public_market(
+        outcome = journal.apply_public_market(
             "paper",
             PaperMarket(
                 identity="paper-market",
@@ -2672,7 +2746,8 @@ class TestSharedPublicPaper:
             ),
             scenario,
         )
-        assert trace.account_id == "paper"
+        trace = journal.paper_trace("paper", outcome.market_identity)
+        assert trace is not None and trace.account_id == "paper"
         assert {item.account_id for item in journal.orders()} == {"paper-other"}
         ledgers_before = {view.ledger.account_id: view.ledger for view in journal.accounts()}
         assert set(ledgers_before) == set(account_ids)

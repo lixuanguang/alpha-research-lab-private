@@ -279,7 +279,9 @@ can do to each order: an order fills only from a book at or after its decision p
 `entry_delay_us`, and strictly after its decision, and a requested cancellation takes
 effect at the first book at or after the request plus `cancel_delay_us`. A clock,
 heartbeat or control never matches. Which books match depends only on the retained
-delivery stream, never on the destination journal's open orders. A decision
+delivery stream, never on the destination journal's open orders. Each matched book
+is one fenced account command, `apply_public_market`, which observes the book's ask
+as valuation and matches it in one transaction. A decision
 waits at most about one capture clock interval past its inputs' readiness,
 whatever the market's activity, and a study of the candidate should model at
 least that entry delay. An instant without a fresh market or complete inputs is
@@ -291,8 +293,9 @@ book matched, which every eligible book does. Readers decode a retained line wit
 another format at its first line with "unsupported shared book delivery schema".
 Replay recomputes the grid and each book's eligibility and refuses a retained
 delivery whose matching or decided inputs differ. Replay into the live journal is an
-exact retry: paper recognises each matched book by its trace, and shadow, which
-keeps only the latest valuation, by a book older than it. Native invalidation blocks
+exact retry: the paper account resolves each matched book's identity against its
+whole trace history and returns the saved outcome without a write, and shadow, which
+keeps only the latest valuation, skips a book older than it. Native invalidation blocks
 new independent admission while preserving pending exposure.
 
 Shared accounts also run feature-served candidates. `SharedStrategyInput` carries

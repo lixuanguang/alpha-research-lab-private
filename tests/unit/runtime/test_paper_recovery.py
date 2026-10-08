@@ -283,9 +283,10 @@ class TestPaperRecovery:
         )
         assert admitted.status == "committed"
         clock.at = cls._at(15)
-        first_trace = worker.match_public_market(
-            "shared", cls._market("first-book", cls._at(15), ask_quantity="1"), cls._scenario()
-        )
+        first_book = cls._market("first-book", cls._at(15), ask_quantity="1")
+        worker.apply_public_market("shared", first_book, cls._scenario())
+        first_trace = worker.paper_trace("shared", first_book.identity)
+        assert first_trace is not None
         assert len(first_trace.child_fill_events) == 1
         partial = AccountLedger(worker.accounts()[0].ledger).snapshot()
         assert partial.cash == (cls._money("989.8899"),)
@@ -353,8 +354,9 @@ class TestPaperRecovery:
         )
         rig.clock.at = self._at(20)
         last_market = self._market("last-book", self._at(20), ask_quantity="2")
-        final_trace = current.match_public_market("shared", last_market, self._scenario())
-        assert len(final_trace.child_fill_events) == 1
+        final_outcome = current.apply_public_market("shared", last_market, self._scenario())
+        final_trace = current.paper_trace("shared", last_market.identity)
+        assert final_trace is not None and len(final_trace.child_fill_events) == 1
         final_fill = final_trace.child_fill_events[0].fill
         assert final_fill is not None
         assert (final_fill.quantity, final_fill.effective, final_fill.fee) == (
@@ -367,7 +369,7 @@ class TestPaperRecovery:
         assert finished.positions == (self._quantity("2"),)
         assert finished.fees == (self._money("0.2002"),)
         assert current.orders()[0].order.status == "filled"
-        assert current.match_public_market("shared", last_market, self._scenario()) == final_trace
+        assert current.apply_public_market("shared", last_market, self._scenario()) == final_outcome
 
         rig.clock.at = self._at(21)
         restored_root = tmp_path / "restored"
@@ -435,7 +437,7 @@ class TestPaperRecovery:
                 )
             )
         with pytest.raises(ValueError, match="paper_restore_requires_current_retained_journal"):
-            restored_worker.match_public_market(
+            restored_worker.apply_public_market(
                 "shared",
                 self._market("replay-old-pending", self._at(23), ask_quantity="1"),
                 self._scenario(),
@@ -460,9 +462,10 @@ class TestPaperRecovery:
         )
         assert AccountLedger(reopened_current.accounts()[0].ledger).snapshot() == finished
         assert (
-            reopened_current.match_public_market("shared", last_market, self._scenario())
-            == final_trace
+            reopened_current.apply_public_market("shared", last_market, self._scenario())
+            == final_outcome
         )
+        assert reopened_current.paper_trace("shared", last_market.identity) == final_trace
 
     def test_failed_quarantine_and_mismatched_metadata_never_publish(self, tmp_path: Path) -> None:
         """A failed staged fence or wrong backup/config identity leaves no restore."""

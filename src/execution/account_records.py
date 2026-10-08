@@ -138,6 +138,37 @@ class AccountPaperTrace(WireRecord, frozen=True):
         )
 
 
+class PaperMarketOutcome(WireRecord, frozen=True):
+    """Name what one eligible public book did to an account, without its trace.
+
+    In paper mode ``trace_sha256`` is the SHA-256 of the committed trace's exact
+    journal bytes, the same for the first application and every exact retry. Shadow
+    mode retains no trace and only observes the book's ask as valuation, so it has
+    none. A book whose modeled effect was refused is not an outcome: the command
+    commits its failure trace and raises.
+    """
+
+    account_id: str
+    market_identity: str
+    trace_sha256: str | None
+
+    def __post_init__(self) -> None:
+        """Require identities and, when present, a lowercase SHA-256 digest."""
+        if (
+            type(self.account_id) is not str
+            or not self.account_id
+            or type(self.market_identity) is not str
+            or not self.market_identity
+        ):
+            raise ValueError("paper market outcome requires account and market identities")
+        if self.trace_sha256 is not None and (
+            type(self.trace_sha256) is not str
+            or len(self.trace_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in self.trace_sha256)
+        ):
+            raise ValueError("paper market outcome requires a SHA-256 trace digest")
+
+
 class AccountPaperFill(WireRecord, frozen=True):
     """Expose a modeled fill under its final strategy and order owner."""
 

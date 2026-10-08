@@ -611,7 +611,7 @@ class CapacityRecoveryEconomicParity(CapacityEconomicParity):
             if request.action not in (
                 "control",
                 "quote",
-                "paper_market",
+                "public_market",
                 "reconcile",
                 "claim_paper",
                 "restart_instance",
@@ -624,8 +624,8 @@ class CapacityRecoveryEconomicParity(CapacityEconomicParity):
             if any(result != results[0] for result in results):
                 raise ValueError("retained recovery operator receipts disagree")
             operations.append((path, request, results[0]))
-        # The public market and valuation quote intentionally share one clock.
-        # The original driver applies the valuation first, then matches.
+        # A valuation quote and a public market at one clock keep the driver's
+        # order: the quote first.
         operations.sort(key=self._operation_order)
         if not operations or sum(item[1].action == "claim_paper" for item in operations) != 1:
             raise ValueError("recovery requires one completed replacement request per account")
@@ -636,7 +636,7 @@ class CapacityRecoveryEconomicParity(CapacityEconomicParity):
         cls, item: tuple[Path, AccountExecutionRequest, AccountExecutionResult]
     ) -> tuple[datetime, int, str]:
         """Preserve shared-clock valuation-before-matching order from the driver."""
-        priorities = {"quote": 0, "paper_market": 1}
+        priorities = {"quote": 0, "public_market": 1}
         return cls._request_at(item[1]), priorities.get(item[1].action, 2), item[0].name
 
     @staticmethod
@@ -663,15 +663,15 @@ class CapacityRecoveryEconomicParity(CapacityEconomicParity):
         elif request.action == "quote" and request.quote is not None:
             journal.observe(request.quote)
         elif (
-            request.action == "paper_market"
+            request.action == "public_market"
             and request.account_id is not None
             and request.market is not None
             and request.scenario is not None
         ):
-            actual_trace = journal.match_public_market(
+            outcome = journal.apply_public_market(
                 request.account_id, request.market, request.scenario
             )
-            if actual_trace != signed.matched_market:
+            if outcome != signed.public_market:
                 raise ValueError("independent recovery settlement trace differs")
         elif request.action == "reconcile" and request.observation is not None:
             if signed.reconciled is not True or not journal.reconcile(request.observation):

@@ -63,12 +63,13 @@ owner generation fences replacements; a local account/socket scheduling fence
 rejects duplicate producers. This is a trusted
 single-user topology, not hostile-process isolation or distributed consensus.
 
-Before observing a selected quote, the shared-paper consumer reads fresh
-account-scoped market membership through the existing inspection boundary.
-The Boolean includes both committed and failed traces and avoids transferring
-the complete history for that predicate. It does not cache authority or replace
-matching, collision validation or atomic financial effects; complete traces
-remain available for inspection and replay.
+Each matched book is one fenced account command: inside one transaction the
+account checks its owner, resolves the market's identity against its whole trace
+history, and only for a new market matches it and observes its ask as valuation.
+An exact retry returns the saved outcome without a write, so the consumer needs no
+separate membership read; a reused identity with other input is refused. The
+command answers with the market identity and the SHA-256 of the committed trace,
+not the trace.
 
 Full diagnostic reports run in one bounded child that can inspect accounts but
 cannot submit economic or lifecycle commands. The supervisor still reads account

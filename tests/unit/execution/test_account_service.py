@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 # standard library imports
+import hashlib
 import os
 import socket
+import sqlite3
 import stat
 import struct
 import subprocess
 import sys
 import threading
 import time
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -32,6 +35,8 @@ from execution import (
     AccountExecutionResult,
     AccountJournal,
     AccountObservation,
+    PaperMarket,
+    PaperMarketOutcome,
     PaperOwner,
     SocketPaperAccount,
 )
@@ -209,6 +214,145 @@ class _OneReplyService:
             length = int.from_bytes(connection.recv(4, socket.MSG_WAITALL), "big")
             self.received.append(connection.recv(length, socket.MSG_WAITALL))
             connection.sendall(self.status + len(self.reply).to_bytes(4, "big") + self.reply)
+
+
+class TestPublicMarketRecovery:
+    """Resolve a lost, interrupted or unapplied per-book command by its exact bytes.
+
+    Each case ends with a restarted service life retrying the identical request: the
+    account applies a book at most once, and a retry of a committed book returns its
+    saved outcome without writing.
+    """
+
+    @staticmethod
+    def _service(
+        tmp_path: Path, config: AccountConfiguration, owner: PaperOwner
+    ) -> AccountOwnerService:
+        """Open one service life on the journal without serving its socket."""
+        service = AccountOwnerService(
+            application=AccountExecutionApplication(),
+            config=config,
+            config_path=tmp_path / "config.json",
+            journal_path=tmp_path / "account.sqlite3",
+            telemetry_path=None,
+            release_identity=owner.release_identity,
+            paper_owner=owner,
+            socket_path=tmp_path / "account.sock",
+            duration_seconds=10,
+        )
+        service._owner_journal = AccountJournal(
+            tmp_path / "account.sqlite3", config, paper_owner=owner
+        )
+        return service
+
+    @staticmethod
+    def _exchange(
+        service: AccountOwnerService, frame: bytes, *, answered: bool
+    ) -> AccountExecutionResult | None:
+        """Send one frame; unless ``answered``, drop the connection before the answer."""
+        server, client = socket.socketpair()
+        with server, client:
+            client.sendall(frame)
+            if not answered:
+                client.close()
+                service._serve_connection(server)
+                return None
+            service._serve_connection(server)
+            header = client.recv(5, socket.MSG_WAITALL)
+            body = client.recv(int.from_bytes(header[1:], "big"), socket.MSG_WAITALL)
+        assert header[:1] == b"\x00", body
+        return DomainCodec().decode_json(body, AccountExecutionResult)
+
+    @staticmethod
+    def _head(path: Path) -> bytes:
+        """Read the committed head bytes; an unchanged head means no commit wrote."""
+        with closing(sqlite3.connect(path)) as connection:
+            row = cast(tuple[bytes], connection.execute("SELECT payload FROM firm").fetchone())
+        return row[0]
+
+    @staticmethod
+    def _retained(tmp_path: Path) -> list[bytes]:
+        """Read every service life's retained request lines; each case retains one request."""
+        logs = sorted((tmp_path / "service-requests").iterdir())
+        return [line for log in logs for line in log.read_bytes().splitlines()]
+
+    @staticmethod
+    def _book(
+        tmp_path: Path, identity: str
+    ) -> tuple[AccountConfiguration, PaperOwner, PaperMarket, bytes]:
+        """Claim a current owner and author one fresh book's exact framed request."""
+
+        class _Current(_ActivationFixture):
+            """Keep the test grant current while the services run."""
+
+            opening_at = datetime.now(UTC) - timedelta(seconds=13)
+
+        owner = _Current._bootstrap(tmp_path / "account.sqlite3")[-1]
+        config = _Current._config()
+        codec = DomainCodec()
+        (tmp_path / "config.json").write_bytes(codec.encode_json(config))
+        book = _Current._market(identity, datetime.now(UTC))
+        payload = codec.encode_json(
+            AccountExecutionRequest(
+                action="public_market",
+                account_id=owner.account_id,
+                market=book,
+                scenario=_Current._scenario(),
+                paper_owner=owner,
+                projection="operation",
+            )
+        )
+        return config, owner, book, struct.pack("!I", len(payload)) + payload
+
+    def test_a_committed_book_whose_answer_was_lost_is_an_exact_retry(self, tmp_path: Path) -> None:
+        """The first life commits but its answer is lost; the next life writes nothing."""
+        config, owner, book, frame = self._book(tmp_path, "lost-answer-book")
+        assert self._exchange(self._service(tmp_path, config, owner), frame, answered=False) is None
+        reader = AccountJournal(tmp_path / "account.sqlite3", config)
+        trace = reader.paper_trace(owner.account_id, book.identity)
+        assert trace is not None and trace.status == "committed"
+        head = self._head(tmp_path / "account.sqlite3")
+
+        result = self._exchange(self._service(tmp_path, config, owner), frame, answered=True)
+        assert result is not None and result.public_market == PaperMarketOutcome(
+            account_id=owner.account_id,
+            market_identity=book.identity,
+            trace_sha256=hashlib.sha256(DomainCodec().encode_json(trace)).hexdigest(),
+        )
+        assert self._head(tmp_path / "account.sqlite3") == head
+        assert reader.paper_trace(owner.account_id, book.identity) == trace
+        assert self._retained(tmp_path) == [frame[4:], frame[4:]]
+
+    def test_an_interrupted_or_unapplied_book_applies_once_after_restart(
+        self, tmp_path: Path
+    ) -> None:
+        """A frame cut before retention, or retained bytes never applied, changed nothing."""
+        config, owner, book, frame = self._book(tmp_path, "interrupted-book")
+        head = self._head(tmp_path / "account.sqlite3")
+        # The connection ends inside the frame: nothing is retained or applied.
+        assert (
+            self._exchange(self._service(tmp_path, config, owner), frame[:-8], answered=False)
+            is None
+        )
+        assert not (tmp_path / "service-requests").exists()
+        # A life retains the exact bytes, then ends before applying them.
+        self._service(tmp_path, config, owner)._retain_request(frame[4:])
+        reader = AccountJournal(tmp_path / "account.sqlite3", config)
+        assert reader.paper_trace(owner.account_id, book.identity) is None
+        assert self._head(tmp_path / "account.sqlite3") == head
+
+        applied = self._exchange(self._service(tmp_path, config, owner), frame, answered=True)
+        trace = reader.paper_trace(owner.account_id, book.identity)
+        assert trace is not None and applied is not None and applied.public_market is not None
+        assert applied.public_market.trace_sha256 == (
+            hashlib.sha256(DomainCodec().encode_json(trace)).hexdigest()
+        )
+        committed = self._head(tmp_path / "account.sqlite3")
+        assert committed != head
+        retried = self._exchange(self._service(tmp_path, config, owner), frame, answered=True)
+        assert retried == applied
+        assert self._head(tmp_path / "account.sqlite3") == committed
+        assert self._retained(tmp_path) == [frame[4:]] * 3
 
 
 class TestAccountOwnerService:
@@ -509,7 +653,7 @@ class TestAccountOwnerService:
                 paper_owner=owner,
             )
             assert account.accounts()[0].ledger.account_id == owner.account_id
-            assert account.paper_market_seen(owner.account_id, "unseen-service-market") is False
+            assert account.paper_trace(owner.account_id, "unseen-service-market") is None
             stopped_instance = account.execute(
                 AccountExecutionRequest(
                     action="stop_instance",
@@ -551,8 +695,12 @@ class TestAccountOwnerService:
             )
             with pytest.raises(RuntimeError, match="paper_owner_stale_or_absent"):
                 peer.block(owner.account_id, "peer-must-not-stop-owner")
+            stale_book = _CurrentActivationFixture._market("peer-service-market", datetime.now(UTC))
             with pytest.raises(RuntimeError, match="paper_owner_stale_or_absent"):
-                peer.paper_market_seen(owner.account_id, "unseen-service-market")
+                peer.apply_public_market(
+                    owner.account_id, stale_book, _CurrentActivationFixture._scenario()
+                )
+            assert account.paper_trace(owner.account_id, stale_book.identity) is None
             assert account.accounts()[0].operator_block is None
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stalled:
                 stalled.connect(str(socket_path))

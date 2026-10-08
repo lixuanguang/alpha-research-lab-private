@@ -12,6 +12,7 @@ from typing import Literal
 # third party library imports
 import pytest
 from msgspec.structs import replace
+from paper_books import PaperBooks
 
 # project library imports
 from accounting import AccountLedger, AccountSnapshot, Fill
@@ -360,10 +361,14 @@ class TestPaperSourceScopes:
         with pytest.raises(ValueError, match="scope_differs"):
             worker.admit(self._decision("unknown", self.first, "wrong-owner", self._at(13)))
         clock.at = self._at(14)
-        first_trace = worker.match_public_market(
-            "shared", self._market(self.first, "first-book", self._at(14)), deployment.scenarios[0]
+        first_trace = PaperBooks.apply(
+            worker,
+            "shared",
+            self._market(self.first, "first-book", self._at(14)),
+            deployment.scenarios[0],
         )
-        second_trace = worker.match_public_market(
+        second_trace = PaperBooks.apply(
+            worker,
             "shared",
             self._market(self.second, "second-book", self._at(14)),
             deployment.scenarios[1],
@@ -419,12 +424,16 @@ class TestPaperSourceScopes:
         shadow.observe(shadow_request.quote)
         assert shadow.admit(shadow_request).status == "committed"
         shadow_clock.at = self._at(14)
-        with pytest.raises(ValueError, match="automatic matching requires paper"):
-            shadow.match_public_market(
-                "shared",
-                self._market(self.first, "shadow-book", self._at(14)),
-                shadow_deployment.scenarios[0],
-            )
+        shadow_book = self._market(self.first, "shadow-book", self._at(14))
+        shadow_orders = shadow.orders()
+        # Shadow only values the book: no trace, no fill, the order stays open.
+        outcome = shadow.apply_public_market("shared", shadow_book, shadow_deployment.scenarios[0])
+        assert outcome.trace_sha256 is None
+        assert shadow.paper_trace("shared", shadow_book.identity) is None
+        assert shadow.orders() == shadow_orders
+        assert shadow.valuation(shadow_book.ask.per) == AccountQuote(
+            price=shadow_book.ask, at=shadow_book.at
+        )
         with pytest.raises(ValueError, match="cannot internally match"):
             shadow.coordinate(
                 PortfolioBatch(

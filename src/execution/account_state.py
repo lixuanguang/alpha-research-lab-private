@@ -619,8 +619,35 @@ _ITER_TRACES = {
 }
 
 
+# The newest trace of one account instrument, read for its market clock alone.
+_LATEST_TRACE = (
+    "SELECT payload FROM paper_traces WHERE account_id=? AND instrument_id=? "
+    "ORDER BY seq DESC LIMIT 1"
+)
+
+
+class _MarketClock(msgspec.Struct, frozen=True):
+    """Read a committed market's availability clock; its other fields are skipped."""
+
+    at: datetime
+
+
+class _TraceMarketClock(msgspec.Struct, frozen=True):
+    """Read only a committed trace's market clock, never its financial values.
+
+    The trace was validated before it was encoded and committed, so ordering checks
+    need its clock, not a second validation of every price and quantity it holds.
+    """
+
+    market: _MarketClock
+
+
 class _HistoryTables:
     """Read committed history rows inside one open SQLite transaction."""
+
+    _clock_decoder: msgspec.json.Decoder[_TraceMarketClock] = msgspec.json.Decoder(
+        _TraceMarketClock
+    )
 
     def __init__(
         self, connection: sqlite3.Connection, codec: DomainCodec, summary: HistorySummary
@@ -679,6 +706,13 @@ class _HistoryTables:
         )
         for row in cast(Iterator[tuple[object, ...]], cursor):
             yield self.codec.decode_json(self._blob(row[0]), AccountPaperTrace)
+
+    def latest_trace_market_at(
+        self, account_id: str, instrument_id: InstrumentId
+    ) -> datetime | None:
+        """Return the newest committed trace's market clock for one account instrument."""
+        payload = self._payload(_LATEST_TRACE, (account_id, self._instrument(instrument_id)))
+        return None if payload is None else self._clock_decoder.decode(payload).market.at
 
     def iter_decisions(self) -> Iterator[SavedDecision]:
         """Yield committed decisions in commit order."""
@@ -887,6 +921,15 @@ class _AccountSnapshot:
             ):
                 return trace
         return None
+
+    def latest_trace_market_at(
+        self, account_id: str, instrument_id: InstrumentId
+    ) -> datetime | None:
+        """Return the newest trace's market clock for one account instrument, staged first."""
+        for trace in reversed(self.state.paper_traces):
+            if trace.account_id == account_id and trace.scenario.instrument_id == instrument_id:
+                return trace.market.at
+        return self.tables.latest_trace_market_at(account_id, instrument_id)
 
     def iter_traces(
         self,

@@ -4,15 +4,18 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 # third party library imports
 import pytest
 from msgspec.structs import replace
+from paper_books import PaperBooks
 
 # project library imports
 from accounting import AccountLedger, AccountSnapshot
@@ -63,6 +66,17 @@ class _OverchargingFeeSchedule(_ReserveBlindFeeSchedule):
         """Charge ten times the modeled fee, beyond any reserve sized for the rate."""
         modeled = super().fee(size, price)
         return Money(value=modeled.value * 10, currency=modeled.currency)
+
+
+class AccountHistoryProbe:
+    """Read a journal's committed head bytes; equal bytes mean no commit wrote."""
+
+    @staticmethod
+    def head(path: Path) -> bytes:
+        """Return the committed firm head's bytes."""
+        with closing(sqlite3.connect(path)) as connection:
+            row = cast(tuple[bytes], connection.execute("SELECT payload FROM firm").fetchone())
+        return row[0]
 
 
 class TestAccountPaperMatching:
@@ -294,7 +308,7 @@ class TestAccountPaperMatching:
         admitted = journal.admit(self._decision("alpha", "direct", decision_at))
         assert admitted.status == "committed"
         first_market = self._market("book-1", decision_at + timedelta(seconds=1), ask_quantity="2")
-        first = journal.match_public_market("shared", first_market, scenario)
+        first = PaperBooks.apply(journal, "shared", first_market, scenario)
         assert tuple(event.kind for event in first.physical_events) == (
             "request_ack",
             "accepted",
@@ -304,31 +318,35 @@ class TestAccountPaperMatching:
             event.fill.quantity.value for event in first.child_fill_events if event.fill
         ) == (Decimal("2"),)
         second_market = self._market("book-2", decision_at + timedelta(seconds=2))
-        second = journal.match_public_market("shared", second_market, scenario)
+        second = PaperBooks.apply(journal, "shared", second_market, scenario)
         assert tuple(event.kind for event in second.physical_events) == ("fill",)
         assert journal.orders()[0].order.status == "filled"
         snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
         assert snapshot.cash == (self._money("996.95485"),)
         assert snapshot.positions == (self._quantity("3"),)
         assert snapshot.fees == (self._money("0.01515"),)
-        assert journal.match_public_market("shared", second_market, scenario) == second
+        assert PaperBooks.apply(journal, "shared", second_market, scenario) == second
         with pytest.raises(ValueError, match="identity reused"):
-            journal.match_public_market(
-                "shared", replace(second_market, ask_quantity=self._quantity("4")), scenario
+            PaperBooks.apply(
+                journal,
+                "shared",
+                replace(second_market, ask_quantity=self._quantity("4")),
+                scenario,
             )
         with pytest.raises(ValueError, match="availability regressed"):
-            journal.match_public_market(
+            PaperBooks.apply(
+                journal,
                 "shared",
                 self._market("late-old-book", first_market.at + timedelta(microseconds=1)),
                 scenario,
             )
-        third = journal.match_public_market(
-            "shared", self._market("book-3", decision_at + timedelta(seconds=3)), scenario
+        third = PaperBooks.apply(
+            journal, "shared", self._market("book-3", decision_at + timedelta(seconds=3)), scenario
         )
         assert third.physical_events == ()
         restarted = AccountJournal(path, self._config())
         assert restarted.paper_traces("shared") == (first, second, third)
-        assert restarted.match_public_market("shared", first_market, scenario) == first
+        assert PaperBooks.apply(restarted, "shared", first_market, scenario) == first
         assert AccountLedger(restarted.accounts()[0].ledger).snapshot() == snapshot
         fills, costs = restarted.paper_report_facts("shared")
         assert tuple(fill.fill.quantity.value for fill in fills) == (Decimal("2"), Decimal("1"))
@@ -337,6 +355,61 @@ class TestAccountPaperMatching:
             Decimal("0.00505"),
         )
         assert tuple(fill.instance_id for fill in fills) == ("alpha", "alpha")
+
+    def test_one_command_resolves_history_before_any_effect(self, tmp_path: Path) -> None:
+        """Any earlier book retries without a write; reused input or order is refused whole.
+
+        A resting buy fills two of its three units at the first book. Three books with
+        asks 1.00, 1.01 and 1.02 leave 1.02 as valuation. Retrying the first returns its
+        saved outcome and leaves the committed head, and so valuation, liquidity,
+        ledgers and checkpoints, byte for byte. A changed first book, an older new book,
+        and a new book at the latest clock whose ask differs from the valuation are each
+        refused before or with their matching, which is rolled back.
+        """
+        scenario = self._scenario()
+        path = tmp_path / "history-retry.sqlite3"
+        journal = self._ready(path, scenario)
+        start = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price("1.00"), at=start))
+        assert journal.admit(self._decision("alpha", "resting", start)).status == "committed"
+        books = tuple(
+            replace(
+                self._market(f"history-book-{index}", start + timedelta(seconds=1 + index)),
+                ask=self._price(f"1.0{index}"),
+                ask_quantity=self._quantity("2" if index == 0 else "3"),
+            )
+            for index in range(3)
+        )
+        outcomes = tuple(journal.apply_public_market("shared", book, scenario) for book in books)
+        first = journal.paper_trace("shared", books[0].identity)
+        assert first is not None and len(first.child_fill_events) == 1
+        assert (
+            outcomes[0].trace_sha256 == hashlib.sha256(DomainCodec().encode_json(first)).hexdigest()
+        )
+        valuation = AccountQuote(price=books[2].ask, at=books[2].at)
+        assert journal.valuation(self.dimension) == valuation
+        head = AccountHistoryProbe.head(path)
+
+        assert journal.apply_public_market("shared", books[0], scenario) == outcomes[0]
+        reopened = AccountJournal(path, self._config())
+        assert reopened.apply_public_market("shared", books[1], scenario) == outcomes[1]
+        assert AccountHistoryProbe.head(path) == head
+        assert reopened.valuation(self.dimension) == valuation
+
+        with pytest.raises(ValueError, match="identity reused with different input"):
+            journal.apply_public_market(
+                "shared", replace(books[0], bid_quantity=self._quantity("4")), scenario
+            )
+        with pytest.raises(ValueError, match="availability regressed"):
+            journal.apply_public_market(
+                "shared", self._market("older-new-book", books[1].at), scenario
+            )
+        with pytest.raises(ValueError, match="valuation clock regressed or changed"):
+            journal.apply_public_market(
+                "shared", self._market("same-clock-other-ask", books[2].at), scenario
+            )
+        assert AccountHistoryProbe.head(path) == head
+        assert reopened.paper_trace("shared", "same-clock-other-ask") is None
 
     def test_net_parent_allocates_one_finite_public_fill_to_both_strategies(
         self, tmp_path: Path
@@ -349,7 +422,7 @@ class TestAccountPaperMatching:
         committed = self._coordinate_two(journal, decision_at)
         assert committed.status == "committed" and len(committed.net_orders) == 1
         market = self._market("net-book", decision_at + timedelta(seconds=1))
-        trace = journal.match_public_market("shared", market, scenario)
+        trace = PaperBooks.apply(journal, "shared", market, scenario)
         assert tuple(event.kind for event in trace.physical_events) == (
             "request_ack",
             "accepted",
@@ -370,7 +443,7 @@ class TestAccountPaperMatching:
         fills, costs = journal.paper_report_facts("shared")
         assert {fill.instance_id for fill in fills} == {"alpha", "beta"}
         assert sum(cost.amount.value for cost in costs) == Decimal("0.01515")
-        assert journal.match_public_market("shared", market, scenario) == trace
+        assert PaperBooks.apply(journal, "shared", market, scenario) == trace
         journal.correct_net_fee(
             NetFeeCorrection(
                 identity="paper-fee-void",
@@ -395,7 +468,7 @@ class TestAccountPaperMatching:
         assert committed.status == "committed" and len(committed.net_orders) == 1
         parent = committed.net_orders[0]
         market = self._market("reconciled-net-book", decision_at + timedelta(seconds=1))
-        journal.match_public_market("shared", market, scenario)
+        PaperBooks.apply(journal, "shared", market, scenario)
 
         # Compute identities from the declared source and allocation contracts,
         # while cash, position, fees and parent cumulative are independent goldens.
@@ -480,7 +553,7 @@ class TestAccountPaperMatching:
             )
             assert admitted.status == "committed"
         accepted_at = decision_at + timedelta(seconds=1)
-        journal.match_public_market("shared", self._market("resting", accepted_at), scenario)
+        PaperBooks.apply(journal, "shared", self._market("resting", accepted_at), scenario)
         by_instance = {item.instance_id: item.order for item in journal.orders()}
         assert {name: order.status for name, order in by_instance.items()} == {
             "alpha": "accepted",
@@ -503,15 +576,19 @@ class TestAccountPaperMatching:
                 kind="unknown",
             )
         )
-        early = journal.match_public_market(
+        early = PaperBooks.apply(
+            journal,
             "shared",
             self._market("cancel-early", request_at + timedelta(microseconds=500_000)),
             scenario,
         )
         assert early.physical_events == ()
         reopened = AccountJournal(path, self._config())
-        due = reopened.match_public_market(
-            "shared", self._market("cancel-due", request_at + timedelta(seconds=1)), scenario
+        due = PaperBooks.apply(
+            reopened,
+            "shared",
+            self._market("cancel-due", request_at + timedelta(seconds=1)),
+            scenario,
         )
         assert tuple(event.kind for event in due.physical_events) == ("cancelled_on_request",)
         statuses = {item.instance_id: item.order.status for item in reopened.orders()}
@@ -561,7 +638,7 @@ class TestAccountPaperMatching:
         assert admitted.status == "committed"
         # A buy never fills above its limit, so the reserve pays every lot.
         market = self._market("sized-book", decision_at + timedelta(seconds=1))
-        trace = journal.match_public_market("shared", market, scenario)
+        trace = PaperBooks.apply(journal, "shared", market, scenario)
         fills = [event.fill for event in trace.physical_events if event.fill is not None]
         assert [(fill.quantity.value, fill.fee.value) for fill in fills] == [
             (Decimal("3"), Decimal("0.303"))
@@ -590,7 +667,7 @@ class TestAccountPaperMatching:
         )
         assert bought.status == "committed"
         inventory = self._market("inventory-book", decision_at + timedelta(seconds=1))
-        journal.match_public_market("shared", inventory, scenario)
+        PaperBooks.apply(journal, "shared", inventory, scenario)
         sell_at = decision_at + timedelta(seconds=2)
         journal.observe(AccountQuote(price=self._price("1.00"), at=sell_at))
         # The floor: 0.17 for two units at the 0.85 limit, plus one minor unit per lot.
@@ -608,7 +685,7 @@ class TestAccountPaperMatching:
         assert sold.status == "committed"
         # The 0.90 bid fills at 0.89 after adverse cost: 0.089 per unit, so one unit fits.
         market = self._market("sell-book", sell_at + timedelta(seconds=1))
-        trace = journal.match_public_market("shared", market, scenario)
+        trace = PaperBooks.apply(journal, "shared", market, scenario)
         fills = [event.fill for event in trace.physical_events if event.fill is not None]
         assert [(fill.quantity.value, fill.fee.value) for fill in fills] == [
             (Decimal("-1"), Decimal("0.089"))
@@ -652,8 +729,11 @@ class TestAccountPaperMatching:
             )
         )
         assert bought.status == "committed"
-        journal.match_public_market(
-            "shared", self._market("inventory-book", decision_at + timedelta(seconds=1)), scenario
+        PaperBooks.apply(
+            journal,
+            "shared",
+            self._market("inventory-book", decision_at + timedelta(seconds=1)),
+            scenario,
         )
         sell_at = decision_at + timedelta(seconds=2)
         journal.observe(AccountQuote(price=self._price("1.00"), at=sell_at))
@@ -687,8 +767,11 @@ class TestAccountPaperMatching:
             )
         )
         assert cancel.status == "applied"
-        trace = journal.match_public_market(
-            "shared", self._market("sell-book", sell_at + timedelta(milliseconds=2)), scenario
+        trace = PaperBooks.apply(
+            journal,
+            "shared",
+            self._market("sell-book", sell_at + timedelta(milliseconds=2)),
+            scenario,
         )
         assert [event.kind for event in trace.physical_events] == [
             "request_ack",
@@ -737,17 +820,17 @@ class TestAccountPaperMatching:
         assert admitted.status == "committed"
         before = AccountLedger(journal.accounts()[0].ledger).snapshot()
         market = self._market("fee-cap-book", decision_at + timedelta(seconds=1))
-        assert journal.paper_market_seen("shared", market.identity) is False
+        assert journal.paper_trace("shared", market.identity) is None
         with pytest.raises(ValueError, match="account blocked"):
-            journal.match_public_market("shared", market, scenario)
+            PaperBooks.apply(journal, "shared", market, scenario)
         reopened = AccountJournal(journal.path, self._config())
         assert AccountLedger(reopened.accounts()[0].ledger).snapshot() == before
         assert reopened.orders()[0].order.status == "intent"
         assert reopened.accounts()[0].fault == "order_event_break"
         (trace,) = reopened.paper_traces("shared")
         assert trace.status == "failed" and trace.physical_events == ()
-        assert journal.paper_market_seen("shared", market.identity) is True
-        assert reopened.paper_market_seen("shared", market.identity) is True
+        assert journal.paper_trace("shared", market.identity) is not None
+        assert reopened.paper_trace("shared", market.identity) is not None
         assert trace.rejected_event is not None and trace.rejected_event.kind == "fill"
         with pytest.raises(ValueError, match="account blocked"):
-            reopened.match_public_market("shared", market, scenario)
+            PaperBooks.apply(reopened, "shared", market, scenario)

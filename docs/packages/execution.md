@@ -225,30 +225,44 @@ an order.
 
 For one or several strategies on a shared account,
 `AccountJournal.bind_paper_scenario(account_id, scenario)` pins the exact profile
-before orders for that account and instrument. `match_public_market(account_id,
-market, scenario)` applies projected facts to direct physical orders and to
-portfolio net parents inside one `BEGIN IMMEDIATE` firm transaction. Net parent
-fills then use the existing exact child quantity and fee allocation; displayed
-liquidity is consumed once per physical parent, not once per strategy child.
-Identical input retries return the original result across restart. A changed
-market identity or regressed availability is rejected. A modeled event that
-fails the account lifecycle or economic checks leaves that quote's partial
-effects unapplied and retains a failed trace, rejected fact and account fault.
-Unknown outcomes remain reserved; cancellation is terminal only after its
+before orders for that account and instrument. `apply_public_market(account_id,
+market, scenario)` is the one command per eligible book. Inside one
+`BEGIN IMMEDIATE` firm transaction it checks the current owner, generation,
+restore quarantine and clock, and the bound scenario; then it resolves the
+market's identity against the whole committed trace history before any effect.
+- An identity this account already applied is an exact retry: the command returns
+  the saved outcome and writes nothing, so valuation, liquidity, accounting and
+  checkpoints are unchanged. Ageing and grant expiry do not block it; an owner
+  change, quarantine or clock regression does.
+- The same identity with other input, in any account, is refused.
+- A new market must be fresh under managed authority; it is matched and its ask
+  is observed as the instrument's valuation, both in that transaction. Projected
+  facts apply to direct physical orders and to portfolio net parents. Net parent
+  fills use the existing exact child quantity and fee allocation; displayed
+  liquidity is consumed once per physical parent, not once per strategy child.
+  Regressed availability, or a valuation at the same clock with another quote, is
+  refused with no effect.
+- A shadow account keeps no trace and only observes the ask; the identical quote
+  at the valuation's clock changes nothing.
+
+The command returns a `PaperMarketOutcome`: the account, the market identity and
+the SHA-256 of the committed trace's exact journal bytes (none in shadow). A
+modeled event that fails the account lifecycle or economic checks leaves that
+quote's partial effects unapplied and commits a failed trace, rejected fact and
+account fault; the command then raises, and an exact retry raises the same
+failure. Unknown outcomes remain reserved; cancellation is terminal only after its
 modeled confirmation.
 
 `paper_traces(account_id)` exposes each exact market, scenario, input digest,
 physical events, attributed child fills and durable liquidity cursor, including
 no-fill markets. `paper_report_facts(account_id)` exposes strategy-owned fills and
 their current effective fee links; a corrected-to-zero fee has an explicit zero
-link. `paper_market_seen(account_id, market_identity)` reads fresh membership of
-committed and failed traces in exactly that account. Shared observers use this
-Boolean before observing a quote. `valuation(instrument)` reads the latest observed
+link. `paper_trace(account_id, market_identity)` reads one market's committed or
+failed trace in exactly that account. `valuation(instrument)` reads the latest observed
 valuation quote of one instrument; installed clients request the `valuation`
 projection with only `query_instrument`. A shadow account keeps no trace, so a shared
-observer replaying into it skips a book older than that valuation as already applied. Installed clients request `market_membership`
-with `account_id` and `query_market`, avoiding transfer of historical trace bodies;
-managed queries recheck the current bound owner generation in the same snapshot.
+observer replaying into it skips a book older than that valuation as already applied. Installed clients request `market_trace`
+with `account_id` and `query_market`, avoiding transfer of historical trace bodies.
 Reconciliation still requires a complete independently supplied
 `AccountObservation` with physical cash, positions, costs, posting identities and
 cumulative physical open orders. A journal report or its own modeled trace is

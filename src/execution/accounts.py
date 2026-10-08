@@ -53,6 +53,7 @@ from execution.account_records import NetAllocation as NetAllocation
 from execution.account_records import NetFeeAllocation as NetFeeAllocation
 from execution.account_records import NetFeeCorrection as NetFeeCorrection
 from execution.account_records import NetOrder as NetOrder
+from execution.account_records import PaperMarketOutcome as PaperMarketOutcome
 from execution.account_records import PhysicalAccountObservation as PhysicalAccountObservation
 from execution.account_records import PortfolioBatch as PortfolioBatch
 from execution.account_records import PortfolioCommit as PortfolioCommit
@@ -351,9 +352,9 @@ class AccountJournal:
 
     def result_snapshot(self, request: AccountExecutionRequest) -> AccountExecutionResult:
         """Project a typed response, reading state only for requested inspection fields."""
-        request.__post_init__()
         if request.projection == "operation":
             return AccountExecutionResult(accounts=(), orders=())
+        request.__post_init__()
         with self._store.snapshot() as snapshot:
             return self._project(request, snapshot)
 
@@ -370,17 +371,12 @@ class AccountJournal:
                 orders=(),
                 valuation=self._valuation(state, request.query_instrument),
             )
-        if request.projection == "market_membership":
+        if request.projection == "market_trace":
             if request.account_id is None or request.query_market is None:
-                raise ValueError("market membership requires account and market identities")
-            if request.paper_owner is not None and request.paper_owner != self.paper_owner:
-                raise ValueError("paper_owner_stale_or_absent")
+                raise ValueError("market trace requires account and market identities")
+            trace = self._paper.trace(request.account_id, request.query_market, snapshot=snapshot)
             return AccountExecutionResult(
-                accounts=(),
-                orders=(),
-                market_seen=self._paper.market_seen(
-                    request.account_id, request.query_market, snapshot=snapshot
-                ),
+                accounts=(), orders=(), paper_traces=() if trace is None else (trace,)
             )
         selected_accounts = (
             tuple(
@@ -650,19 +646,23 @@ class AccountJournal:
         """Pin one declared venue/instrument profile before paper order admission."""
         self._paper.bind(account_id, scenario)
 
-    def match_public_market(
+    def apply_public_market(
         self, account_id: str, market: PaperMarket, scenario: PaperExecutionScenario
-    ) -> AccountPaperTrace:
-        """Atomically match one public quote through direct or net account orders."""
-        return self._paper.match(account_id, market, scenario)
+    ) -> PaperMarketOutcome:
+        """Observe one eligible book and match it in paper mode, in one fenced transaction.
+
+        An exact retry returns the saved outcome without any write; see
+        ``AccountPaperMatching.apply``.
+        """
+        return self._paper.apply(account_id, market, scenario)
 
     def paper_traces(self, account_id: str | None = None) -> tuple[AccountPaperTrace, ...]:
         """Read exact public inputs, scenarios and attributable modeled effects."""
         return self._paper.traces(account_id)
 
-    def paper_market_seen(self, account_id: str, market_identity: str) -> bool:
-        """Read fresh account membership and recheck the bound managed owner generation."""
-        return self._paper.market_seen(account_id, market_identity)
+    def paper_trace(self, account_id: str, market_identity: str) -> AccountPaperTrace | None:
+        """Read the account's trace of one market identity, if it applied that market."""
+        return self._paper.trace(account_id, market_identity)
 
     def valuation(self, instrument: Dimension) -> AccountQuote | None:
         """Read the latest observed valuation quote of one instrument, if any."""

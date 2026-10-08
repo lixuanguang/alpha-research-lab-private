@@ -83,7 +83,7 @@ class _SharedFirmHistory:
             bid_quantity=self._quantity("3"),
             ask_quantity=self._quantity("3"),
         )
-        self.journal.match_public_market(account_id, market, self.scenario)
+        self.journal.apply_public_market(account_id, market, self.scenario)
 
     def round_trip(self) -> None:
         """Fill one IOC buy and one IOC sell of a single unit for the busy account."""

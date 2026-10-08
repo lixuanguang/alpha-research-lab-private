@@ -12,10 +12,16 @@ from typing import cast
 
 # third party library imports
 import pytest
+from paper_books import PaperBooks
 from test_account_paper_matching import TestAccountPaperMatching as _Matching
 
 # project library imports
-from execution import AccountJournal, AccountQuote, StepCommit
+from execution import (
+    AccountJournal,
+    AccountPaperTrace,
+    AccountQuote,
+    StepCommit,
+)
 from execution.account_state import AccountStateStore, FirmHead, FirmState, SavedDecision
 from execution.records import ORDER_EVENT_KINDS
 from serialization import DomainCodec
@@ -41,10 +47,8 @@ class AccountHistoryFixture:
             _Matching._market(f"book-{index}", at + timedelta(seconds=1 + index), ask_quantity="2")
             for index in range(3)
         )
-        traces = tuple(
-            journal.match_public_market("shared", market, scenario) for market in markets
-        )
-        assert journal.match_public_market("shared", markets[0], scenario) == traces[0]
+        traces = tuple(PaperBooks.apply(journal, "shared", market, scenario) for market in markets)
+        assert PaperBooks.apply(journal, "shared", markets[0], scenario) == traces[0]
         reopened = AccountJournal(path, _Matching._config())
         return {
             "traces": traces,
@@ -55,9 +59,9 @@ class AccountHistoryFixture:
             ),
             "batch": reopened.portfolio_batch("shared-batch"),
             "absent_batch": reopened.portfolio_batch("absent"),
-            "membership": (
-                reopened.paper_market_seen("shared", "book-0"),
-                reopened.paper_market_seen("shared", "absent"),
+            "market_traces": (
+                reopened.paper_trace("shared", "book-0"),
+                reopened.paper_trace("shared", "absent"),
             ),
         }
 
@@ -95,7 +99,8 @@ class TestAccountHistory:
         assert result["reopened_traces"] == result["account_traces"] == result["traces"]
         assert result["checkpoints"] == (b"alpha-decision", b"beta-decision", None)
         assert result["batch"] is not None and result["absent_batch"] is None
-        assert result["membership"] == (True, False)
+        traces = cast(tuple[AccountPaperTrace, ...], result["traces"])
+        assert result["market_traces"] == (traces[0], None)
         assert len(AccountJournal.verify(path, _Matching._config())) == 1
 
     def test_commit_writes_head_and_rows_and_open_decodes_only_head(self, tmp_path: Path) -> None:
@@ -251,3 +256,4 @@ class TestAccountHistory:
             AccountStateStore(path, config, codec)
         with pytest.raises(ValueError):
             AccountJournal.verify(path, config)
+

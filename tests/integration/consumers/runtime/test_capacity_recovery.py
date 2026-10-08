@@ -271,7 +271,7 @@ class TestCapacityRecovery:
             generation=1,
         )
         request = AccountExecutionRequest(
-            action="paper_market",
+            action="public_market",
             account_id=account.account_id,
             market=market,
             scenario=source.scenario,
@@ -396,7 +396,7 @@ class TestCapacityRecovery:
         frozen = (
             _RetainedRequest(
                 name="market.json",
-                payload=b'{"action":"paper_market"}' if failure == "malformed" else client.payload,
+                payload=b'{"action":"public_market"}' if failure == "malformed" else client.payload,
                 modified_ns=1,
                 stable_before_cutoff=failure != "unstable",
             ),

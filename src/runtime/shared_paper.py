@@ -756,12 +756,8 @@ class SharedPaperCaptureObserver:
             self.last_market = market
             self._pending = market
             if delivery.matched:
-                if not self._market_applied(market, replayed=replayed):
-                    self.journal.observe(AccountQuote(price=market.ask, at=market.at))
-                if self._phases is not None:
-                    self._phases["observed_ns"] = time.monotonic_ns()
-                if self.journal.config.mode == "paper":
-                    self.journal.match_public_market(self.account_id, market, self.scenario)
+                if not self._shadow_replayed(market, replayed=replayed):
+                    self.journal.apply_public_market(self.account_id, market, self.scenario)
                 if self._phases is not None:
                     self._phases["matched_ns"] = time.monotonic_ns()
         # A served snapshot became known with this delivery, so its book cannot fill it.
@@ -770,16 +766,15 @@ class SharedPaperCaptureObserver:
                 self._decide(delivery, group, self._pending, replayed=replayed)
         self._close_open()
 
-    def _market_applied(self, market: PaperMarket, *, replayed: bool) -> bool:
-        """Report whether the account already applied this book, so replay retries it.
+    def _shadow_replayed(self, market: PaperMarket, *, replayed: bool) -> bool:
+        """Report whether a replayed shadow book was already applied, so it is skipped.
 
-        Paper retains one trace per matched book. Shadow keeps only the latest
-        valuation, so a replayed book older than it was already applied; an equal clock
-        is observed again, which accepts only the same quote.
+        A paper account resolves a replayed book itself: its one command returns the
+        saved trace's outcome. Shadow keeps only the latest valuation, so a replayed
+        book older than it was already applied; an equal clock is applied again, which
+        accepts only the same quote.
         """
-        if self.journal.paper_market_seen(self.account_id, market.identity):
-            return True
-        if not replayed or self.journal.config.mode == "paper":
+        if not replayed or self.journal.config.mode != "shadow":
             return False
         latest = self.journal.valuation(market.ask.per)
         return latest is not None and market.at < latest.at

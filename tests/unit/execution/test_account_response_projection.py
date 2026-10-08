@@ -9,6 +9,7 @@ from pathlib import Path
 # third party library imports
 import pytest
 from msgspec.structs import replace
+from paper_books import PaperBooks
 from test_account_journal import TestAccountJournal as _AccountFixture
 from test_account_paper_matching import TestAccountPaperMatching as _MatchingFixture
 
@@ -21,7 +22,6 @@ from execution import (
     AccountJournal,
     AccountQuote,
     InstalledPaperAccount,
-    PaperOwner,
 )
 from risk import AccountLimit
 from serialization import DomainCodec
@@ -55,10 +55,12 @@ class _ProjectedAccount(InstalledPaperAccount):
         return self.journal.result_snapshot(request)
 
 
-class TestAccountMarketMembership:
-    """Keep the small membership response fresh, exact and account scoped."""
+class TestAccountMarketTrace:
+    """Keep the one-market trace response fresh, exact and account scoped."""
 
-    def test_membership_observes_other_writer_and_scopes_same_market(self, tmp_path: Path) -> None:
+    def test_market_trace_observes_other_writer_and_scopes_same_market(
+        self, tmp_path: Path
+    ) -> None:
         """A warm reader sees durable traces without borrowing another account's history."""
         fixture = _MatchingFixture
         initial = fixture._config()
@@ -79,7 +81,7 @@ class TestAccountMarketMembership:
                 accounts=account_limits,
             ),
         )
-        path = tmp_path / "membership.sqlite3"
+        path = tmp_path / "market-trace.sqlite3"
         writer = AccountJournal(path, config)
         reader = AccountJournal(path, config)
         account = _ProjectedAccount(config, reader)
@@ -99,100 +101,89 @@ class TestAccountMarketMembership:
                 "separate-opening", fixture.opening_at, replace(opening, account_id="separate")
             )
         )
-        assert reader.paper_market_seen("shared", market.identity) is False
-        assert account.paper_market_seen("shared", market.identity) is False
+        assert reader.paper_trace("shared", market.identity) is None
+        assert account.paper_trace("shared", market.identity) is None
 
-        trace = writer.match_public_market("shared", market, scenario)
+        trace = PaperBooks.apply(writer, "shared", market, scenario)
         assert trace.status == "committed"
-        assert reader.paper_market_seen("shared", market.identity) is True
-        assert account.paper_market_seen("shared", market.identity) is True
+        assert reader.paper_trace("shared", market.identity) == trace
+        assert account.paper_trace("shared", market.identity) == trace
         request = account.seen_requests[-1]
         assert request == AccountExecutionRequest(
             action="inspect",
             account_id="shared",
             query_market=market.identity,
-            projection="market_membership",
+            projection="market_trace",
         )
         result = reader.result_snapshot(request)
-        assert result == AccountExecutionResult(accounts=(), orders=(), market_seen=True)
+        assert result == AccountExecutionResult(accounts=(), orders=(), paper_traces=(trace,))
         assert (
             DomainCodec().decode_json(DomainCodec().encode_json(result), AccountExecutionResult)
             == result
         )
-        assert account.paper_market_seen("separate", market.identity) is False
-        assert reader.paper_market_seen("shared", "seen-book-suffix") is False
+        assert account.paper_trace("separate", market.identity) is None
+        assert reader.paper_trace("shared", "seen-book-suffix") is None
         with pytest.raises(ValueError, match="unknown account"):
-            account.paper_market_seen("absent", market.identity)
+            account.paper_trace("absent", market.identity)
 
         writer.bind_paper_scenario("separate", scenario)
-        writer.match_public_market("separate", market, scenario)
-        assert account.paper_market_seen("separate", market.identity) is True
+        separate = PaperBooks.apply(writer, "separate", market, scenario)
+        assert account.paper_trace("separate", market.identity) == separate != trace
         reopened = AccountJournal(path, config)
-        assert reopened.paper_market_seen("shared", market.identity) is True
-        assert reopened.paper_market_seen("separate", market.identity) is True
+        assert reopened.paper_trace("shared", market.identity) == trace
+        assert reopened.paper_trace("separate", market.identity) == separate
 
     @pytest.mark.parametrize(
         ("payload", "message"),
         (
             (
-                b'{"action":"inspect","projection":"market_membership","query_market":"book"}',
-                "market membership requires account and market identities",
+                b'{"action":"inspect","projection":"market_trace","query_market":"book"}',
+                "market trace requires account and market identities",
             ),
             (
-                b'{"action":"inspect","projection":"market_membership","account_id":"shared"}',
-                "market membership requires account and market identities",
+                b'{"action":"inspect","projection":"market_trace","account_id":"shared"}',
+                "market trace requires account and market identities",
             ),
             (
-                b'{"action":"inspect","projection":"market_membership",'
+                b'{"action":"inspect","projection":"market_trace",'
                 b'"account_id":"shared","query_market":""}',
-                "market membership requires account and market identities",
+                "market trace requires account and market identities",
             ),
             (
-                b'{"action":"inspect","projection":"market_membership",'
+                b'{"action":"inspect","projection":"market_trace",'
                 b'"account_id":"shared","query_market":false}',
                 "Expected",
             ),
             (
                 b'{"action":"inspect","account_id":"shared","query_market":"book"}',
-                "market query requires the membership projection",
+                "market query requires the market trace projection",
             ),
             (
-                b'{"action":"inspect","projection":"market_membership",'
+                b'{"action":"inspect","projection":"market_trace",'
                 b'"account_id":"shared","query_market":"book","query_instance":"alpha"}',
-                "market membership requires only an account and market query",
+                "market trace requires only an account and market query",
             ),
             (
-                b'{"action":"quote","projection":"market_membership",'
+                b'{"action":"quote","projection":"market_trace",'
                 b'"account_id":"shared","query_market":"book"}',
                 "account state projection requires inspection",
             ),
+            (
+                b'{"action":"inspect","projection":"market_membership",'
+                b'"account_id":"shared","query_market":"book"}',
+                "Invalid enum value 'market_membership'",
+            ),
         ),
     )
-    def test_membership_rejects_malformed_or_ambiguous_queries(
+    def test_market_trace_rejects_malformed_or_ambiguous_queries(
         self, payload: bytes, message: str
     ) -> None:
-        """The installed boundary requires one explicit account and exact market identity."""
+        """The installed boundary requires one explicit account and exact market identity.
+
+        The replaced membership projection is refused as an unknown projection.
+        """
         with pytest.raises(ValueError, match=message):
             DomainCodec().decode_json(payload, AccountExecutionRequest)
-
-    def test_membership_request_rejects_another_owners_account(self) -> None:
-        """An explicit owner cannot query a different configured account."""
-        owner = PaperOwner(
-            account_id="separate",
-            deployment_sha256="a" * 64,
-            authorization_id="bounded-session",
-            release_identity="b" * 64,
-            owner_id="current-worker",
-            generation=1,
-        )
-        with pytest.raises(ValueError, match="market membership account differs from its owner"):
-            AccountExecutionRequest(
-                action="inspect",
-                projection="market_membership",
-                account_id="shared",
-                query_market="book",
-                paper_owner=owner,
-            )
 
 
 class TestAccountValuation:

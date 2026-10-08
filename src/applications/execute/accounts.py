@@ -21,9 +21,9 @@ from configuration import (
 from execution import (
     AccountControlResult,
     AccountJournal,
-    AccountPaperTrace,
     ExecutionMonitoring,
     OrderState,
+    PaperMarketOutcome,
     PaperOwner,
     PaperReductionResult,
     PortfolioCommit,
@@ -44,8 +44,14 @@ class AccountExecutionApplication:
     """Bind bounded installed request files to the authoritative account journal."""
 
     def __init__(self) -> None:
-        """Bind telemetry identity lazily for this installed application lifetime."""
+        """Bind telemetry identity lazily for this installed application lifetime.
+
+        The configuration decoded from one exact byte string is reused while the
+        file still holds those bytes; any other bytes are decoded and validated again.
+        """
         self._monitoring: ExecutionMonitoring | None = None
+        self._codec = DomainCodec()
+        self._configuration: tuple[bytes, AccountConfiguration] | None = None
 
     def run(
         self,
@@ -72,20 +78,20 @@ class AccountExecutionApplication:
             or any(character not in "0123456789abcdef" for character in release_identity)
         ):
             raise ValueError("invalid installed release identity")
-        codec = DomainCodec()
-        config = codec.decode_json(self._read(config_path), AccountConfiguration)
+        codec = self._codec
+        config = self._config(self._read(config_path))
         if config.mode == "venue_test":
             raise ValueError("venue_test account requires the separate venue command")
         if request_path is not None:
             request_payload = self._read(request_path)
         elif request_payload is not None and len(request_payload) > 1_048_576:
             raise ValueError("account request or configuration exceeds one MiB")
+        # Decoding and construction both run the request's own validation.
         request = (
             AccountExecutionRequest(action="inspect")
             if request_payload is None
             else codec.decode_json(request_payload, AccountExecutionRequest)
         )
-        request.__post_init__()
         if opened_journal is not None and (
             opened_journal.path != journal_path
             or opened_journal.config != config
@@ -104,7 +110,7 @@ class AccountExecutionApplication:
                 "revoke_paper",
                 "claim_paper",
                 "bind_paper_scenario",
-                "paper_market",
+                "public_market",
                 "reduce_paper",
                 "serve_paper",
             )
@@ -124,7 +130,7 @@ class AccountExecutionApplication:
             in (
                 "admit",
                 "coordinate",
-                "paper_market",
+                "public_market",
                 "post",
                 "event",
                 "net_event",
@@ -197,7 +203,7 @@ class AccountExecutionApplication:
         order: OrderState | None = None
         reconciled: bool | None = None
         portfolio: PortfolioCommit | None = None
-        matched_market: AccountPaperTrace | None = None
+        public_market: PaperMarketOutcome | None = None
         reduction_result: PaperReductionResult | None = None
         claimed_owner: PaperOwner | None = None
         if request.deployment is not None:
@@ -231,8 +237,8 @@ class AccountExecutionApplication:
             journal.bind_paper_scenario(request.account_id, request.scenario)
         elif request.market is not None:
             if request.account_id is None or request.scenario is None:
-                raise ValueError("paper market request is incomplete")
-            matched_market = journal.match_public_market(
+                raise ValueError("public market request is incomplete")
+            public_market = journal.apply_public_market(
                 request.account_id, request.market, request.scenario
             )
         elif request.reduction is not None:
@@ -308,7 +314,7 @@ class AccountExecutionApplication:
             alerts=alerts,
             alert_error=alert_error,
             recovery=recovery,
-            matched_market=matched_market,
+            public_market=public_market,
             reduction_result=reduction_result,
             claimed_owner=claimed_owner,
         )
@@ -364,6 +370,15 @@ class AccountExecutionApplication:
                 # Account controls and their alert outcomes have already committed.
                 result = replace(result, telemetry_error=type(error).__name__)
         return result
+
+    def _config(self, payload: bytes) -> AccountConfiguration:
+        """Decode configuration bytes, reusing the previous decode of identical bytes."""
+        cached = self._configuration
+        if cached is not None and cached[0] == payload:
+            return cached[1]
+        config = self._codec.decode_json(payload, AccountConfiguration)
+        self._configuration = payload, config
+        return config
 
     @staticmethod
     def _read(path: Path) -> bytes:

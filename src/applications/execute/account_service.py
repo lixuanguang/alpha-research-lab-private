@@ -82,7 +82,7 @@ class AccountOwnerService:
             "net_cost",
             "control",
             "bind_paper_scenario",
-            "paper_market",
+            "public_market",
             "reduce_paper",
             "shutdown_paper",
         }
@@ -286,7 +286,6 @@ class AccountOwnerService:
                 raise ValueError("paper service request exceeds one MiB")
             payload = self._read_exact(connection, length, deadline=deadline)
             request = self._codec.decode_json(payload, AccountExecutionRequest)
-            request.__post_init__()
             action = request.action
             if request.action not in self._served_actions:
                 raise ValueError("paper service action is outside its operating scope")

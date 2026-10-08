@@ -335,7 +335,7 @@ and `account-journal` state. `AccountExecutionRequest` and
 | `authorize_paper` | `authorization` | Explicit bounded grant; still stopped |
 | `claim_paper` | `account_id`, `owner_id`, `control` (`restart`) | Fresh reconciliation and a new fenced `claimed_owner` |
 | `revoke_paper` | `account_id`, `authorization_id`, `at` | New exposure/restart forbidden; protective actions retained |
-| `paper_market` | `account_id`, `scenario`, `market`, `paper_owner` | Exact modeled events from finite eligible public liquidity |
+| `public_market` | `account_id`, `scenario`, `market`, `paper_owner` | One eligible book observed and matched in one transaction; a `PaperMarketOutcome` naming the committed trace's bytes, or the saved outcome of an exact retry |
 | `reduce_paper` | `reduction`, optional `paper_owner` | Accepted reservation or rejection; never a liquidation claim |
 | `inspect` | optional `account_id`, `query_instance`, `query_batch` | Deployment/grants, quarantine, traces, reductions, checkpoint or prior batch |
 

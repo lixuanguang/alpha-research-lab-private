@@ -17,6 +17,7 @@ from execution.account_records import (
     AccountQuote,
     AccountView,
     NetOrder,
+    PaperMarketOutcome,
     PortfolioBatch,
     PortfolioCommit,
     PortfolioResidual,
@@ -69,8 +70,8 @@ class PaperAccount(Protocol):
         """Read durable modeled effects for an account."""
         ...
 
-    def paper_market_seen(self, account_id: str, market_identity: str) -> bool:
-        """Read fresh committed/failed membership under the current bound account owner."""
+    def paper_trace(self, account_id: str, market_identity: str) -> AccountPaperTrace | None:
+        """Read the account's committed or failed trace of one market identity, if any."""
         ...
 
     def valuation(self, instrument: Dimension) -> AccountQuote | None:
@@ -99,10 +100,15 @@ class PaperAccount(Protocol):
         """Verify the immutable matching assumptions."""
         ...
 
-    def match_public_market(
+    def apply_public_market(
         self, account_id: str, market: PaperMarket, scenario: PaperExecutionScenario
-    ) -> AccountPaperTrace:
-        """Match one bounded eligible book under the durable worker fence."""
+    ) -> PaperMarketOutcome:
+        """Observe and, in paper mode, match one eligible book under the worker fence.
+
+        One transaction resolves the market's identity against all history first: an
+        exact retry returns the saved outcome without effects, and a reused identity
+        with other input is refused.
+        """
         ...
 
     def coordinate(self, batch: PortfolioBatch) -> PortfolioCommit:
