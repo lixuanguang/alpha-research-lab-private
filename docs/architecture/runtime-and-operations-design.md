@@ -69,7 +69,8 @@ history, and only for a new market matches it and observes its ask as valuation.
 An exact retry returns the saved outcome without a write, so the consumer needs no
 separate membership read; a reused identity with other input is refused. The
 command answers with the market identity and the SHA-256 of the committed trace,
-not the trace.
+not the trace, and the trace history is read in bounded pages, checked by its hash
+chain, or exported whole.
 
 Full diagnostic reports run in one bounded child that can inspect accounts but
 cannot submit economic or lifecycle commands. The supervisor still reads account

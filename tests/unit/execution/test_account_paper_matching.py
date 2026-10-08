@@ -345,7 +345,7 @@ class TestAccountPaperMatching:
         )
         assert third.physical_events == ()
         restarted = AccountJournal(path, self._config())
-        assert restarted.paper_traces("shared") == (first, second, third)
+        assert tuple(restarted.iter_paper_traces("shared")) == (first, second, third)
         assert PaperBooks.apply(restarted, "shared", first_market, scenario) == first
         assert AccountLedger(restarted.accounts()[0].ledger).snapshot() == snapshot
         fills, costs = restarted.paper_report_facts("shared")
@@ -596,7 +596,7 @@ class TestAccountPaperMatching:
         assert tuple(order.identity for order in reopened.physical_open_orders("shared")) == (
             by_instance["beta"].identity,
         )
-        assert reopened.paper_traces("shared")[-1] == due
+        assert tuple(reopened.iter_paper_traces("shared"))[-1] == due
 
     def test_scenario_charging_above_the_configured_worst_case_is_refused(
         self, tmp_path: Path
@@ -827,7 +827,7 @@ class TestAccountPaperMatching:
         assert AccountLedger(reopened.accounts()[0].ledger).snapshot() == before
         assert reopened.orders()[0].order.status == "intent"
         assert reopened.accounts()[0].fault == "order_event_break"
-        (trace,) = reopened.paper_traces("shared")
+        (trace,) = tuple(reopened.iter_paper_traces("shared"))
         assert trace.status == "failed" and trace.physical_events == ()
         assert journal.paper_trace("shared", market.identity) is not None
         assert reopened.paper_trace("shared", market.identity) is not None

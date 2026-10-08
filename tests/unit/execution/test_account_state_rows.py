@@ -19,9 +19,9 @@ from test_account_history_scaling import _SharedFirmHistory
 
 # project library imports
 from execution import AccountJournal
+from execution.account_records import HistoryDigest
 from execution.account_state import (
     AccountStateStore,
-    HistoryDigest,
     HistorySummary,
     RowSummary,
     StateRows,

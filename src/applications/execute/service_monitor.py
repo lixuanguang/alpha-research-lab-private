@@ -521,13 +521,9 @@ class InspectedPaperAccount(SocketPaperAccount):
         """Return the inspected reduction outcomes."""
         return self._state.paper_reductions
 
-    def paper_traces(self, account_id: str | None = None) -> tuple[AccountPaperTrace, ...]:
-        """Keep trace reads within the inspected account scope."""
-        return tuple(
-            trace
-            for trace in self._state.paper_traces
-            if account_id is None or trace.account_id == account_id
-        )
+    def latest_paper_traces(self, account_id: str) -> tuple[AccountPaperTrace, ...]:
+        """Return the inspected account's newest trace of each bound instrument."""
+        return tuple(trace for trace in self._state.paper_traces if trace.account_id == account_id)
 
 
 class PaperServiceMonitor:

@@ -337,7 +337,8 @@ and `account-journal` state. `AccountExecutionRequest` and
 | `revoke_paper` | `account_id`, `authorization_id`, `at` | New exposure/restart forbidden; protective actions retained |
 | `public_market` | `account_id`, `scenario`, `market`, `paper_owner` | One eligible book observed and matched in one transaction; a `PaperMarketOutcome` naming the committed trace's bytes, or the saved outcome of an exact retry |
 | `reduce_paper` | `reduction`, optional `paper_owner` | Accepted reservation or rejection; never a liquidation claim |
-| `inspect` | optional `account_id`, `query_instance`, `query_batch` | Deployment/grants, quarantine, traces, reductions, checkpoint or prior batch |
+| `export_traces` | `export_path`, optional `account_id` | The account's traces published as one JSON array, checked against the trace history's chain; the count written |
+| `inspect` | optional `account_id`, `query_instance`, `query_batch`, `query_market`, `query_after` | Deployment/grants, quarantine, one market's trace, a bounded trace page, the trace history, reductions, checkpoint or prior batch |
 
 Existing `control/stop` and `control/cancel` remain distinct. Admission,
 coordination, matching and economic mutation requests carry `paper_owner`.
@@ -428,9 +429,10 @@ client, `<requests>/<log>.jsonl`: each command's `request` record, with a fresh
 those bytes, so they are kept once. Its `result` or `error` record follows the
 response. An attempt with neither has an uncertain outcome; inspect the journal
 before any new request. A payload the service never retained had no effect.
-lives, not with requests. Owner-generation checks remain inside economic
-transactions. Service startup reads only the durable activation, never the trace
-history, and does not claim, renew or widen authority. Its heartbeat file beside the
+Retained file counts therefore grow with service lives, not with requests.
+Owner-generation checks remain inside economic transactions. Service startup
+reads only the durable activation, never the trace history, and does not claim,
+renew or widen authority. Its heartbeat file beside the
 socket exposes actual process PID, liveness and request progress separately.
 `service_seconds` may not exceed the signed account configuration's
 `service_life_seconds`. When that field is absent, the cap is 120 seconds, and the
@@ -444,7 +446,12 @@ Services require explicit recovery between invocations. A paper supervisor's
 Account requests default to a complete response. Internal `PaperAccount` helpers
 select a typed `projection` for their requested read or operation receipt, so a
 checkpoint lookup does not transfer unrelated order and accounting history.
-Explicit operator inspection remains complete. An operator reads every saved
+Explicit operator inspection remains complete for state; the paper trace history,
+which grows with every eligible book, is stated by its count and hash chain
+(`paper_trace_history`) and read through the `traces` projection in pages of at
+most 256 after a `query_after` position, through `market_trace` one market at a
+time, or whole by `export_traces`. Requests and results encode only fields that
+differ from their defaults. An operator reads every saved
 decision's outcome with the `decisions` projection (optionally narrowed by
 `account_id`): one compact `DecisionOutcome` per decision, in commit order, with
 its instance, decision identity and time, `committed` or `rejected` status, reason,

@@ -132,7 +132,7 @@ class CapacityEconomicParity:
         "net_orders",
         "paper_fills",
         "paper_costs",
-        "paper_traces",
+        "paper_trace_history",
         "checkpoints",
     )
 
@@ -410,7 +410,8 @@ class CapacityEconomicParity:
             "net_orders": journal.net_orders(),
             "paper_fills": fills,
             "paper_costs": costs,
-            "paper_traces": journal.paper_traces(),
+            # Equal count and hash chain: every trace's bytes, in commit order.
+            "paper_trace_history": journal.paper_trace_history(),
             "checkpoints": {
                 instance.instance_id: journal.checkpoint(instance.instance_id)
                 for instance in self.service.instances
@@ -430,7 +431,7 @@ class CapacityEconomicParity:
             "net_orders": original.net_orders,
             "paper_fills": original.paper_fills,
             "paper_costs": original.paper_costs,
-            "paper_traces": original.paper_traces,
+            "paper_trace_history": original.paper_trace_history,
             "checkpoints": self._signed_checkpoints(account, original),
         }
 

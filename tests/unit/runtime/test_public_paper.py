@@ -748,7 +748,7 @@ class TestSharedPublicPaper:
                 first_effects = (
                     journal.accounts(),
                     journal.orders(),
-                    journal.paper_traces("paper"),
+                    tuple(journal.iter_paper_traces("paper")),
                     journal.checkpoint("alpha"),
                 )
                 assert first_effects[3] is None
@@ -759,8 +759,8 @@ class TestSharedPublicPaper:
                     first_effects[1],
                     first_effects[3],
                 )
-                assert journal.paper_traces("paper")[:1] == first_effects[2]
-                assert len(journal.paper_traces("paper")) == 2
+                assert tuple(journal.iter_paper_traces("paper"))[:1] == first_effects[2]
+                assert len(tuple(journal.iter_paper_traces("paper"))) == 2
                 assert observer.source.latest_book is not None
                 assert observer.source.latest_book.position == index
                 assert observer.last_market is not None
@@ -851,7 +851,7 @@ class TestSharedPublicPaper:
             offset += len(payload) + 1
         assert BookAsOfIndex(as_of.path).covered_bytes() == offset
         assert tuple(item.matched for item in retained) == (False, True, True, True, True)
-        assert len(journal.paper_traces("paper")) == 4
+        assert len(tuple(journal.iter_paper_traces("paper"))) == 4
         assert AccountLedger(journal.accounts()[0].ledger).snapshot().positions == (
             self._quantity("1"),
         )
@@ -864,7 +864,9 @@ class TestSharedPublicPaper:
             replay.deliver(delivery)
         assert recovered.accounts() == journal.accounts()
         assert recovered.orders() == journal.orders()
-        assert recovered.paper_traces("paper") == journal.paper_traces("paper")
+        assert tuple(recovered.iter_paper_traces("paper")) == tuple(
+            journal.iter_paper_traces("paper")
+        )
         assert recovered.paper_report_facts("paper") == journal.paper_report_facts("paper")
         assert recovered.checkpoint("alpha") == journal.checkpoint("alpha")
         unmatched = replace(retained[3], decisions=(), matched=False)
@@ -922,7 +924,7 @@ class TestSharedPublicPaper:
             observer.observe(delivery.source.record, delivery.source.book)
             if index == 3:
                 assert journal.checkpoint("alpha") is not None
-                assert len(journal.paper_traces("paper")) == 2
+                assert len(tuple(journal.iter_paper_traces("paper"))) == 2
         codec = DomainCodec()
         retained = tuple(
             SharedBookDelivery.decode(line, codec)
@@ -934,7 +936,7 @@ class TestSharedPublicPaper:
         assert group.quote.at == times[2]
         assert group.coordinated_at == group.at + timedelta(microseconds=1)
         assert not retained[4].decisions and not retained[5].decisions
-        assert len(journal.paper_traces("paper")) == 3
+        assert len(tuple(journal.iter_paper_traces("paper"))) == 3
         assert AccountLedger(journal.accounts()[0].ledger).snapshot().positions == (
             self._quantity("1"),
         )
@@ -946,7 +948,9 @@ class TestSharedPublicPaper:
         for delivery in retained:
             replay.deliver(delivery)
         assert recovered.orders() == journal.orders()
-        assert recovered.paper_traces("paper") == journal.paper_traces("paper")
+        assert tuple(recovered.iter_paper_traces("paper")) == tuple(
+            journal.iter_paper_traces("paper")
+        )
         assert recovered.checkpoint("alpha") == journal.checkpoint("alpha")
         fresh, opened = self._observer(
             tmp_path / "unmatched.sqlite3", cadence_us=3_000_000, deciding=True
@@ -1065,7 +1069,7 @@ class TestSharedPublicPaper:
         """Return each modeled physical fill's market time and signed quantity, in order."""
         return tuple(
             (event.fill.filled_at, event.fill.quantity.value)
-            for trace in journal.paper_traces("paper")
+            for trace in tuple(journal.iter_paper_traces("paper"))
             for event in trace.physical_events
             if event.fill is not None
         )
@@ -1078,7 +1082,7 @@ class TestSharedPublicPaper:
         after its decision date is also after the coordination.
         """
         entry = timedelta(microseconds=scenario.entry_delay_us)
-        for trace in journal.paper_traces("paper"):
+        for trace in tuple(journal.iter_paper_traces("paper")):
             for event in (*trace.physical_events, *trace.child_fill_events):
                 if event.fill is None:
                     continue
@@ -1172,7 +1176,7 @@ class TestSharedPublicPaper:
         )
         self._require_causal(journal, scenario)
         assert tuple(item.matched for item in retained) == (False, *(True,) * len(retained[1:]))
-        assert len(journal.paper_traces("paper")) == len(retained) - 1
+        assert len(tuple(journal.iter_paper_traces("paper"))) == len(retained) - 1
 
     def test_a_long_entry_delay_fills_on_the_first_eligible_later_book(
         self, tmp_path: Path
@@ -1348,7 +1352,7 @@ class TestSharedPublicPaper:
         assert replacement.decision_at == self.at + timedelta(milliseconds=8500, microseconds=1)
         events = {
             (event.order_id, event.kind): event.at
-            for trace in journal.paper_traces("paper")
+            for trace in tuple(journal.iter_paper_traces("paper"))
             for event in trace.physical_events
         }
         assert (resting.status, resting.filled.value) == ("cancelled", Decimal(0))
@@ -1458,7 +1462,7 @@ class TestSharedPublicPaper:
         retained = self._retained(tmp_path / "live.jsonl")
         eligible = (False, True, True, False, True, False, True, True)
         assert tuple(item.matched for item in retained) == eligible
-        assert len(journal.paper_traces("paper")) == sum(eligible)
+        assert len(tuple(journal.iter_paper_traces("paper"))) == sum(eligible)
         assert self._fills(journal) == (
             (self.at + timedelta(seconds=3, milliseconds=500), Decimal(1)),
         )
@@ -1466,7 +1470,7 @@ class TestSharedPublicPaper:
             journal.accounts(),
             journal.orders(),
             journal.net_orders(),
-            journal.paper_traces("paper"),
+            tuple(journal.iter_paper_traces("paper")),
             journal.paper_report_facts("paper"),
             journal.checkpoint("alpha"),
         )
@@ -1481,7 +1485,7 @@ class TestSharedPublicPaper:
             fresh.accounts(),
             fresh.orders(),
             fresh.net_orders(),
-            fresh.paper_traces("paper"),
+            tuple(fresh.iter_paper_traces("paper")),
             fresh.paper_report_facts("paper"),
             fresh.checkpoint("alpha"),
         ) == live
@@ -1495,7 +1499,7 @@ class TestSharedPublicPaper:
             reopened.accounts(),
             reopened.orders(),
             reopened.net_orders(),
-            reopened.paper_traces("paper"),
+            tuple(reopened.iter_paper_traces("paper")),
             reopened.paper_report_facts("paper"),
             reopened.checkpoint("alpha"),
         ) == live
@@ -1527,7 +1531,7 @@ class TestSharedPublicPaper:
         )
         for delivery in retained:
             other.deliver(delivery)
-        assert len(differing.paper_traces("paper")) == sum(eligible)
+        assert len(tuple(differing.iter_paper_traces("paper"))) == sum(eligible)
         assert differing.orders() != journal.orders()
 
         shadow_config = replace(self._config(), mode="shadow")
@@ -1537,7 +1541,7 @@ class TestSharedPublicPaper:
         self._observe(shadow, *deliveries)
         shadow_retained = self._retained(tmp_path / "shadow.jsonl")
         assert tuple(item.matched for item in shadow_retained) == eligible
-        assert shadowed.paper_traces("paper") == () and self._fills(shadowed) == ()
+        assert tuple(shadowed.iter_paper_traces("paper")) == () and self._fills(shadowed) == ()
         assert shadow.last_market == observer.last_market
         assert shadowed.valuation(self.dimension) == journal.valuation(self.dimension)
         shadow_before = (shadowed.accounts(), shadowed.orders(), shadowed.checkpoint("alpha"))
@@ -1557,7 +1561,7 @@ class TestSharedPublicPaper:
             replayed_shadow.checkpoint("alpha"),
         ) == shadow_before
         assert replayed_shadow.valuation(self.dimension) == shadowed.valuation(self.dimension)
-        assert replayed_shadow.paper_traces("paper") == ()
+        assert tuple(replayed_shadow.iter_paper_traces("paper")) == ()
         shadow_retry, shadow_reopened = self._observer(
             tmp_path / "shadow.sqlite3",
             scenario=scenario,
@@ -1572,7 +1576,7 @@ class TestSharedPublicPaper:
             shadow_reopened.orders(),
             shadow_reopened.checkpoint("alpha"),
         ) == shadow_before
-        assert shadow_reopened.paper_traces("paper") == ()
+        assert tuple(shadow_reopened.iter_paper_traces("paper")) == ()
 
     @pytest.mark.parametrize("mode", ("paper", "shadow"))
     def test_each_matched_book_is_one_account_command(
@@ -1601,7 +1605,7 @@ class TestSharedPublicPaper:
         journal.calls.clear()
         self._observe(observer, *deliveries)
         assert journal.calls == ["apply_public_market"] * 4
-        assert len(journal.paper_traces("paper")) == (4 if mode == "paper" else 0)
+        assert len(tuple(journal.iter_paper_traces("paper"))) == (4 if mode == "paper" else 0)
 
         journal.calls.clear()
         replay, _ = self._observer(path, cadence_us=3_000_000, journal=journal)
@@ -1612,7 +1616,7 @@ class TestSharedPublicPaper:
             if mode == "paper"
             else ["valuation"] * 3 + ["valuation", "apply_public_market"]
         )
-        assert len(journal.paper_traces("paper")) == (4 if mode == "paper" else 0)
+        assert len(tuple(journal.iter_paper_traces("paper"))) == (4 if mode == "paper" else 0)
 
     def test_replay_into_a_managed_live_journal_is_an_exact_retry(self, tmp_path: Path) -> None:
         """A managed owner's live journal replays its own stream without any write.
@@ -1698,13 +1702,13 @@ class TestSharedPublicPaper:
         )
         self._observe(observer, *deliveries)
         assert self._fills(worker) == ((self.at + timedelta(seconds=3), Decimal(1)),)
-        assert len(worker.paper_traces("paper")) == len(deliveries) - 1
+        assert len(tuple(worker.iter_paper_traces("paper"))) == len(deliveries) - 1
         live = (
             worker.accounts(),
             worker.controls(),
             worker.orders(),
             worker.net_orders(),
-            worker.paper_traces("paper"),
+            tuple(worker.iter_paper_traces("paper")),
             worker.valuation(self.dimension),
             worker.checkpoint("alpha"),
         )
@@ -1725,7 +1729,7 @@ class TestSharedPublicPaper:
             retry_journal.controls(),
             retry_journal.orders(),
             retry_journal.net_orders(),
-            retry_journal.paper_traces("paper"),
+            tuple(retry_journal.iter_paper_traces("paper")),
             retry_journal.valuation(self.dimension),
             retry_journal.checkpoint("alpha"),
         ) == live
@@ -1769,13 +1773,13 @@ class TestSharedPublicPaper:
             tmp_path / "fresh.sqlite3", scenario=scenario, cadence_us=3_000_000, deciding=True
         )
         assert fresh.reconcile(self._opening())
-        before = (fresh.accounts(), fresh.orders(), fresh.paper_traces("paper"))
+        before = (fresh.accounts(), fresh.orders(), tuple(fresh.iter_paper_traces("paper")))
         forged = SharedBookDelivery.decode(lines[0], codec)
         force_setattr(forged, "schema_version", "shared-candidate-delivery")
         with pytest.raises(ValueError, match="unsupported shared book delivery schema"):
             replay.deliver(forged)
         assert replay.source.latest_book is None and replay.last_market is None
-        assert (fresh.accounts(), fresh.orders(), fresh.paper_traces("paper")) == before
+        assert (fresh.accounts(), fresh.orders(), tuple(fresh.iter_paper_traces("paper"))) == before
 
     def test_mixed_grids_read_shared_sources_in_instant_order(self, tmp_path: Path) -> None:
         """Two instants crossed by one book decide in instant order, not binding order.
@@ -2454,7 +2458,7 @@ class TestSharedPublicPaper:
         before_control = (
             journal.accounts(),
             journal.orders(),
-            journal.paper_traces("paper"),
+            tuple(journal.iter_paper_traces("paper")),
             journal.checkpoint("alpha"),
         )
         observer.deliver(
@@ -2471,7 +2475,7 @@ class TestSharedPublicPaper:
         assert (
             journal.accounts(),
             journal.orders(),
-            journal.paper_traces("paper"),
+            tuple(journal.iter_paper_traces("paper")),
             journal.checkpoint("alpha"),
         ) == before_control
         observer.deliver(
@@ -2764,7 +2768,7 @@ class TestSharedPublicPaper:
             observed_at=self.at + timedelta(seconds=2),
             report=None,
             decisions=(),
-            prior_trace_ids=frozenset(),
+            prior_traces=0,
             summary={},
             processing_ns=None,
             delivered_count=0,

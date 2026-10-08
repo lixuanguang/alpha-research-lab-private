@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime
 from fractions import Fraction
-from typing import Literal
+from typing import ClassVar, Literal
 
 # project library imports
 from accounting import AccountSnapshot, AccountState, Fill
@@ -32,6 +32,43 @@ class AccountQuote(WireRecord, frozen=True):
         self._require_utc(self.at, field_name="quote availability")
         if self.price.value <= 0:
             raise ValueError("account quote must be positive")
+
+
+class HistoryDigest(WireRecord, frozen=True):
+    """Bind one history table's row count to a hash chain over its item bytes.
+
+    The chain starts empty, and each row extends it with SHA-256 of the previous
+    digest's bytes followed by the row's exact stored bytes. Rows are only appended,
+    so a longer history extends a shorter one exactly when its chain continues it.
+    """
+
+    count: int
+    sha256: str
+
+    def __post_init__(self) -> None:
+        """Require an empty chain for no rows and a sha256 digest otherwise."""
+        HistoryDigest.require_shape(self.count, self.sha256, "invalid account history digest")
+
+    def extend(self, item: bytes) -> HistoryDigest:
+        """Chain one more item's exact bytes after the current rows."""
+        digest = hashlib.sha256(bytes.fromhex(self.sha256) + item).hexdigest()
+        return HistoryDigest(count=self.count + 1, sha256=digest)
+
+    @staticmethod
+    def require_shape(count: object, sha256: object, message: str) -> None:
+        """Require a row count, with no digest for no rows and lowercase hex sha256 otherwise."""
+        if (
+            type(count) is not int
+            or count < 0
+            or type(sha256) is not str
+            or (sha256 == "") != (count == 0)
+            or (count and (len(sha256) != 64 or sha256 != sha256.lower()))
+        ):
+            raise ValueError(message)
+        try:
+            bytes.fromhex(sha256)
+        except ValueError:
+            raise ValueError(message) from None
 
 
 class AccountPaperBinding(WireRecord, frozen=True):
@@ -136,6 +173,48 @@ class AccountPaperTrace(WireRecord, frozen=True):
             bool(self.child_fill_events)
             or any(event.fill is not None for event in self.physical_events)
         )
+
+
+class PaperTracePage(WireRecord, frozen=True):
+    """Return a bounded run of committed traces after a history position.
+
+    Positions are the journal-wide commit sequence, from zero, and ``after`` is -1
+    to start. ``traces`` follow ``after`` in commit order, at most ``maximum`` of
+    them, optionally within one account. A full page names the position of its last
+    trace in ``next_after`` to continue from; a shorter page ends the history at its
+    snapshot and has none. ``history`` is that snapshot's whole trace history, so a
+    reader can verify that the pages it joined are the history, not a part of it.
+    """
+
+    maximum: ClassVar[int] = 256
+
+    after: int
+    traces: tuple[AccountPaperTrace, ...]
+    next_after: int | None
+    history: HistoryDigest
+
+    def __post_init__(self) -> None:
+        """Bound the page and keep its cursor inside the history it names."""
+        self.history.__post_init__()
+        if (
+            type(self.after) is not int
+            or not -1 <= self.after < self.history.count
+            or type(self.traces) is not tuple
+            or len(self.traces) > self.maximum
+            or (len(self.traces) == self.maximum) != (self.next_after is not None)
+            or (
+                self.next_after is not None
+                and (
+                    type(self.next_after) is not int
+                    or not self.after < self.next_after < self.history.count
+                )
+            )
+        ):
+            raise ValueError("invalid paper trace page")
+        for trace in self.traces:
+            if type(trace) is not AccountPaperTrace:
+                raise TypeError("paper trace page requires AccountPaperTrace")
+            trace.__post_init__()
 
 
 class PaperMarketOutcome(WireRecord, frozen=True):

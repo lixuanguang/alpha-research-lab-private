@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 # standard library imports
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Protocol
 
 # project library imports
@@ -16,8 +18,10 @@ from execution.account_records import (
     AccountPaperTrace,
     AccountQuote,
     AccountView,
+    HistoryDigest,
     NetOrder,
     PaperMarketOutcome,
+    PaperTracePage,
     PortfolioBatch,
     PortfolioCommit,
     PortfolioResidual,
@@ -66,8 +70,26 @@ class PaperAccount(Protocol):
         """Read requests without interpreting admission as liquidation."""
         ...
 
-    def paper_traces(self, account_id: str | None = None) -> tuple[AccountPaperTrace, ...]:
-        """Read durable modeled effects for an account."""
+    def paper_trace_page(self, account_id: str | None = None, *, after: int = -1) -> PaperTracePage:
+        """Read at most ``PaperTracePage.maximum`` committed traces after a history position."""
+        ...
+
+    def iter_paper_traces(
+        self, account_id: str | None = None, *, after: int = -1
+    ) -> Iterator[AccountPaperTrace]:
+        """Yield committed traces after a position in commit order, one page at a time."""
+        ...
+
+    def latest_paper_traces(self, account_id: str) -> tuple[AccountPaperTrace, ...]:
+        """Read the newest committed trace of each instrument bound to the account."""
+        ...
+
+    def paper_trace_history(self) -> HistoryDigest:
+        """Read the committed trace history's count and hash chain."""
+        ...
+
+    def export_paper_traces(self, destination: Path, account_id: str | None = None) -> int:
+        """Publish committed traces as one JSON array checked against the trace history."""
         ...
 
     def paper_trace(self, account_id: str, market_identity: str) -> AccountPaperTrace | None:

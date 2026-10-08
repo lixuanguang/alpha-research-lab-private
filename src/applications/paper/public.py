@@ -164,7 +164,8 @@ async def run_live_shared_paper(
             or any(item.context.authority_scope != "paper" for item in bindings)
         ):
             raise ValueError("public paper deployment workload bindings differ")
-    initial_traces = frozenset(trace.input_sha256 for trace in journal.paper_traces(account_id))
+    # Every account's traces share one history; this run's follow its current length.
+    initial_traces = journal.paper_trace_history().count
     runtime = SharedDecisionRuntime(journal, bindings)
     observer = SharedPaperCaptureObserver(
         source=source,
@@ -259,9 +260,7 @@ async def run_live_shared_paper(
                 reason=scenario.gas_inapplicable_reason,
             ),
         )
-        (output / "execution-traces.json").write_bytes(
-            codec.encode_json(journal.paper_traces(account_id))
-        )
+        journal.export_paper_traces(output / "execution-traces.json", account_id)
         (output / "cost-report.json").write_bytes(codec.encode_json(report))
         paper = SharedPaperResult(
             accounts=journal.accounts(),
@@ -300,7 +299,7 @@ async def run_live_shared_paper(
                 observed_at=datetime.now(UTC),
                 report=None,
                 decisions=tuple(observer.decisions),
-                prior_trace_ids=initial_traces,
+                prior_traces=initial_traces,
                 summary={},
                 processing_ns=observer.processing_ns,
                 delivered_count=observer.delivered_count,
@@ -330,7 +329,7 @@ async def run_live_shared_paper(
         observed_at=datetime.now(UTC),
         report=report,
         decisions=tuple(observer.decisions),
-        prior_trace_ids=initial_traces,
+        prior_traces=initial_traces,
         summary=capture.summary,
         processing_ns=observer.processing_ns,
         delivered_count=observer.delivered_count,

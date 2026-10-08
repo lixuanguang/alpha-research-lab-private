@@ -111,15 +111,6 @@ class AccountPaperMatching:
             paper_bindings=bindings,
         )
 
-    def traces(self, account_id: str | None = None) -> tuple[AccountPaperTrace, ...]:
-        """Read exact public inputs and modeled effects in commit order."""
-        with self.store.snapshot() as snapshot:
-            if account_id is not None and account_id not in {
-                account.ledger.account_id for account in snapshot.state.accounts
-            }:
-                raise ValueError("unknown account")
-            return tuple(snapshot.iter_traces(account_id))
-
     def trace(
         self, account_id: str, market_identity: str, *, snapshot: _AccountSnapshot | None = None
     ) -> AccountPaperTrace | None:

@@ -27,9 +27,11 @@ from execution.account_records import (
     AccountQuote,
     AccountView,
     DecisionOutcome,
+    HistoryDigest,
     NetFeeCorrection,
     NetOrder,
     PaperMarketOutcome,
+    PaperTracePage,
     PortfolioBatch,
     PortfolioCommit,
     PortfolioResidual,
@@ -54,6 +56,7 @@ type AccountResponseProjection = Literal[
     "paper_activations",
     "quarantine",
     "traces",
+    "trace_history",
     "market_trace",
     "valuation",
     "reconciliation",
@@ -99,6 +102,7 @@ class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
         "reduce_paper",
         "serve_paper",
         "shutdown_paper",
+        "export_traces",
     ]
     decision: AccountDecision | None = None
     event: OrderEvent | None = None
@@ -120,6 +124,7 @@ class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
     query_batch: str | None = None
     query_market: str | None = None
     query_instrument: Dimension | None = None
+    query_after: int | None = None
     instance_id: str | None = None
     at: datetime | None = None
     account_id: str | None = None
@@ -131,6 +136,7 @@ class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
     manifest_sha256: str | None = None
     service_socket: str | None = None
     service_seconds: int | None = None
+    export_path: str | None = None
     projection: AccountResponseProjection = "full"
 
     def __post_init__(self) -> None:
@@ -145,6 +151,7 @@ class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
             "paper_activations",
             "quarantine",
             "traces",
+            "trace_history",
             "market_trace",
             "valuation",
             "reconciliation",
@@ -177,6 +184,13 @@ class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
                 raise ValueError("market trace requires only an account and market query")
         elif self.query_market is not None:
             raise ValueError("market query requires the market trace projection")
+        if self.projection == "traces":
+            if self.query_after is not None and (
+                type(self.query_after) is not int or self.query_after < -1
+            ):
+                raise ValueError("trace page position must be -1 or a history position")
+        elif self.query_after is not None:
+            raise ValueError("trace position requires the traces projection")
         if self.projection == "valuation":
             if type(self.query_instrument) is not Dimension or any(
                 value is not None
@@ -218,6 +232,7 @@ class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
             "bind_paper_scenario",
             "serve_paper",
             "shutdown_paper",
+            "export_traces",
         ):
             raise ValueError("invalid account action")
         for action, payload in fields.items():
@@ -269,6 +284,10 @@ class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
                 )
         elif self.service_socket is not None or self.service_seconds is not None:
             raise ValueError("paper service fields require service startup")
+        if (self.action == "export_traces") != (self.export_path is not None) or (
+            self.export_path is not None and not Path(self.export_path).is_absolute()
+        ):
+            raise ValueError("trace export requires exactly an absolute export path")
         if self.action == "shutdown_paper" and (
             self.paper_owner is None
             or self.control is None
@@ -317,6 +336,7 @@ class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
                 "claim_paper",
                 "bind_paper_scenario",
                 "public_market",
+                "export_traces",
             )
             and self.account_id is not None
         ) or self.reason is not None:
@@ -395,6 +415,9 @@ class AccountExecutionResult(WireRecord, frozen=True, omit_defaults=True):
     checkpoint: bytes | None = None
     saved_batch: PortfolioBatch | None = None
     public_market: PaperMarketOutcome | None = None
+    paper_trace_page: PaperTracePage | None = None
+    paper_trace_history: HistoryDigest | None = None
+    exported_traces: int | None = None
     reduction_result: PaperReductionResult | None = None
     claimed_owner: PaperOwner | None = None
     valuation: AccountQuote | None = None
@@ -464,6 +487,14 @@ class AccountExecutionResult(WireRecord, frozen=True, omit_defaults=True):
             self.saved_batch.__post_init__()
         if self.public_market is not None:
             self.public_market.__post_init__()
+        if self.paper_trace_page is not None:
+            self.paper_trace_page.__post_init__()
+        if self.paper_trace_history is not None:
+            self.paper_trace_history.__post_init__()
+        if self.exported_traces is not None and (
+            type(self.exported_traces) is not int or self.exported_traces < 0
+        ):
+            raise ValueError("trace export result must be a count")
         if self.reduction_result is not None:
             self.reduction_result.__post_init__()
         if self.claimed_owner is not None:

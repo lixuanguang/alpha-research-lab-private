@@ -484,7 +484,7 @@ class TestPaperActivation:
             PaperBooks.apply(
                 worker, "shared", self._market("stale-book", self._at(14)), self._scenario()
             )
-        assert worker.paper_traces("shared") == ()
+        assert tuple(worker.iter_paper_traces("shared")) == ()
         clock.at = self._at(14)
         with pytest.raises(ValueError, match="paper_input_stale_or_future"):
             worker.admit(self._decision("future-direct-buy", self._at(15), quote))
@@ -493,7 +493,7 @@ class TestPaperActivation:
                 worker, "shared", self._market("future-book", self._at(15)), self._scenario()
             )
         assert worker.orders() == ()
-        assert worker.paper_traces("shared") == ()
+        assert tuple(worker.iter_paper_traces("shared")) == ()
 
     def test_managed_portfolio_context_matches_deployment_before_mutation(
         self, tmp_path: Path
@@ -956,7 +956,7 @@ class TestPaperActivation:
         reopened = AccountJournal(path, self._config(), paper_owner=rollback_owner, clock=clock)
         assert AccountLedger(reopened.accounts()[0].ledger).snapshot() == finished
         assert PaperBooks.apply(reopened, "shared", second_market, self._scenario()) == final_trace
-        assert len(reopened.paper_traces("shared")) == 2
+        assert len(tuple(reopened.iter_paper_traces("shared"))) == 2
         assert reopened.paper_trace("shared", first_market.identity) is not None
         assert reopened.paper_trace("shared", second_market.identity) is not None
 

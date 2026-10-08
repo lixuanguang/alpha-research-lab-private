@@ -129,7 +129,7 @@ class _SharedFirmHistory:
 
     def quiet_traces(self) -> int:
         """Read every retained trace of the quiet account."""
-        return len(self.journal.paper_traces("quiet"))
+        return len(tuple(self.journal.iter_paper_traces("quiet")))
 
     @staticmethod
     def median_seconds(operation: Callable[[], object], repeats: int = 31) -> float:
@@ -424,7 +424,7 @@ class TestBoundedMonitoringReads:
             history.round_trip()
             for _ in range(20):
                 history.busy_tick()
-        traces = history.journal.paper_traces("busy")
+        traces = tuple(history.journal.iter_paper_traces("busy"))
         filled = [trace.market.identity for trace in traces if trace.filled]
         # Each round trip fills an IOC buy and an IOC sell on its own book.
         assert len(filled) == history.orders == 6 and len(traces) == 66
@@ -444,7 +444,11 @@ class TestBoundedMonitoringReads:
         assert sorted(decoded) == sorted([*filled, traces[-1].market.identity])
 
     def test_monitoring_projection_keeps_only_the_newest_trace(self, tmp_path: Path) -> None:
-        """Monitoring equals the full inspection except that it carries the newest trace only."""
+        """Inspection states the trace history; monitoring adds each instrument's newest trace.
+
+        Neither returns the history itself: the full inspection carries the history's
+        count and chain instead, which equal the journal's own.
+        """
         history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
         for _ in range(3):
             history.round_trip()
@@ -455,14 +459,18 @@ class TestBoundedMonitoringReads:
         monitoring = history.journal.result_snapshot(
             AccountExecutionRequest(action="inspect", account_id="busy", projection="monitoring")
         )
-        assert len(full.paper_traces) > 1
-        assert monitoring.paper_traces == (full.paper_traces[-1],)
-        assert replace(monitoring, paper_traces=full.paper_traces) == full
+        traces = tuple(history.journal.iter_paper_traces("busy"))
+        assert len(traces) > 1 and full.paper_traces == ()
+        assert full.paper_trace_history == history.journal.paper_trace_history()
+        assert full.paper_trace_history is not None
+        assert full.paper_trace_history.count == len(tuple(history.journal.iter_paper_traces()))
+        assert monitoring.paper_traces == (traces[-1],)
+        assert replace(monitoring, paper_traces=()) == full
         with pytest.raises(ValueError, match="requires inspection"):
             AccountExecutionRequest(action="quote", projection="monitoring")
 
     def test_monitoring_response_size_ignores_trace_history(self, tmp_path: Path) -> None:
-        """The bounded read stays one size as traces accumulate; the full read keeps growing."""
+        """Both the full and the monitoring read stay one size as traces accumulate."""
         history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
         history.round_trip()
         codec = DomainCodec()
@@ -477,6 +485,6 @@ class TestBoundedMonitoringReads:
                     )
                 )
                 sizes[projection].append(len(codec.encode_json(result)))
-        # Only identifier lengths in the newest trace may differ.
+        # Only identifier lengths in the newest trace and the history count may differ.
         assert abs(sizes["monitoring"][1] - sizes["monitoring"][0]) < 100
-        assert sizes["full"][1] > 5 * sizes["full"][0]
+        assert abs(sizes["full"][1] - sizes["full"][0]) < 100

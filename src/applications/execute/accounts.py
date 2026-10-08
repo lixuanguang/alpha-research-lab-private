@@ -204,6 +204,7 @@ class AccountExecutionApplication:
         reconciled: bool | None = None
         portfolio: PortfolioCommit | None = None
         public_market: PaperMarketOutcome | None = None
+        exported_traces: int | None = None
         reduction_result: PaperReductionResult | None = None
         claimed_owner: PaperOwner | None = None
         if request.deployment is not None:
@@ -240,6 +241,12 @@ class AccountExecutionApplication:
                 raise ValueError("public market request is incomplete")
             public_market = journal.apply_public_market(
                 request.account_id, request.market, request.scenario
+            )
+        elif request.action == "export_traces":
+            if request.export_path is None:
+                raise ValueError("trace export is incomplete")
+            exported_traces = journal.export_paper_traces(
+                Path(request.export_path), request.account_id
             )
         elif request.reduction is not None:
             if not any(
@@ -315,6 +322,7 @@ class AccountExecutionApplication:
             alert_error=alert_error,
             recovery=recovery,
             public_market=public_market,
+            exported_traces=exported_traces,
             reduction_result=reduction_result,
             claimed_owner=claimed_owner,
         )

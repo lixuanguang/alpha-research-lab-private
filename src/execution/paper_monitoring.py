@@ -77,7 +77,8 @@ class PaperMonitoring:
             *(posting.known_at for posting in account.ledger.postings),
             *(item.order.decision_at for item in tagged),
             *(order.decision_at for order in physical),
-            *(trace.market.at for trace in journal.paper_traces(account_id)),
+            # Each instrument's newest trace holds that instrument's latest market clock.
+            *(trace.market.at for trace in journal.latest_paper_traces(account_id)),
         ]
         if account.reconciled_at is not None:
             known_clocks.append(account.reconciled_at)

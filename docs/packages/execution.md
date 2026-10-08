@@ -253,16 +253,36 @@ account fault; the command then raises, and an exact retry raises the same
 failure. Unknown outcomes remain reserved; cancellation is terminal only after its
 modeled confirmation.
 
-`paper_traces(account_id)` exposes each exact market, scenario, input digest,
-physical events, attributed child fills and durable liquidity cursor, including
-no-fill markets. `paper_report_facts(account_id)` exposes strategy-owned fills and
-their current effective fee links; a corrected-to-zero fee has an explicit zero
-link. `paper_trace(account_id, market_identity)` reads one market's committed or
-failed trace in exactly that account. `valuation(instrument)` reads the latest observed
-valuation quote of one instrument; installed clients request the `valuation`
-projection with only `query_instrument`. A shadow account keeps no trace, so a shared
-observer replaying into it skips a book older than that valuation as already applied. Installed clients request `market_trace`
-with `account_id` and `query_market`, avoiding transfer of historical trace bodies.
+Each trace holds the exact market, scenario, input digest, physical events,
+attributed child fills and durable liquidity cursor, including no-fill markets.
+The trace history grows with every eligible book, so it is read in bounded pieces,
+never whole:
+- `paper_trace(account_id, market_identity)` reads one market's trace, if the
+  account applied it;
+- `paper_trace_page(account_id, after=...)` reads at most `PaperTracePage.maximum`
+  (256) traces after a journal-wide position, from -1. Each page names the
+  position to continue from and the whole history's `HistoryDigest`: its count and
+  the hash chain over every trace's exact bytes, so pages joined from successive
+  snapshots can be checked against it. `iter_paper_traces` joins pages;
+- `latest_paper_traces(account_id)` reads the newest trace of each bound instrument;
+- `paper_trace_history()` reads the history's count and chain;
+- `export_paper_traces(destination, account_id)` publishes the codec's encoding of
+  the account's traces as one JSON array, written from their stored bytes in
+  bounded memory while every row of the history extends the chain checked against
+  the head; a mismatch leaves no file.
+
+`paper_report_facts(account_id)` exposes strategy-owned fills and their current
+effective fee links; a corrected-to-zero fee has an explicit zero link.
+`valuation(instrument)` reads the latest observed valuation quote of one
+instrument; installed clients request the `valuation` projection with only
+`query_instrument`. A shadow account keeps no trace, so a shared observer
+replaying into it skips a book older than that valuation as already applied.
+Installed clients read one market's trace with the `market_trace` projection
+(`account_id`, `query_market`), a page with the `traces` projection
+(`query_after`), and the history with `trace_history`; a full inspection states
+`paper_trace_history` instead of returning trace bodies, and `monitoring` adds
+each bound instrument's newest trace. The one-shot `export_traces` command
+(`export_path`, optional `account_id`) runs the export in the signed runner.
 Reconciliation still requires a complete independently supplied
 `AccountObservation` with physical cash, positions, costs, posting identities and
 cumulative physical open orders. A journal report or its own modeled trace is
@@ -561,11 +581,19 @@ The controls trust the local operator/source boundary; they are not a credential
 or live-capital authorization mechanism.
 
 Unknown schemas fail. `AccountJournal.verify(path, config)` performs
-read-only integrity/config/schema validation and sees committed WAL state; it also
-checks every history row, its key columns and the head's counts, hash chains and
-checkpoints, and every state row against its digest and the head's row summaries;
-`storage="snapshot"` additionally requires no SQLite sidecars and leaves a
-standalone snapshot unchanged. The [workspace recovery owner](runtime.md#account-workspace-recovery)
+read-only integrity/config/schema validation and sees committed WAL state. It runs
+SQLite's `integrity_check`, requires the exact layout and configuration, decodes
+the head, and checks every state row against its digest and the head's row
+summaries, decoding the state, ledger included, in full. It streams every history
+row (decisions, portfolio batches, paper traces) once, in order: each row's exact
+bytes must extend its table's hash chain to the head's count and digest, each
+row's key columns must equal the keys its bytes name (a trace's fill flag
+included), and the head's checkpoints must be each instance's latest decision.
+History rows were validated domain records when they were encoded and committed,
+and every read decodes them in full again, so verification reads only their keys:
+its time is linear in the stored bytes and its memory bounded by one row, at any
+history size. `storage="snapshot"` additionally requires no SQLite sidecars and
+leaves a standalone snapshot unchanged. The [workspace recovery owner](runtime.md#account-workspace-recovery)
 uses these checks under backup locks and before restore publication.
 
 ## Bounded paper deployment authority

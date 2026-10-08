@@ -535,7 +535,9 @@ background system daemon or grant private venue authority.
    length; the owner service's retained requests, with their exact bytes, are the
    lines of `service-requests/<life>.jsonl` beside the journal. A line whose
    SHA-256 matches holds what was sent; no such line means the service never
-   retained, and so never applied, that payload.
+   retained, and so never applied, that payload. For a book, look up its market
+   identity's trace (`market_trace`); a full inspection states the trace history's
+   count and chain, and `traces` pages or `export_traces` read the history itself.
 6. An account/delivery persistence failure stops affected admission; storage that
    cannot record a fault cannot prove a clean stop. Terminate the producer, retain
    the failure, restore writable storage, inspect current state and reconcile.

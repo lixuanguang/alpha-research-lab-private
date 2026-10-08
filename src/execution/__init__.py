@@ -2,7 +2,13 @@
 
 # project library imports
 from execution.account_commands import AccountExecutionRequest, AccountExecutionResult
-from execution.account_records import NativeFill, PaperMarketOutcome, PhysicalAccountObservation
+from execution.account_records import (
+    HistoryDigest,
+    NativeFill,
+    PaperMarketOutcome,
+    PaperTracePage,
+    PhysicalAccountObservation,
+)
 from execution.account_recovery import AccountRecoveryReceipt
 from execution.account_reduction import PaperReductionRequest, PaperReductionResult
 from execution.accounts import (
@@ -91,6 +97,7 @@ __all__ = [
     "EventKind",
     "ExecutionMonitoring",
     "GatewayView",
+    "HistoryDigest",
     "InstalledPaperAccount",
     "JournalEvent",
     "MarketTouch",
@@ -116,6 +123,7 @@ __all__ = [
     "PaperReductionRequest",
     "PaperReductionResult",
     "PaperTouchLiquidity",
+    "PaperTracePage",
     "PhysicalAccountObservation",
     "PortfolioBatch",
     "PortfolioCommit",

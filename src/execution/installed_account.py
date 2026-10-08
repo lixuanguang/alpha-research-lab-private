@@ -9,6 +9,7 @@ import socket
 import struct
 import subprocess  # nosec B404  # [owner=execution; rationale=Bounded signed launcher uses explicit argv without a shell; expires=2027-03-01]
 import threading
+from collections.abc import Iterator
 from pathlib import Path
 from uuid import uuid4
 
@@ -31,8 +32,10 @@ from execution.account_records import (
     AccountPaperTrace,
     AccountQuote,
     AccountView,
+    HistoryDigest,
     NetOrder,
     PaperMarketOutcome,
+    PaperTracePage,
     PortfolioBatch,
     PortfolioCommit,
     PortfolioResidual,
@@ -170,9 +173,52 @@ class InstalledPaperAccount:
         """Read admitted/rejected reduction requests without claiming fills."""
         return self._inspect(projection="reductions").paper_reductions
 
-    def paper_traces(self, account_id: str | None = None) -> tuple[AccountPaperTrace, ...]:
-        """Read original public quotes and committed modeled effects."""
-        return self._inspect(account_id=account_id, projection="traces").paper_traces
+    def paper_trace_page(self, account_id: str | None = None, *, after: int = -1) -> PaperTracePage:
+        """Read one bounded page of committed traces after a position from installed state."""
+        page = self.execute(
+            AccountExecutionRequest(
+                action="inspect", account_id=account_id, query_after=after, projection="traces"
+            )
+        ).paper_trace_page
+        if page is None or page.after != after:
+            raise ValueError("installed paper response lacks the requested trace page")
+        return page
+
+    def iter_paper_traces(
+        self, account_id: str | None = None, *, after: int = -1
+    ) -> Iterator[AccountPaperTrace]:
+        """Yield installed committed traces after a position, one bounded page at a time."""
+        while True:
+            page = self.paper_trace_page(account_id, after=after)
+            yield from page.traces
+            if page.next_after is None:
+                return
+            after = page.next_after
+
+    def latest_paper_traces(self, account_id: str) -> tuple[AccountPaperTrace, ...]:
+        """Read each bound instrument's newest committed trace from installed state."""
+        return self._inspect(account_id=account_id, projection="monitoring").paper_traces
+
+    def paper_trace_history(self) -> HistoryDigest:
+        """Read the installed trace history's count and hash chain."""
+        history = self._inspect(projection="trace_history").paper_trace_history
+        if history is None:
+            raise ValueError("installed paper response lacks the trace history")
+        return history
+
+    def export_paper_traces(self, destination: Path, account_id: str | None = None) -> int:
+        """Have the signed runner publish committed traces, checked against its history."""
+        exported = self.execute(
+            AccountExecutionRequest(
+                action="export_traces",
+                account_id=account_id,
+                export_path=str(destination),
+                projection="operation",
+            )
+        ).exported_traces
+        if exported is None:
+            raise ValueError("installed paper response lacks the trace export count")
+        return exported
 
     def paper_trace(self, account_id: str, market_identity: str) -> AccountPaperTrace | None:
         """Read the account's trace of one market identity from installed state."""

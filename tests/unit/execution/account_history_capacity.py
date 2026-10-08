@@ -5,9 +5,10 @@ one trace for every eligible priced book, so a day's traces far outnumber its
 coordinated batches. History traces are committed traces without economic events,
 as almost every matched book is; the measured commits keep the template's filled
 trace. Each history-size-dependent reader is also timed in a fresh interpreter at
-the full history: the cold monitoring and facts projections, the trace export, full
-verification, the protective reduction's newest-trace read and history-wide exact
-retry lookups.
+the full history: the cold monitoring, facts and full inspection projections, the
+newest trace page, the trace history and each instrument's newest trace, the trace
+export, verification, the protective reduction's newest-trace read, history-wide
+exact retry lookups, and a stopped copy's account backup and restore.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import hashlib
 import math
 import platform
 import resource
+import shutil
 import sqlite3
 import subprocess  # nosec B404  # [owner=runtime; rationale=fresh local interpreters of this consumer; expires=2027-03-01]
 import sys
@@ -44,6 +46,7 @@ from configuration import (
     PaperExecutionScenario,
 )
 from execution import (
+    AccountControl,
     AccountDecision,
     AccountExecutionRequest,
     AccountJournal,
@@ -52,6 +55,7 @@ from execution import (
     AccountQuote,
     OrderDecision,
     PaperMarket,
+    PaperTracePage,
     PortfolioBatch,
     PortfolioContext,
     PortfolioDecision,
@@ -65,6 +69,7 @@ from execution.account_state import (
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
+from runtime import AccountWorkspace
 from serialization import DomainCodec
 from strategies import OrderIntent
 
@@ -81,7 +86,19 @@ _CHECKPOINT_BYTES = 675
 _FILL_BATCHES = 100
 _FILL_TRACES = 1000
 # History-size-dependent readers timed in a fresh interpreter at the full history.
-_READERS = ("monitoring", "facts", "traces", "verify", "newest", "retry")
+_READERS = (
+    "monitoring",
+    "facts",
+    "full",
+    "page",
+    "history",
+    "latest",
+    "traces",
+    "verify",
+    "newest",
+    "retry",
+    "recovery",
+)
 # Existing market identities spread over the whole history, looked up as a replay
 # into the existing journal does for every book: the one per-book command resolves
 # each identity against the whole history.
@@ -115,6 +132,9 @@ class HistoryCapacityCommand:
         memory.add_argument("--commits", type=int, required=True)
         fresh = commands.add_parser("fresh-open")
         fresh.add_argument("--journal", type=Path, required=True)
+        commits = commands.add_parser("commits")
+        commits.add_argument("--journal", type=Path, required=True)
+        commits.add_argument("--commits", type=int, required=True)
         reader = commands.add_parser("reader")
         reader.add_argument("--journal", type=Path, required=True)
         reader.add_argument("--operation", choices=_READERS, required=True)
@@ -142,6 +162,13 @@ class HistoryCapacityCommand:
             print(
                 msgspec.json.encode(
                     HistoryMeasurements.memory_probe(parsed.journal, parsed.commits)
+                ).decode()
+            )
+            return 0
+        if parsed.command == "commits":
+            print(
+                msgspec.json.encode(
+                    HistoryMeasurements.commit_probe(parsed.journal, parsed.commits)
                 ).decode()
             )
             return 0
@@ -482,6 +509,19 @@ class HistoryMeasurements:
         }
 
     @staticmethod
+    def commit_probe(path: Path, commits: int) -> dict[str, dict[str, int]]:
+        """Time coordination- and matching-shaped commits on an existing history copy."""
+        store = AccountStateStore(path, HistoryJournalFixture.configuration(), DomainCodec())
+        items = HistoryItems(store)
+        base = 20_000_000
+        batches = [HistoryMeasurements.batch_commit(store, items, base + n) for n in range(commits)]
+        traces = [HistoryMeasurements.trace_commit(store, items, base + n) for n in range(commits)]
+        return {
+            "batch_commit": HistoryMeasurements.percentiles(batches),
+            "trace_commit": HistoryMeasurements.percentiles(traces),
+        }
+
+    @staticmethod
     def fresh_open_probe(path: Path) -> dict[str, int]:
         """Time one open in this interpreter after imports."""
         return {"open_ns": HistoryMeasurements.cold_open(path)}
@@ -551,6 +591,8 @@ class HistoryReaders:
         started = time.perf_counter_ns()
         if operation == "retry":
             return HistoryReaders.retry(path, config, traces[0] - 1)
+        if operation == "recovery":
+            return HistoryReaders.recovery(path, config)
         if operation == "verify":
             items = len(AccountJournal.verify(path, config))
         elif operation == "newest":
@@ -558,18 +600,29 @@ class HistoryReaders:
             with store.snapshot() as snapshot:
                 items = len(tuple(islice(snapshot.iter_traces(_ACCOUNT, newest_first=True), 1)))
         elif operation == "traces":
-            # The public paper export: every account trace, encoded as one document.
-            items = len(
-                DomainCodec().encode_json(AccountJournal(path, config).paper_traces(_ACCOUNT))
+            # The public paper export: every account trace, published as one document.
+            export = path.with_name(f"{path.name}.traces-export.json")
+            try:
+                items = AccountJournal(path, config).export_paper_traces(export, _ACCOUNT)
+            finally:
+                export.unlink(missing_ok=True)
+        elif operation == "page":
+            journal = AccountJournal(path, config)
+            page = journal.paper_trace_page(
+                _ACCOUNT, after=max(-1, traces[0] - 1 - PaperTracePage.maximum)
             )
-        elif operation in ("monitoring", "facts"):
-            result = AccountJournal(path, config).result_snapshot(
-                AccountExecutionRequest(
-                    action="inspect",
-                    account_id=_ACCOUNT,
-                    projection="monitoring" if operation == "monitoring" else "facts",
+            items = len(page.traces)
+        elif operation == "history":
+            items = AccountJournal(path, config).paper_trace_history().count
+        elif operation == "latest":
+            items = len(AccountJournal(path, config).latest_paper_traces(_ACCOUNT))
+        elif operation in ("monitoring", "facts", "full"):
+            request = AccountExecutionRequest(action="inspect", account_id=_ACCOUNT)
+            if operation != "full":
+                request = replace(
+                    request, projection="monitoring" if operation == "monitoring" else "facts"
                 )
-            )
+            result = AccountJournal(path, config).result_snapshot(request)
             items = len(result.paper_fills) + len(result.paper_traces)
         else:
             raise ValueError(f"unknown history reader {operation}")
@@ -577,6 +630,52 @@ class HistoryReaders:
             "elapsed_ns": time.perf_counter_ns() - started,
             "items": items,
             "traces": traces[0],
+            "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * _RSS_UNIT,
+        }
+
+    @staticmethod
+    def recovery(path: Path, config: AccountConfiguration) -> dict[str, int]:
+        """Stop a consistent copy, then time its account backup and restore.
+
+        Both run the owner's own procedures, including every verification, on the
+        copy's full history; the copy and its backup and restore are removed after.
+        """
+        root = path.with_name(f"{path.name}.recovery")
+        root.mkdir()
+        try:
+            started = time.perf_counter_ns()
+            journal = root / "workspace/state/accounts.sqlite3"
+            journal.parent.mkdir(parents=True)
+            HistoryMeasurements.copy_journal(path, journal)
+            stopped = AccountJournal(journal, config).control(
+                AccountControl(
+                    identity="history-recovery-stop",
+                    account_id=_ACCOUNT,
+                    kind="stop",
+                    at=datetime.now(UTC),
+                    reason="history recovery probe",
+                )
+            )
+            if stopped.status != "applied":
+                raise ValueError(f"history recovery stop refused: {stopped.reason}")
+            copied = time.perf_counter_ns()
+            workspace = AccountWorkspace(config, component="state", journal_name=journal.name)
+            receipt = workspace.backup(root / "workspace", root / "backup")
+            backed_up = time.perf_counter_ns()
+            workspace.restore(
+                root / "backup",
+                root / "restored",
+                expected_manifest_sha256=receipt.manifest_sha256,
+            )
+            restored = time.perf_counter_ns()
+            journal_bytes = journal.stat().st_size
+        finally:
+            shutil.rmtree(root)
+        return {
+            "copy_and_stop_ns": copied - started,
+            "backup_ns": backed_up - copied,
+            "restore_ns": restored - backed_up,
+            "journal_bytes": journal_bytes,
             "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * _RSS_UNIT,
         }
 

@@ -11,7 +11,7 @@ from contextlib import closing, contextmanager
 from datetime import datetime
 from itertools import chain, compress
 from pathlib import Path
-from typing import Literal, NamedTuple, cast
+from typing import BinaryIO, Literal, NamedTuple, cast
 
 # third party library imports
 import msgspec
@@ -28,6 +28,7 @@ from execution.account_records import (
     AccountPaperTrace,
     AccountQuote,
     AccountView,
+    HistoryDigest,
     NativeFeeAllocation,
     NativeFill,
     NetFeeAllocation,
@@ -146,38 +147,6 @@ class FirmState(WireRecord, frozen=True):
     paper_activations: tuple[PaperActivation, ...] = ()
     paper_reductions: tuple[PaperReductionResult, ...] = ()
     paper_restore_quarantine: bool = False
-
-
-class HistoryDigest(WireRecord, frozen=True):
-    """Bind one history table's row count to a hash chain over its item bytes."""
-
-    count: int
-    sha256: str
-
-    def __post_init__(self) -> None:
-        """Require an empty chain for no rows and a sha256 digest otherwise."""
-        HistoryDigest.require_shape(self.count, self.sha256, "invalid account history digest")
-
-    def extend(self, item: bytes) -> HistoryDigest:
-        """Chain one more item's exact bytes after the current rows."""
-        digest = hashlib.sha256(bytes.fromhex(self.sha256) + item).hexdigest()
-        return HistoryDigest(count=self.count + 1, sha256=digest)
-
-    @staticmethod
-    def require_shape(count: object, sha256: object, message: str) -> None:
-        """Require a row count, with no digest for no rows and lowercase hex sha256 otherwise."""
-        if (
-            type(count) is not int
-            or count < 0
-            or type(sha256) is not str
-            or (sha256 == "") != (count == 0)
-            or (count and (len(sha256) != 64 or sha256 != sha256.lower()))
-        ):
-            raise ValueError(message)
-        try:
-            bytes.fromhex(sha256)
-        except ValueError:
-            raise ValueError(message) from None
 
 
 class _InstanceCheckpoint(WireRecord, frozen=True):
@@ -619,6 +588,16 @@ _ITER_TRACES = {
 }
 
 
+# Committed traces after a position, in commit order, every account's or one's.
+_TRACE_PAGE = {
+    False: "SELECT seq, payload FROM paper_traces WHERE seq>? ORDER BY seq ASC LIMIT ?",
+    True: (
+        "SELECT seq, payload FROM paper_traces WHERE account_id=? AND seq>? "
+        "ORDER BY seq ASC LIMIT ?"
+    ),
+}
+# Every committed trace in commit order, for an export that checks the whole chain.
+_EXPORT_TRACES = "SELECT account_id, payload FROM paper_traces ORDER BY seq ASC"
 # The newest trace of one account instrument, read for its market clock alone.
 _LATEST_TRACE = (
     "SELECT payload FROM paper_traces WHERE account_id=? AND instrument_id=? "
@@ -642,12 +621,87 @@ class _TraceMarketClock(msgspec.Struct, frozen=True):
     market: _MarketClock
 
 
+class _IdentityKey(msgspec.Struct, frozen=True):
+    """Read a nested record's identity; its other fields are skipped."""
+
+    identity: str
+
+
+class _DecisionRequestKey(msgspec.Struct, frozen=True):
+    """Read a saved decision's instance, decision identity and continuation."""
+
+    instance_id: str
+    decision: _IdentityKey
+    checkpoint: bytes
+
+
+class _DecisionKey(msgspec.Struct, frozen=True):
+    """Read the lookup columns and checkpoint a ``decisions`` row's bytes name."""
+
+    request: _DecisionRequestKey
+
+    def columns(self) -> tuple[str | int, ...]:
+        """Return the ``decisions`` key columns these bytes require."""
+        return self.request.instance_id, self.request.decision.identity
+
+
+class _BatchKey(msgspec.Struct, frozen=True):
+    """Read the lookup column a ``portfolio_batches`` row's bytes name."""
+
+    batch: _IdentityKey
+
+    def columns(self) -> tuple[str | int, ...]:
+        """Return the ``portfolio_batches`` key column these bytes require."""
+        return (self.batch.identity,)
+
+
+class _ScenarioKey(msgspec.Struct, frozen=True):
+    """Read a scenario's venue and canonical instrument text."""
+
+    venue: str
+    instrument_id: str
+
+
+class _FillMark(msgspec.Struct, frozen=True):
+    """Read whether an order event carries a fill, without decoding the fill."""
+
+    fill: msgspec.Raw = msgspec.Raw(b"null")
+
+
+class _TraceKey(msgspec.Struct, frozen=True):
+    """Read the lookup columns and fill flag a ``paper_traces`` row's bytes name."""
+
+    account_id: str
+    scenario: _ScenarioKey
+    market: _IdentityKey
+    status: str
+    physical_events: tuple[_FillMark, ...]
+    child_fill_events: tuple[_FillMark, ...]
+
+    def columns(self) -> tuple[str | int, ...]:
+        """Return the ``paper_traces`` key columns, deriving the fill flag as a trace does."""
+        filled = self.status == "committed" and (
+            bool(self.child_fill_events)
+            or any(bytes(event.fill) != b"null" for event in self.physical_events)
+        )
+        return (
+            self.account_id,
+            self.scenario.venue,
+            self.scenario.instrument_id,
+            self.market.identity,
+            int(filled),
+        )
+
+
 class _HistoryTables:
     """Read committed history rows inside one open SQLite transaction."""
 
     _clock_decoder: msgspec.json.Decoder[_TraceMarketClock] = msgspec.json.Decoder(
         _TraceMarketClock
     )
+    _decision_keys: msgspec.json.Decoder[_DecisionKey] = msgspec.json.Decoder(_DecisionKey)
+    _batch_keys: msgspec.json.Decoder[_BatchKey] = msgspec.json.Decoder(_BatchKey)
+    _trace_keys: msgspec.json.Decoder[_TraceKey] = msgspec.json.Decoder(_TraceKey)
 
     def __init__(
         self, connection: sqlite3.Connection, codec: DomainCodec, summary: HistorySummary
@@ -714,6 +768,54 @@ class _HistoryTables:
         payload = self._payload(_LATEST_TRACE, (account_id, self._instrument(instrument_id)))
         return None if payload is None else self._clock_decoder.decode(payload).market.at
 
+    def latest_trace(
+        self, account_id: str, instrument_id: InstrumentId
+    ) -> AccountPaperTrace | None:
+        """Return the newest committed trace of one account instrument, decoded in full."""
+        payload = self._payload(_LATEST_TRACE, (account_id, self._instrument(instrument_id)))
+        return None if payload is None else self.codec.decode_json(payload, AccountPaperTrace)
+
+    def trace_page(
+        self, account_id: str | None, after: int, limit: int
+    ) -> list[tuple[int, AccountPaperTrace]]:
+        """Return up to ``limit`` committed traces after a position, with their positions."""
+        parameters = (after, limit) if account_id is None else (account_id, after, limit)
+        cursor = self.connection.execute(_TRACE_PAGE[account_id is not None], parameters)
+        return [
+            (
+                cast(int, row[0]),
+                self.codec.decode_json(self._blob(row[1]), AccountPaperTrace),
+            )
+            for row in cast(Iterator[tuple[object, ...]], cursor)
+        ]
+
+    def export_traces(self, account_id: str | None, stream: BinaryIO) -> int:
+        """Write committed trace bytes as one JSON array, checking the whole chain.
+
+        Every row's exact stored bytes extend the chain, every account's included, and
+        the chain must end at the head's count and digest. The selected rows are
+        written unchanged between ``[``, ``,`` and ``]``, which is exactly the codec's
+        encoding of the tuple of those traces. Memory stays bounded by one row.
+
+        Returns:
+            The number of traces written.
+
+        Raises:
+            ValueError: The stored rows differ from the head's trace history.
+        """
+        chain, count, written = b"", 0, 0
+        stream.write(b"[")
+        for row in cast(Iterator[tuple[object, ...]], self.connection.execute(_EXPORT_TRACES)):
+            payload = self._blob(row[1])
+            chain = hashlib.sha256(chain + payload).digest()
+            count += 1
+            if account_id is None or row[0] == account_id:
+                stream.write(b"," + payload if written else payload)
+                written += 1
+        stream.write(b"]")
+        self._require_chain("paper_traces", count, chain)
+        return written
+
     def iter_decisions(self) -> Iterator[SavedDecision]:
         """Yield committed decisions in commit order."""
         cursor = self.connection.execute("SELECT payload FROM decisions ORDER BY seq ASC")
@@ -757,13 +859,22 @@ class _HistoryTables:
         )
 
     def verify(self) -> None:
-        """Check every row, its key columns and the head's counts, digests and checkpoints."""
-        decisions = self._verify_table("decisions", SavedDecision, _HistoryTables._decision_key)
-        self._verify_table("portfolio_batches", SavedPortfolioBatch, _HistoryTables._batch_key)
-        self._verify_table("paper_traces", AccountPaperTrace, _HistoryTables._trace_key)
+        """Check every row's bytes, key columns and the head's counts, digests and checkpoints.
+
+        Each row's exact stored bytes extend its table's hash chain, which must end at
+        the head's count and digest; each row's key columns must equal the keys its
+        bytes name; and the head's checkpoints must be each instance's latest decision.
+        Every row was a validated domain record when it was encoded and committed, and
+        every read decodes it in full again, so this check reads only its keys: its
+        time is linear in the stored bytes and its memory bounded by one row.
+        """
         checkpoints: dict[str, bytes] = {}
-        for saved in decisions:
-            checkpoints[saved.request.instance_id] = saved.request.checkpoint
+        for decision in self._verified_keys("decisions", self._decision_keys):
+            checkpoints[decision.request.instance_id] = decision.request.checkpoint
+        for _ in self._verified_keys("portfolio_batches", self._batch_keys):
+            pass
+        for _ in self._verified_keys("paper_traces", self._trace_keys):
+            pass
         expected = tuple(
             _InstanceCheckpoint(instance_id=instance_id, checkpoint=checkpoint)
             for instance_id, checkpoint in checkpoints.items()
@@ -786,24 +897,31 @@ class _HistoryTables:
             digest = digest.extend(payload)
         return digest
 
-    def _verify_table[T](
-        self, table: str, target: type[T], key: Callable[[T], tuple[str | int, ...]]
-    ) -> list[T]:
-        """Decode one table in order and compare it with the head's digest."""
+    def _verified_keys[K: (_DecisionKey, _BatchKey, _TraceKey)](
+        self, table: str, decoder: msgspec.json.Decoder[K]
+    ) -> Iterator[K]:
+        """Yield each row's keys in order once its position, columns and bytes check out.
+
+        The table's chain is compared with the head after the last row, so a caller
+        must read every yielded row.
+        """
         cursor = self.connection.execute(_TABLE_STATEMENTS[table][1])
-        digest = HistoryDigest(count=0, sha256="")
-        items: list[T] = []
+        chain, count = b"", 0
         for row in cast(Iterator[tuple[object, ...]], cursor):
             payload = self._blob(row[-1])
-            item = self.codec.decode_json(payload, target)
-            if row[0] != digest.count or row[1:-1] != key(item):
+            keys = decoder.decode(payload)
+            if row[0] != count or row[1:-1] != keys.columns():
                 raise ValueError("account journal history differs from its head")
-            digest = digest.extend(payload)
-            items.append(item)
-        expected: object = getattr(self.summary, table)
-        if digest != expected:
+            chain = hashlib.sha256(chain + payload).digest()
+            count += 1
+            yield keys
+        self._require_chain(table, count, chain)
+
+    def _require_chain(self, table: str, count: int, chain: bytes) -> None:
+        """Require a table's row count and final chain to be the head's."""
+        expected = cast(HistoryDigest, getattr(self.summary, table))
+        if (expected.count, expected.sha256) != (count, chain.hex() if count else ""):
             raise ValueError("account journal history differs from its head")
-        return items
 
     @staticmethod
     def _instrument(instrument_id: InstrumentId | None) -> str | None:
@@ -930,6 +1048,27 @@ class _AccountSnapshot:
             if trace.account_id == account_id and trace.scenario.instrument_id == instrument_id:
                 return trace.market.at
         return self.tables.latest_trace_market_at(account_id, instrument_id)
+
+    @property
+    def trace_history(self) -> HistoryDigest:
+        """Return the committed trace history's count and hash chain at this snapshot."""
+        return self.tables.summary.paper_traces
+
+    def trace_page(
+        self, account_id: str | None, after: int, limit: int
+    ) -> list[tuple[int, AccountPaperTrace]]:
+        """Return up to ``limit`` committed traces after a position, with their positions."""
+        return self.tables.trace_page(account_id, after, limit)
+
+    def latest_trace(
+        self, account_id: str, instrument_id: InstrumentId
+    ) -> AccountPaperTrace | None:
+        """Return one account instrument's newest committed trace."""
+        return self.tables.latest_trace(account_id, instrument_id)
+
+    def export_traces(self, account_id: str | None, stream: BinaryIO) -> int:
+        """Write committed traces as one JSON array, checking the whole chain first to last."""
+        return self.tables.export_traces(account_id, stream)
 
     def iter_traces(
         self,

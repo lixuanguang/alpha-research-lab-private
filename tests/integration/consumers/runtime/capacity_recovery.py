@@ -11,6 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -31,6 +32,7 @@ from execution import (
     InstalledPaperAccount,
     PaperMarket,
     PaperOwner,
+    SocketPaperAccount,
 )
 from financial_units import Price
 from serialization import DomainCodec
@@ -356,8 +358,9 @@ class CapacityRecovery:
             retained.rename(path)
         after = client.execute(AccountExecutionRequest(action="inspect"))
         after_checkpoint = client.checkpoint(instance_id)
+        appended = self._appended_traces(client, before, after)
         passed, witness = self._request_retention_proof(
-            account_id, before, after, before_checkpoint, after_checkpoint, frozen
+            account_id, before, after, before_checkpoint, after_checkpoint, appended, frozen
         )
         witness.update(
             account=account_id,
@@ -391,7 +394,7 @@ class CapacityRecovery:
                 "worker_pid": worker_pid,
                 "response_seconds": elapsed,
                 "economics_unchanged": True,
-                "concurrent_trace_appends": len(after.paper_traces) - len(before.paper_traces),
+                "concurrent_trace_appends": len(appended),
                 "trace_appends_attributed_to_frozen_requests": True,
                 "obstruction_restored": True,
             },
@@ -429,6 +432,22 @@ class CapacityRecovery:
         )
 
     @staticmethod
+    def _appended_traces(
+        client: SocketPaperAccount, before: AccountExecutionResult, after: AccountExecutionResult
+    ) -> tuple[AccountPaperTrace, ...]:
+        """Read the traces committed between two inspections, in bounded pages.
+
+        The service's journal holds one account, so the history's positions after
+        the first inspection's count are exactly the appended traces.
+        """
+        if before.paper_trace_history is None or after.paper_trace_history is None:
+            raise ValueError("request-retention inspection lacks its trace history")
+        start, end = before.paper_trace_history.count, after.paper_trace_history.count
+        if end <= start:
+            return ()
+        return tuple(islice(client.iter_paper_traces(after=start - 1), end - start))
+
+    @staticmethod
     def _request_retention_fields(result: AccountExecutionResult) -> dict[str, object]:
         """Compare complete economic facts without discarding child or net order state."""
         return {
@@ -446,9 +465,15 @@ class CapacityRecovery:
         after: AccountExecutionResult,
         before_checkpoint: bytes | None,
         after_checkpoint: bytes | None,
+        appends: tuple[AccountPaperTrace, ...],
         frozen: tuple[_RetainedRequest, ...],
     ) -> tuple[bool, dict[str, object]]:
-        """Attribute only benign trace appends to requests frozen at the rename boundary."""
+        """Attribute only benign trace appends to requests frozen at the rename boundary.
+
+        The appended traces' exact bytes must extend the first inspection's trace
+        chain to the second's, so the earlier history is unchanged and nothing else
+        was appended; the journal's unique key already refuses a repeated identity.
+        """
         left, right = self._request_retention_fields(before), self._request_retention_fields(after)
         comparisons = {
             name: {
@@ -494,11 +519,8 @@ class CapacityRecovery:
                 evidence.update(valid=True, action=request.action)
                 decoded.append((item, request))
             requests.append(evidence)
-        prefix_equal = after.paper_traces[: len(before.paper_traces)] == before.paper_traces
-        appends = after.paper_traces[len(before.paper_traces) :]
-        prior_ids = {trace.input_sha256 for trace in before.paper_traces}
-        append_ids = {trace.input_sha256 for trace in appends}
-        unique_appends = len(append_ids) == len(appends) and not prior_ids.intersection(append_ids)
+        prefix_equal = self._history_extended(before, after, appends)
+        unique_appends = len({trace.input_sha256 for trace in appends}) == len(appends)
         attribution = tuple(
             self._retained_trace_proof(account_id, trace, decoded) for trace in appends
         )
@@ -516,11 +538,26 @@ class CapacityRecovery:
             "comparisons": comparisons,
             "trace_prefix_equal": prefix_equal,
             "trace_append_identities_unique": unique_appends,
-            "before_traces": before.paper_traces,
-            "after_traces": after.paper_traces,
+            "before_trace_history": before.paper_trace_history,
+            "after_trace_history": after.paper_trace_history,
             "appended_traces": attribution,
             "frozen_requests": tuple(requests),
         }
+
+    def _history_extended(
+        self,
+        before: AccountExecutionResult,
+        after: AccountExecutionResult,
+        appends: tuple[AccountPaperTrace, ...],
+    ) -> bool:
+        """Report whether the appended traces' bytes chain the first history into the second."""
+        first, second = before.paper_trace_history, after.paper_trace_history
+        if first is None or second is None or second.count != first.count + len(appends):
+            return False
+        chain = bytes.fromhex(first.sha256)
+        for trace in appends:
+            chain = hashlib.sha256(chain + self.codec.encode_json(trace)).digest()
+        return (chain.hex() if second.count else "") == second.sha256
 
     def _retained_trace_proof(
         self,

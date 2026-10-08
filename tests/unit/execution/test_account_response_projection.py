@@ -22,6 +22,7 @@ from execution import (
     AccountJournal,
     AccountQuote,
     InstalledPaperAccount,
+    PaperTracePage,
 )
 from risk import AccountLimit
 from serialization import DomainCodec
@@ -186,6 +187,85 @@ class TestAccountMarketTrace:
             DomainCodec().decode_json(payload, AccountExecutionRequest)
 
 
+class TestInstalledTraceReads:
+    """Read the trace history through the installed boundary in bounded responses."""
+
+    def test_installed_reads_page_the_history_and_state_its_chain(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Installed pages, newest traces and history equal the journal's own reads."""
+        fixture = _MatchingFixture
+        scenario = fixture._scenario()
+        journal = fixture._ready(tmp_path / "installed-traces.sqlite3", scenario)
+        start = fixture.opening_at + timedelta(seconds=1)
+        traces = tuple(
+            PaperBooks.apply(
+                journal,
+                "shared",
+                fixture._market(f"installed-book-{index}", start + timedelta(seconds=index)),
+                scenario,
+            )
+            for index in range(3)
+        )
+        monkeypatch.setattr(PaperTracePage, "maximum", 2)
+        account = _ProjectedAccount(fixture._config(), journal)
+        assert tuple(account.iter_paper_traces("shared")) == traces
+        assert [(item.projection, item.query_after) for item in account.seen_requests] == [
+            ("traces", -1),
+            ("traces", 1),
+        ]
+        assert account.latest_paper_traces("shared") == (traces[-1],)
+        assert account.paper_trace_history() == journal.paper_trace_history()
+        full = journal.result_snapshot(AccountExecutionRequest(action="inspect"))
+        assert full.paper_traces == () and full.paper_trace_history == account.paper_trace_history()
+        with pytest.raises(ValueError, match="lacks the requested trace page"):
+            _MisplacedPages(fixture._config(), journal).paper_trace_page("shared", after=0)
+
+    @pytest.mark.parametrize(
+        ("payload", "message"),
+        (
+            (
+                b'{"action":"inspect","projection":"traces","query_after":-2}',
+                "trace page position must be -1 or a history position",
+            ),
+            (
+                b'{"action":"inspect","projection":"facts","query_after":3}',
+                "trace position requires the traces projection",
+            ),
+            (
+                b'{"action":"export_traces","projection":"operation"}',
+                "trace export requires exactly an absolute export path",
+            ),
+            (
+                b'{"action":"export_traces","export_path":"relative.json"}',
+                "trace export requires exactly an absolute export path",
+            ),
+            (
+                b'{"action":"inspect","export_path":"/tmp/traces.json"}',
+                "trace export requires exactly an absolute export path",
+            ),
+            (
+                b'{"action":"public_market","projection":"trace_history"}',
+                "account state projection requires inspection",
+            ),
+        ),
+    )
+    def test_trace_requests_reject_ambiguous_positions_and_paths(
+        self, payload: bytes, message: str
+    ) -> None:
+        """A page names one position; an export names one absolute destination."""
+        with pytest.raises(ValueError, match=message):
+            DomainCodec().decode_json(payload, AccountExecutionRequest)
+
+
+class _MisplacedPages(_ProjectedAccount):
+    """Answer every trace page request with the history's first page."""
+
+    def execute(self, request: AccountExecutionRequest) -> AccountExecutionResult:
+        """Replace the requested position with the start of the history."""
+        return super().execute(replace(request, query_after=-1))
+
+
 class TestAccountValuation:
     """Expose one instrument's latest valuation quote without other account state."""
 
@@ -267,7 +347,7 @@ class TestAccountResponseProjection:
         assert account.paper_restore_quarantined() == full.paper_restore_quarantined
         assert account.paper_activations() == full.paper_activations
         assert account.paper_reductions() == full.paper_reductions
-        assert account.paper_traces("shared") == full.paper_traces
+        assert tuple(account.iter_paper_traces("shared")) == full.paper_traces
         assert account.paper_report_facts("shared") == (full.paper_fills, full.paper_costs)
         assert account.portfolio_residuals("shared") == full.residuals
         assert account.checkpoint("alpha") == b"candidate-state"

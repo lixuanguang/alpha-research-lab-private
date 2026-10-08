@@ -666,7 +666,7 @@ class TestServedSharedDecisions:
         # The serving book matched before the decision, so only the next book fills it.
         (fill,) = (
             event.fill
-            for trace in journal.paper_traces("paper")
+            for trace in tuple(journal.iter_paper_traces("paper"))
             for event in trace.physical_events
             if event.order_id == parent.identity and event.fill is not None
         )
@@ -750,7 +750,7 @@ class TestServedSharedDecisions:
                 asks=(),
             ),
         )
-        traces = len(journal.paper_traces("paper"))
+        traces = len(tuple(journal.iter_paper_traces("paper")))
         observer.observe(*self._book(6, 6))
         retained = tuple(
             SharedBookDelivery.decode(line, DomainCodec())
@@ -760,13 +760,15 @@ class TestServedSharedDecisions:
         assert waited.at == _AT + timedelta(seconds=3)
         assert waited.quote.at == _AT + timedelta(seconds=4)
         assert not retained[5].matched and retained[6].matched and not retained[6].decisions
-        assert len(journal.paper_traces("paper")) == traces + 1
+        assert len(tuple(journal.iter_paper_traces("paper"))) == traces + 1
         replay, recovered = self._observer(tmp_path / "replay.sqlite3", served, candidate)
         assert recovered.reconcile(self._opening())
         for delivery in retained:
             replay.deliver(delivery)
         assert recovered.checkpoint("served") == journal.checkpoint("served")
-        assert recovered.paper_traces("paper") == journal.paper_traces("paper")
+        assert tuple(recovered.iter_paper_traces("paper")) == tuple(
+            journal.iter_paper_traces("paper")
+        )
 
 
 class _Clock:

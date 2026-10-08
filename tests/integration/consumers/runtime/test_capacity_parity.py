@@ -113,7 +113,7 @@ class TestCapacityParity:
                 accounts=signed.accounts(),
                 orders=signed.orders(),
                 net_orders=signed.net_orders(),
-                paper_traces=signed.paper_traces(),
+                paper_trace_history=signed.paper_trace_history(),
                 journal_path=str(signed_path),
             )
             (trial / f"final-{account.account_id}.json").write_bytes(codec.encode_json(final))
@@ -212,7 +212,7 @@ class TestCapacityParity:
                 accounts=signed.accounts(),
                 orders=signed.orders(),
                 net_orders=signed.net_orders(),
-                paper_traces=signed.paper_traces(),
+                paper_trace_history=signed.paper_trace_history(),
                 journal_path=str(signed_path),
             )
             (trial / f"final-{account.account_id}.json").write_bytes(codec.encode_json(final))

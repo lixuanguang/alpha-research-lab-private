@@ -102,14 +102,36 @@ class TestAccountHistoryCapacity:
         workload = cast(dict[str, object], summary["workload"])
         assert (workload["batches"], workload["traces"]) == (4, 12)
         readers = cast(dict[str, dict[str, int]], summary["readers_fresh_interpreter"])
-        assert set(readers) == {"monitoring", "facts", "traces", "verify", "newest", "retry"}
+        assert set(readers) == {
+            "monitoring",
+            "facts",
+            "full",
+            "page",
+            "history",
+            "latest",
+            "traces",
+            "verify",
+            "newest",
+            "retry",
+            "recovery",
+        }
         # Template plus history: the template trace fills both instances; 13 traces.
         assert readers["monitoring"]["traces"] == 13
-        assert readers["facts"]["items"] == 2
-        assert readers["newest"]["items"] == 1
+        # Monitoring carries the instrument's newest trace beside the two fills.
+        assert readers["monitoring"]["items"] == 3
+        assert readers["facts"]["items"] == readers["full"]["items"] == 2
+        assert readers["page"]["items"] == readers["traces"]["items"] == 13
+        assert readers["history"]["items"] == 13
+        assert readers["latest"]["items"] == readers["newest"]["items"] == 1
         assert readers["verify"]["items"] == 1
         assert readers["retry"]["lookup_sample_count"] == 1000
-        assert all("elapsed_ns" in value for name, value in readers.items() if name != "retry")
+        assert {"copy_and_stop_ns", "backup_ns", "restore_ns"} <= set(readers["recovery"])
+        assert all(
+            "elapsed_ns" in value
+            for name, value in readers.items()
+            if name not in ("retry", "recovery")
+        )
+        assert not any(output.glob("*.recovery")) and not any(output.glob("*.traces-export.json"))
         occupancy = cast(dict[str, object], summary["disk"])["allocated_bytes_by_table_and_index"]
         with closing(sqlite3.connect(":memory:")) as connection:
             options = cast(
@@ -217,7 +239,7 @@ class HistoryCapacityChecks:
                             "net_orders",
                             "paper_fills",
                             "paper_costs",
-                            "paper_traces",
+                            "paper_trace_history",
                             "checkpoints",
                         )
                     },

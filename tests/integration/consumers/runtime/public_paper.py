@@ -608,7 +608,7 @@ class PublicPaperWorkload:
         live when a later retained decision of an owning instance coordinates carries
         a cancel request.
         """
-        traces = journal.paper_traces("paper")
+        traces = tuple(journal.iter_paper_traces("paper"))
         replaced = self.replaced(traces, decisions, deliveries)
         quantity, notional, fees = Fraction(0), Fraction(0), Fraction(0)
         expected_orders: list[OrderState] = []
@@ -820,7 +820,7 @@ class PublicPaperWorkload:
                     journal.accounts(),
                     journal.orders(),
                     journal.net_orders(),
-                    journal.paper_traces(),
+                    tuple(journal.iter_paper_traces()),
                 )
             )
             observer = SharedPaperCaptureObserver(
@@ -839,12 +839,12 @@ class PublicPaperWorkload:
                     journal.accounts(),
                     journal.orders(),
                     journal.net_orders(),
-                    journal.paper_traces(),
+                    tuple(journal.iter_paper_traces()),
                 )
             )
         (output / "report.json").write_bytes(self.codec.encode_json(report))
         (output / "traces.json").write_bytes(
-            self.codec.encode_json(journal.paper_traces())
+            self.codec.encode_json(tuple(journal.iter_paper_traces()))
         )
         summary: dict[str, object] = {
             "venue": self.capture.venue,
@@ -1224,7 +1224,7 @@ class PublicPaperWorkload:
                 account.accounts(),
                 account.orders(),
                 account.net_orders(),
-                account.paper_traces("paper"),
+                tuple(account.iter_paper_traces("paper")),
                 account.paper_report_facts("paper"),
                 account.paper_activations(),
                 account.paper_reductions(),
@@ -1444,7 +1444,7 @@ class PublicPaperWorkload:
             "accounts": self.codec.encode_json(journal.accounts()),
             "orders": self.codec.encode_json(journal.orders()),
             "net_orders": self.codec.encode_json(journal.net_orders()),
-            "paper_traces": self.codec.encode_json(journal.paper_traces()),
+            "paper_traces": self.codec.encode_json(tuple(journal.iter_paper_traces())),
         }
 
     def replay(self, output: Path) -> dict[str, object]:

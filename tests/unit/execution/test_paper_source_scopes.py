@@ -449,7 +449,7 @@ class TestPaperSourceScopes:
                 )
             )
         assert AccountLedger(shadow.accounts()[0].ledger).snapshot().positions == ()
-        assert shadow.paper_traces() == ()
+        assert tuple(shadow.iter_paper_traces()) == ()
 
     @pytest.mark.parametrize("cancel_before_reject", (False, True))
     def test_stopped_shadow_rejects_only_unsent_net_parent_and_reclaims(
