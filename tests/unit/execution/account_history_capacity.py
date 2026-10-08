@@ -1,4 +1,14 @@
-"""Measure account-journal commit, open, memory and disk cost at a 24-hour history."""
+"""Measure account-journal commit, open, memory and disk cost at a 24-hour history.
+
+The trace count is declared independently of the batch count: shared paper retains
+one trace for every eligible priced book, so a day's traces far outnumber its
+coordinated batches. History traces are committed traces without economic events,
+as almost every matched book is; the measured commits keep the template's filled
+trace. Each history-size-dependent reader is also timed in a fresh interpreter at
+the full history: the cold monitoring and facts projections, the trace export, full
+verification, the protective reduction's newest-trace read and history-wide exact
+retry lookups.
+"""
 
 from __future__ import annotations
 
@@ -17,6 +27,7 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from functools import partial
+from itertools import islice
 from pathlib import Path
 from typing import cast
 
@@ -34,6 +45,7 @@ from configuration import (
 )
 from execution import (
     AccountDecision,
+    AccountExecutionRequest,
     AccountJournal,
     AccountObservation,
     AccountPaperTrace,
@@ -67,6 +79,12 @@ _INSTANCES = ("alpha", "beta")
 _TEMPLATE_BATCH = "template-batch"
 _CHECKPOINT_BYTES = 675
 _FILL_BATCHES = 100
+_FILL_TRACES = 1000
+# History-size-dependent readers timed in a fresh interpreter at the full history.
+_READERS = ("monitoring", "facts", "traces", "verify", "newest", "retry")
+# Existing market identities spread over the whole history, looked up as a replay
+# into the existing journal does for every book: membership, then the match's two.
+_RETRY_SAMPLES = 1000
 _LEVELS = (0, 25, 50, 75, 100)
 # Mean item bytes of the measured single-document OKX shared journal.
 _REFERENCE_BYTES = {"portfolio_batches": 6574, "decisions": 2722, "paper_traces": 2757}
@@ -88,21 +106,37 @@ class HistoryCapacityCommand:
         commands = parser.add_subparsers(dest="command", required=True)
         run = commands.add_parser("run")
         run.add_argument("--output", type=Path, required=True)
+        run.add_argument("--batches", type=int, default=30_000)
+        run.add_argument("--traces", type=int, default=None)
+        run.add_argument("--probe-seconds", type=int, default=600)
         memory = commands.add_parser("memory")
         memory.add_argument("--journal", type=Path, required=True)
         memory.add_argument("--commits", type=int, required=True)
         fresh = commands.add_parser("fresh-open")
         fresh.add_argument("--journal", type=Path, required=True)
+        reader = commands.add_parser("reader")
+        reader.add_argument("--journal", type=Path, required=True)
+        reader.add_argument("--operation", choices=_READERS, required=True)
         replay = commands.add_parser("replay-check")
         replay.add_argument("--parity", type=Path, action="append", required=True)
         replay.add_argument("--original", type=Path, required=True)
         replay.add_argument("--output", type=Path, required=True)
         parsed = parser.parse_args(arguments, namespace=_Arguments())
         if parsed.command == "run":
-            summary = HistoryCapacity(parsed.output.absolute()).run()
+            summary = HistoryCapacity(
+                parsed.output.absolute(),
+                batches=parsed.batches,
+                traces=parsed.traces,
+                probe_seconds=parsed.probe_seconds,
+            ).run()
             outcome: dict[str, object] = {"qualified": summary["qualified"]}
             print(msgspec.json.encode(outcome).decode(), flush=True)
             return 0 if summary["qualified"] is True else 1
+        if parsed.command == "reader":
+            print(
+                msgspec.json.encode(HistoryReaders.probe(parsed.journal, parsed.operation)).decode()
+            )
+            return 0
         if parsed.command == "memory":
             print(
                 msgspec.json.encode(
@@ -293,15 +327,18 @@ class HistoryMeasurements:
     """Fill, commit, open, probe and compare account journals at a 24-hour history."""
 
     @staticmethod
-    def fill(store: AccountStateStore, items: HistoryItems, start: int, stop: int) -> None:
-        """Append batches and traces ``[start, stop)`` in unmeasured transactions."""
-        for chunk in range(start, stop, _FILL_BATCHES):
+    def fill(store: AccountStateStore, items: HistoryItems, batches: range, traces: range) -> None:
+        """Append the given batches and history traces in unmeasured transactions."""
+        for chunk in range(batches.start, batches.stop, _FILL_BATCHES):
             with store.write() as transaction:
-                for index in range(chunk, min(chunk + _FILL_BATCHES, stop)):
+                for index in range(chunk, min(chunk + _FILL_BATCHES, batches.stop)):
                     batch, decisions = items.batch_items(index)
                     transaction.append_decisions(*decisions)
                     transaction.append_batch(batch)
-                    transaction.append_trace(items.trace_item(index))
+        for chunk in range(traces.start, traces.stop, _FILL_TRACES):
+            with store.write() as transaction:
+                for index in range(chunk, min(chunk + _FILL_TRACES, traces.stop)):
+                    transaction.append_trace(items.history_trace(index))
 
     @staticmethod
     def batch_commit(store: AccountStateStore, items: HistoryItems, index: int) -> int:
@@ -425,13 +462,13 @@ class HistoryMeasurements:
         return means
 
     @staticmethod
-    def subprocess_probe(arguments: Sequence[str]) -> dict[str, int]:
+    def subprocess_probe(arguments: Sequence[str], *, timeout_seconds: int = 600) -> dict[str, int]:
         """Run this consumer in a fresh interpreter and read its JSON line."""
         result = subprocess.run(  # nosec B603  # [owner=runtime; rationale=fixed argv of this consumer in the current interpreter; expires=2027-03-01]
             [sys.executable, str(Path(__file__).resolve()), *arguments],
             check=True,
             capture_output=True,
-            timeout=600,
+            timeout=timeout_seconds,
         )
         return msgspec.json.decode(result.stdout, type=dict[str, int])
 
@@ -508,6 +545,109 @@ class HistoryMeasurements:
         return result
 
 
+class HistoryReaders:
+    """Time one history-size-dependent account reader at the journal's full history."""
+
+    @staticmethod
+    def probe(path: Path, operation: str) -> dict[str, int]:
+        """Run one reader in this interpreter after imports and report its cost."""
+        config = HistoryJournalFixture.configuration()
+        with closing(sqlite3.connect(f"{path.absolute().as_uri()}?mode=ro", uri=True)) as db:
+            traces = cast(tuple[int], db.execute("SELECT count(*) FROM paper_traces").fetchone())
+        started = time.perf_counter_ns()
+        if operation == "retry":
+            return HistoryReaders.retry(path, config, traces[0] - 1)
+        if operation == "verify":
+            items = len(AccountJournal.verify(path, config))
+        elif operation == "newest":
+            store = AccountStateStore(path, config, DomainCodec())
+            with store.snapshot() as snapshot:
+                items = len(tuple(islice(snapshot.iter_traces(_ACCOUNT, newest_first=True), 1)))
+        elif operation == "traces":
+            # The public paper export: every account trace, encoded as one document.
+            items = len(
+                DomainCodec().encode_json(AccountJournal(path, config).paper_traces(_ACCOUNT))
+            )
+        elif operation in ("monitoring", "facts"):
+            result = AccountJournal(path, config).result_snapshot(
+                AccountExecutionRequest(
+                    action="inspect",
+                    account_id=_ACCOUNT,
+                    projection="monitoring" if operation == "monitoring" else "facts",
+                )
+            )
+            items = len(result.paper_fills) + len(result.paper_traces)
+        else:
+            raise ValueError(f"unknown history reader {operation}")
+        return {
+            "elapsed_ns": time.perf_counter_ns() - started,
+            "items": items,
+            "traces": traces[0],
+            "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * _RSS_UNIT,
+        }
+
+    @staticmethod
+    def retry(path: Path, config: AccountConfiguration, history: int) -> dict[str, int]:
+        """Time exact-retry lookups of identities spread over the whole history.
+
+        Each sample performs the three lookups a replay into the existing journal
+        makes for one book: account membership, then the match's cross-account and
+        account-scoped saved-trace reads.
+        """
+        scenario = HistoryJournalFixture.scenario()
+        store = AccountStateStore(path, config, DomainCodec())
+        samples: list[int] = []
+        with store.snapshot() as snapshot:
+            for sample in range(_RETRY_SAMPLES):
+                identity = HistoryItems.history_identity(sample * history // _RETRY_SAMPLES)
+                started = time.perf_counter_ns()
+                found = (
+                    snapshot.find_trace(identity, account_id=_ACCOUNT),
+                    snapshot.find_trace(
+                        identity, venue=scenario.venue, instrument_id=scenario.instrument_id
+                    ),
+                    snapshot.find_trace(
+                        identity,
+                        account_id=_ACCOUNT,
+                        venue=scenario.venue,
+                        instrument_id=scenario.instrument_id,
+                    ),
+                )
+                samples.append(time.perf_counter_ns() - started)
+                if any(item is None for item in found):
+                    raise ValueError("history retry identity is missing")
+        return {
+            f"lookup_{name}": value
+            for name, value in HistoryMeasurements.percentiles(samples).items()
+        }
+
+    @staticmethod
+    def measure(journal: Path, timeout_seconds: int) -> dict[str, dict[str, int]]:
+        """Probe every reader once in a fresh interpreter, retaining any timeout."""
+        results: dict[str, dict[str, int]] = {}
+        for operation in _READERS:
+            try:
+                results[operation] = HistoryMeasurements.subprocess_probe(
+                    ("reader", "--journal", str(journal), "--operation", operation),
+                    timeout_seconds=timeout_seconds,
+                )
+            except subprocess.TimeoutExpired:
+                results[operation] = {"timed_out_after_seconds": timeout_seconds}
+        return results
+
+    @staticmethod
+    def occupancy(path: Path) -> dict[str, int]:
+        """Return each table's and index's allocated bytes from SQLite's dbstat."""
+        with closing(sqlite3.connect(path)) as connection:
+            rows = cast(
+                list[tuple[str, int]],
+                connection.execute(
+                    "SELECT name, sum(pgsize) FROM dbstat GROUP BY name ORDER BY name"
+                ).fetchall(),
+            )
+        return dict(rows)
+
+
 class _Arguments(argparse.Namespace):
     """Hold one subcommand's typed arguments."""
 
@@ -515,6 +655,10 @@ class _Arguments(argparse.Namespace):
     output: Path
     journal: Path
     commits: int
+    batches: int
+    traces: int | None
+    probe_seconds: int
+    operation: str
     parity: list[Path]
     original: Path
 
@@ -596,6 +740,29 @@ class HistoryItems:
             liquidity = replace(liquidity, last_market_identity=market.identity)
         return replace(self.trace, market=market, input_sha256=digest, liquidity=liquidity)
 
+    def history_trace(self, index: int) -> AccountPaperTrace:
+        """Return one fresh committed trace of a book that matched no open order."""
+        market = replace(self.trace.market, identity=self.history_identity(index))
+        digest = hashlib.sha256(
+            self.codec.encode_json((self.trace.account_id, market, self.trace.scenario))
+        ).hexdigest()
+        liquidity = self.trace.liquidity
+        if liquidity is not None:
+            liquidity = replace(liquidity, last_market_identity=market.identity)
+        return replace(
+            self.trace,
+            market=market,
+            input_sha256=digest,
+            liquidity=liquidity,
+            physical_events=(),
+            child_fill_events=(),
+        )
+
+    @staticmethod
+    def history_identity(index: int) -> str:
+        """Name the market of one history trace."""
+        return f"history-market-{index}"
+
     @staticmethod
     def checkpoint(identity: str) -> bytes:
         """Derive a deterministic synthetic strategy continuation."""
@@ -615,17 +782,28 @@ class HistoryCapacity:
         opens: int = 1_000,
         fresh_opens: int = 20,
         memory_commits: int = 200,
+        traces: int | None = None,
+        probe_seconds: int = 600,
         host: Callable[[], dict[str, object]] | None = None,
     ) -> None:
-        """Bind an absent output directory, the workload size and the host reader."""
+        """Bind an absent output directory, the workload size and the host reader.
+
+        ``traces`` defaults to one history trace per batch; ``probe_seconds`` bounds
+        each fresh-interpreter reader probe, and a reader that exceeds it is retained
+        as timed out.
+        """
         if not output.is_absolute() or output.exists():
             raise ValueError("history capacity requires a fresh absolute output directory")
-        if batches % 4 or batches <= 0:
+        traces = batches if traces is None else traces
+        if batches % 4 or batches <= 0 or traces % 4 or traces <= 0:
             raise ValueError("history size must split evenly into quarter levels")
+        if probe_seconds <= 0:
+            raise ValueError("history reader probes require a positive bound")
         self.output = output
         self.host = self._host if host is None else host
-        self.batches, self.commits, self.opens = batches, commits, opens
+        self.batches, self.traces, self.commits, self.opens = batches, traces, commits, opens
         self.fresh_opens, self.memory_commits = fresh_opens, memory_commits
+        self.probe_seconds = probe_seconds
 
     def run(self) -> dict[str, object]:
         """Fill, measure and summarize one history capacity run."""
@@ -634,12 +812,12 @@ class HistoryCapacity:
         HistoryJournalFixture.create_template_journal(journal)
         store = AccountStateStore(journal, HistoryJournalFixture.configuration(), DomainCodec())
         items = HistoryItems(store)
-        filled = 0
+        filled, traced = 0, 0
         memory: dict[str, dict[str, int]] = {}
         for level in _LEVELS:
-            target = self.batches * level // 100
-            HistoryMeasurements.fill(store, items, filled, target)
-            filled = target
+            target, traces = self.batches * level // 100, self.traces * level // 100
+            HistoryMeasurements.fill(store, items, range(filled, target), range(traced, traces))
+            filled, traced = target, traces
             copy = self.output / f"level-{level}.sqlite3"
             HistoryMeasurements.copy_journal(journal, copy)
             memory[str(level)] = HistoryMeasurements.subprocess_probe(
@@ -647,10 +825,12 @@ class HistoryCapacity:
             )
             copy.unlink()
         full_bytes = HistoryMeasurements.disk_bytes(journal)
+        occupancy = HistoryReaders.occupancy(journal)
         means = HistoryMeasurements.item_bytes(journal)
         started = time.perf_counter_ns()
         AccountStateStore.verify(journal, HistoryJournalFixture.configuration(), DomainCodec())
         verify_ns = time.perf_counter_ns() - started
+        readers = HistoryReaders.measure(journal, self.probe_seconds)
         batch_samples: list[int] = []
         trace_samples: list[int] = []
         for offset in range(self.commits):
@@ -680,7 +860,8 @@ class HistoryCapacity:
             "workload": {
                 "batches": self.batches,
                 "decisions": 2 * self.batches,
-                "traces": self.batches,
+                "traces": self.traces,
+                "history_trace_kind": "committed_without_economic_events",
                 "measured_commits_per_kind": self.commits,
                 "cold_opens": self.opens,
                 "fresh_process_opens": self.fresh_opens,
@@ -699,11 +880,14 @@ class HistoryCapacity:
             },
             "disk": {
                 "full_history_bytes": full_bytes,
+                "allocated_bytes_by_table_and_index": occupancy,
                 "four_account_days_in_canonical_budget": _CANONICAL_BUDGET_BYTES
                 / (_ACCOUNTS * full_bytes),
                 "canonical_budget_bytes": _CANONICAL_BUDGET_BYTES,
             },
             "verify_ns": verify_ns,
+            "readers_fresh_interpreter": readers,
+            "reader_probe_bound_seconds": self.probe_seconds,
             "targets_ns": _TARGETS_NS,
             "passed": passed,
             "qualified": all(passed.values()),

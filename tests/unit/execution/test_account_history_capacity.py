@@ -68,6 +68,53 @@ class TestAccountHistoryCapacity:
         assert (output / "samples.json").is_file()
         assert not any(output.glob("level-*.sqlite3"))
 
+    def test_trace_count_is_independent_and_every_reader_is_probed(self, tmp_path: Path) -> None:
+        """Eventless history traces fill to their own count; each reader reports its cost."""
+        output = tmp_path / "run"
+        summary = HistoryCapacity(
+            output,
+            batches=4,
+            traces=12,
+            commits=1,
+            opens=1,
+            fresh_opens=1,
+            memory_commits=1,
+            host=_Constant(dict[str, object](host="test")),
+        ).run()
+
+        journal = output / "journal.sqlite3"
+        # The template's batch and trace, the history, then one measured commit each.
+        assert HistoryCapacityChecks.counts(journal) == (2 * (1 + 4 + 1), 1 + 4 + 1, 1 + 12 + 1)
+        store = AccountStateStore(journal, HistoryJournalFixture.configuration(), DomainCodec())
+        with store.snapshot() as snapshot:
+            history = tuple(
+                trace
+                for trace in snapshot.iter_traces("shared")
+                if trace.market.identity.startswith("history-market-")
+            )
+        assert len(history) == 12
+        assert all(
+            trace.status == "committed"
+            and not trace.physical_events
+            and not trace.child_fill_events
+            for trace in history
+        )
+        workload = cast(dict[str, object], summary["workload"])
+        assert (workload["batches"], workload["traces"]) == (4, 12)
+        readers = cast(dict[str, dict[str, int]], summary["readers_fresh_interpreter"])
+        assert set(readers) == {"monitoring", "facts", "traces", "verify", "newest", "retry"}
+        # Template plus history: the template trace fills both instances; 13 traces.
+        assert readers["monitoring"]["traces"] == 13
+        assert readers["facts"]["items"] == 2
+        assert readers["newest"]["items"] == 1
+        assert readers["verify"]["items"] == 1
+        assert readers["retry"]["lookup_sample_count"] == 1000
+        assert all("elapsed_ns" in value for name, value in readers.items() if name != "retry")
+        disk = cast(dict[str, dict[str, int]], summary["disk"])
+        assert {"paper_traces", "paper_traces_account"} <= set(
+            disk["allocated_bytes_by_table_and_index"]
+        )
+
     def test_synthetic_items_have_fresh_identities_and_declared_checkpoints(
         self, tmp_path: Path
     ) -> None:
