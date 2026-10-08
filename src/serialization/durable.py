@@ -68,8 +68,9 @@ class DurableLines:
     """Append whole lines to one file, each durable before ``append`` returns.
 
     The file is opened by path for every append, so a removed or obstructed parent
-    directory fails the append instead of writing elsewhere. The parent directory is
-    synchronized once, when an append creates the file. An append that fails after
+    directory fails the append instead of writing elsewhere. Each durable append
+    synchronizes the parent directory until one such synchronization succeeds, so the
+    file's name is durable with its first durable record. An append that fails after
     the file was opened is truncated back to the previous end, so every line stays
     whole; if that truncation also fails, the log refuses every later append.
     """
@@ -87,6 +88,7 @@ class DurableLines:
             raise ValueError("durable line log path must be absolute")
         self.path = path
         self._broken = False
+        self._named = False
 
     def append(self, line: bytes, *, sync: bool = True) -> None:
         """Append one record and its newline, fsynced unless ``sync`` is false.
@@ -125,8 +127,9 @@ class DurableLines:
                 raise
         finally:
             os.close(descriptor)
-        if end == 0 and sync:
+        if sync and not self._named:
             DurableDirectory.sync(self.path.parent)
+            self._named = True
 
 
 class SqliteLayout:

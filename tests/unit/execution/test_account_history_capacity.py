@@ -110,10 +110,15 @@ class TestAccountHistoryCapacity:
         assert readers["verify"]["items"] == 1
         assert readers["retry"]["lookup_sample_count"] == 1000
         assert all("elapsed_ns" in value for name, value in readers.items() if name != "retry")
-        disk = cast(dict[str, dict[str, int]], summary["disk"])
-        assert {"paper_traces", "paper_traces_account"} <= set(
-            disk["allocated_bytes_by_table_and_index"]
-        )
+        occupancy = cast(dict[str, object], summary["disk"])["allocated_bytes_by_table_and_index"]
+        with closing(sqlite3.connect(":memory:")) as connection:
+            options = cast(
+                list[tuple[str]], connection.execute("PRAGMA compile_options").fetchall()
+            )
+        if ("ENABLE_DBSTAT_VTAB",) in options:
+            assert {"paper_traces", "paper_traces_account"} <= set(cast(dict[str, int], occupancy))
+        else:
+            assert occupancy == "unmeasured: this SQLite has no dbstat"
 
     def test_synthetic_items_have_fresh_identities_and_declared_checkpoints(
         self, tmp_path: Path

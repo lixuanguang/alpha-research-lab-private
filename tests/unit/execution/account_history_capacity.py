@@ -636,15 +636,21 @@ class HistoryReaders:
         return results
 
     @staticmethod
-    def occupancy(path: Path) -> dict[str, int]:
-        """Return each table's and index's allocated bytes from SQLite's dbstat."""
+    def occupancy(path: Path) -> dict[str, int] | str:
+        """Return each table's and index's allocated bytes from SQLite's dbstat.
+
+        An interpreter whose SQLite lacks dbstat leaves index occupancy unmeasured.
+        """
         with closing(sqlite3.connect(path)) as connection:
-            rows = cast(
-                list[tuple[str, int]],
-                connection.execute(
-                    "SELECT name, sum(pgsize) FROM dbstat GROUP BY name ORDER BY name"
-                ).fetchall(),
-            )
+            try:
+                rows = cast(
+                    list[tuple[str, int]],
+                    connection.execute(
+                        "SELECT name, sum(pgsize) FROM dbstat GROUP BY name ORDER BY name"
+                    ).fetchall(),
+                )
+            except sqlite3.OperationalError:
+                return "unmeasured: this SQLite has no dbstat"
         return dict(rows)
 
 

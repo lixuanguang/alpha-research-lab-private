@@ -9,6 +9,7 @@ from collections.abc import Callable
 from contextlib import closing
 from functools import partial
 from pathlib import Path
+from types import MethodType
 from typing import cast
 
 # third party library imports
@@ -46,6 +47,25 @@ class _CommitBeforeRowLoad:
         """Commit through the other journal, then load rows as before."""
         self._history.round_trip()
         return self._load(connection, summary)
+
+
+class _TracedConnections:
+    """Record every statement the account store's connections run."""
+
+    def __init__(self, connect: Callable[[AccountStateStore], sqlite3.Connection]) -> None:
+        """Wrap the store's connection factory with no statements recorded."""
+        self._connect = connect
+        self.statements: list[str] = []
+
+    def __get__(self, store: AccountStateStore | None, owner: type[AccountStateStore]) -> object:
+        """Bind to a store as the replaced method does."""
+        return self if store is None else MethodType(self, store)
+
+    def __call__(self, store: AccountStateStore) -> sqlite3.Connection:
+        """Open the store's connection and trace its expanded statements."""
+        connection = self._connect(store)
+        connection.set_trace_callback(self.statements.append)
+        return connection
 
 
 class TestAccountStateRows:
@@ -230,6 +250,28 @@ class TestAccountStateRows:
             with pytest.raises(ValueError, match="unsupported account journal schema"):
                 refusal()
         assert path.read_bytes() == before
+
+    def test_the_fill_read_searches_only_the_partial_fill_index(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Cold report facts visit fill-bearing rows only, not every trace of the account."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        history.round_trip()
+        history.busy_tick()
+        traced = _TracedConnections(AccountStateStore._connect)
+        monkeypatch.setattr(AccountStateStore, "_connect", traced)
+        AccountJournal(history.journal.path, history._config()).paper_report_facts("busy")
+        monkeypatch.undo()
+        reads = [statement for statement in traced.statements if "filled=1" in statement]
+        assert len(reads) == 1
+        with closing(sqlite3.connect(history.journal.path)) as connection:
+            plan = cast(
+                list[tuple[object, ...]],
+                connection.execute(f"EXPLAIN QUERY PLAN {reads[0]}").fetchall(),
+            )
+        assert [row[3] for row in plan] == [
+            "SEARCH paper_traces USING INDEX paper_traces_filled (account_id=? AND seq>?)"
+        ]
 
     def test_a_fill_flag_that_differs_from_its_trace_fails_verification(
         self, tmp_path: Path

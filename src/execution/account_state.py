@@ -585,6 +585,11 @@ _TABLE_STATEMENTS: dict[str, tuple[str, str]] = {
         "FROM paper_traces ORDER BY seq",
     ),
 }
+# Repeating the partial index's filled=1 term lets SQLite read only fill-bearing rows.
+_FILLED_TRACES_AFTER = (
+    "SELECT seq, payload FROM paper_traces "
+    "WHERE account_id=? AND filled=1 AND seq>? ORDER BY seq ASC"
+)
 # Optional trace keys match any value when their parameter is NULL.
 _FIND_TRACE = (
     "SELECT payload FROM paper_traces WHERE market_identity=?1 "
@@ -685,11 +690,7 @@ class _HistoryTables:
         self, account_id: str, after_seq: int
     ) -> Iterator[tuple[int, AccountPaperTrace]]:
         """Yield one account's committed fill-bearing traces after a sequence, in order."""
-        cursor = self.connection.execute(
-            "SELECT seq, payload FROM paper_traces "
-            "WHERE account_id=? AND filled=1 AND seq>? ORDER BY seq ASC",
-            (account_id, after_seq),
-        )
+        cursor = self.connection.execute(_FILLED_TRACES_AFTER, (account_id, after_seq))
         for row in cast(Iterator[tuple[object, ...]], cursor):
             yield cast(int, row[0]), self.codec.decode_json(self._blob(row[1]), AccountPaperTrace)
 

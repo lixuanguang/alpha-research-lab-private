@@ -9,6 +9,7 @@ import stat
 import struct
 import subprocess
 import sys
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -142,6 +143,72 @@ class TestSocketRetention:
             log = _ClientLog.read(Path(root) / "requests")
         assert list(log.requests.values()) == [DomainCodec().encode_json(request)]
         assert not log.results and not log.errors
+
+    def test_a_rejection_cut_inside_a_character_keeps_its_error_record(self) -> None:
+        """A byte-truncated reason is retained with a replacement character, not lost."""
+        config = _ActivationFixture._config()
+        owner = PaperOwner(
+            account_id=config.accounts[0].account_id,
+            deployment_sha256="a" * 64,
+            authorization_id="retention-grant",
+            release_identity="b" * 64,
+            owner_id="retention-owner",
+            generation=1,
+        )
+        with TemporaryDirectory(prefix="paper-retention-", dir=_SOCKET_ROOT) as root:
+            socket_path = Path(root) / "s.sock"
+            # "refused: " then the first two of the three bytes of one character.
+            with _OneReplyService(socket_path, b"\x01", b"refused: \xe2\x82") as service:
+                account = SocketPaperAccount(
+                    config=config,
+                    socket_path=socket_path,
+                    requests=Path(root) / "requests",
+                    paper_owner=owner,
+                    timeout_seconds=2,
+                )
+                with pytest.raises(RuntimeError, match="rejected request: refused: \ufffd"):
+                    account.execute(
+                        AccountExecutionRequest(
+                            action="block",
+                            account_id=owner.account_id,
+                            reason="rejected protection",
+                            paper_owner=owner,
+                        )
+                    )
+            log = _ClientLog.read(Path(root) / "requests")
+        assert service.received == list(log.requests.values())
+        assert list(log.errors.values()) == ["refused: \ufffd"] and not log.results
+
+
+class _OneReplyService:
+    """Accept one framed request on a local socket and send one fixed reply."""
+
+    def __init__(self, path: Path, status: bytes, reply: bytes) -> None:
+        """Bind the socket now; serve the single exchange from a thread."""
+        self.status, self.reply = status, reply
+        self.received: list[bytes] = []
+        self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.listener.bind(str(path))
+        self.listener.listen(1)
+        self.thread = threading.Thread(target=self._serve)
+
+    def __enter__(self) -> _OneReplyService:
+        """Start serving the one exchange."""
+        self.thread.start()
+        return self
+
+    def __exit__(self, *details: object) -> None:
+        """Wait for the exchange and close the socket."""
+        self.thread.join(5)
+        self.listener.close()
+
+    def _serve(self) -> None:
+        """Read one frame and answer it with the fixed status and reply."""
+        connection, _ = self.listener.accept()
+        with connection:
+            length = int.from_bytes(connection.recv(4, socket.MSG_WAITALL), "big")
+            self.received.append(connection.recv(length, socket.MSG_WAITALL))
+            connection.sendall(self.status + len(self.reply).to_bytes(4, "big") + self.reply)
 
 
 class TestAccountOwnerService:

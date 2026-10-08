@@ -147,6 +147,22 @@ class _InjectedFailure:
         raise OSError(self.message)
 
 
+class _FailingOnce:
+    """Stand in for a directory sync whose first call fails."""
+
+    def __init__(self) -> None:
+        """Start with no failure made and nothing synchronized."""
+        self.failed = False
+        self.synced: list[Path] = []
+
+    def __call__(self, path: Path) -> None:
+        """Fail the first call; record every later one."""
+        if not self.failed:
+            self.failed = True
+            raise OSError("injected directory sync failure")
+        self.synced.append(path)
+
+
 class TestDurableLines:
     """Append whole records durably, and keep the log whole when an append fails."""
 
@@ -166,6 +182,22 @@ class TestDurableLines:
             log.append(b'{"split":\n1}')
         with pytest.raises(ValueError, match="must be absolute"):
             DurableLines(Path("relative.jsonl"))
+
+    def test_a_failed_directory_sync_is_retried_by_the_next_durable_append(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The file's name becomes durable even if the first directory sync failed."""
+        sync = _FailingOnce()
+        monkeypatch.setattr(DurableDirectory, "sync", staticmethod(sync))
+        log = DurableLines(tmp_path / "life.jsonl")
+        with pytest.raises(OSError, match="injected directory sync failure"):
+            log.append(b'{"first":1}')
+        log.append(b'{"second":2}', sync=False)
+        assert sync.synced == []
+        log.append(b'{"third":3}')
+        log.append(b'{"fourth":4}')
+        assert sync.synced == [tmp_path]
+        assert log.path.read_bytes() == b'{"first":1}\n{"second":2}\n{"third":3}\n{"fourth":4}\n'
 
     def test_an_obstructed_directory_fails_without_writing_elsewhere(self, tmp_path: Path) -> None:
         """A file in place of the directory refuses the append; nothing is retained."""

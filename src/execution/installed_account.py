@@ -357,7 +357,8 @@ class SocketPaperAccount(InstalledPaperAccount):
                 raise ValueError("socket paper response exceeds one MiB")
             response = self._read_exact(connection, length)
         if status == b"\x01":
-            reason = response.decode("utf-8")
+            # The service truncates a reason by bytes, so it may end mid-character.
+            reason = response.decode("utf-8", errors="replace")
             self._record(attempt, "error", reason, sync=False)
             raise RuntimeError(f"paper account service rejected request: {reason}")
         if status != b"\x00":
