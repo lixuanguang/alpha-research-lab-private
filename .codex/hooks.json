@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh '/Users/lxg/Code/alpha-research-lab-private/.codex/hooks/block-secrets.sh'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
