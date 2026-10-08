@@ -144,7 +144,7 @@ flowchart TD
 | Research packages | [Experiments](packages/research-experiments.md), [features](packages/research-features.md), [labels](packages/research-labels.md), [models](packages/research-models.md), [observations](packages/research-observations.md), [studies](packages/research-studies.md) |
 | Applications | [Execute](packages/execute-application.md), [paper](packages/paper-application.md) |
 | Data | [Data contracts](data/contracts.md), [point-in-time semantics](data/point-in-time-semantics.md), [OKX market data](data/okx-market-data.md), [L3 collectors](data/l3-collectors.md), [data sources](data-sources/overview.md) |
-| Development | [Environment](development/environment.md), [testing](development/testing.md), [engineering standards](development/engineering-standards.md), [typing stubs](development/typing-stubs.md) |
+| Development | [Environment](development/environment.md), [testing](development/testing.md), [engineering standards](development/engineering-standards.md), [typing stubs](development/typing-stubs.md), [Claude Code development and review](development/README.claude-code.md) |
 | Local services | [lakeFS](local-services/lakefs.md), [ClearML](local-services/clearml.md), [Feast worker](local-services/feast-worker.md) |
 | Governance | [Development workflow](governance/workflow.md), [operations runbook](governance/operations.md), [dependency locks](governance/dependency-locks.md) |
 | Roadmap | [Overview](roadmap/overview.md), [QR onboarding acceptance](roadmap/qr-onboarding.md), [runtime capacity](roadmap/runtime-capacity.md), [research capacity](roadmap/research-capacity.md) |
