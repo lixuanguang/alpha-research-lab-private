@@ -18,8 +18,9 @@ and records from `applications.paper`; candidate bindings and inputs are public
 runtime records. Each binding selects an instance/account/entity, a
 `LoadedCandidate`, complete `PortfolioContext`, and maximum fee. Each input
 supplies that instance's causal `DecisionInputs` together with an `AccountQuote`
-that the journal has already observed independently. A decision whose candidates
-all pause or warm reserves nothing.
+that the journal has already observed independently and the `MarketTouch` that a
+target or exposure crosses. A decision whose candidates all pause or warm
+reserves nothing.
 
 The finite event stream contains observed quotes, complete local
 `AccountObservation` reconciliation facts, `SharedPaperDecision` batches, and
@@ -324,8 +325,9 @@ modeled adverse cost at any price level; later interests rest one tick below the
 bid, or at a bid of a single tick.
 
 `target_clip` requests the same absolute target at every decision instant. The account
-lowers an unmet target to one immediate-or-cancel buy at the ask, so the target is
-reachable only in a scenario whose modeled adverse cost is zero. Once the target is
+lowers an unmet target to one immediate-or-cancel order at the touch on its side, a buy
+at the ask or a sell at the bid, so the target is reachable only in a scenario whose
+modeled adverse cost is zero. Once the target is
 held, a checkpoint commits as `target_matched` without an order. A held position still
 needs the account reconciled within its state-age budget.
 

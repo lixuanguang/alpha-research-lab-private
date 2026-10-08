@@ -41,6 +41,7 @@ from execution import (
     AccountJournal,
     AccountObservation,
     AccountQuote,
+    MarketTouch,
     OrderDecision,
     PaperMarket,
     PortfolioContext,
@@ -222,6 +223,7 @@ class TestSharedPublicPaper:
                 ),
                 max_quote_age_us=5_000_000,
                 max_state_age_us=86_400_000_000,
+                max_residual_age_us=86_400_000_000,
                 max_price_deviation_bps=500,
                 max_order_notional=cls._money("900"),
             ),
@@ -692,6 +694,7 @@ class TestSharedPublicPaper:
         )
         assert journal.reconcile(self._opening())
         deliveries = self._markets()
+        decided_market: PaperMarket | None = None
         for index, delivery in enumerate(deliveries):
             observer.observe(delivery.source.record, delivery.source.book)
             if index == 1:
@@ -714,6 +717,7 @@ class TestSharedPublicPaper:
                 assert observer.source.latest_book.position == index
                 assert observer.last_market is not None
                 assert observer.last_market.at == times[index]
+                decided_market = observer.last_market
         assert journal.checkpoint("alpha") is not None
         assert observer.delivered_count == len(deliveries)
         measurements.close()
@@ -773,6 +777,12 @@ class TestSharedPublicPaper:
         assert group.at == self.at + timedelta(milliseconds=2500)
         assert group.coordinated_at == group.at + timedelta(microseconds=1)
         assert group.quote.at == times[2]
+        # The decision is marked at the 2 s ask and may cross either side of its touch.
+        assert decided_market is not None
+        assert (group.quote.price, group.touch) == (
+            decided_market.ask,
+            MarketTouch(bid=decided_market.bid, ask=decided_market.ask),
+        )
         assert tuple(item.instance_id for item in group.inputs) == ("alpha",)
         as_of.close()
         selection = observer.books.lookup(observer._key, cutoff_ns=0).selection
@@ -1172,15 +1182,24 @@ class TestSharedPublicPaper:
         for item in (session, first):
             observer.deliver(item)
         quote = AccountQuote(price=self._price("100"), at=first.source.available_at)
+        touch = MarketTouch(bid=self._price("99.99"), ask=self._price("100"))
         instant = self.at + timedelta(milliseconds=1500)
         inputs = observer._instance_inputs(observer.runtime.bindings[0], instant)
         assert isinstance(inputs, DecisionInputs)
         group = SharedDecisionGroup(
             at=instant,
             quote=quote,
-            inputs=(SharedStrategyInput(instance_id="alpha", inputs=inputs, quote=quote),),
+            touch=touch,
+            inputs=(
+                SharedStrategyInput(instance_id="alpha", inputs=inputs, quote=quote, touch=touch),
+            ),
             coordinated_at=instant + timedelta(microseconds=1),
         )
+        # A group retained before decisions named their touch no longer decodes.
+        earlier = msgspec.json.decode(codec.encode_json(group), type=dict[str, object])
+        del earlier["touch"]
+        with pytest.raises(ValueError, match="touch"):
+            codec.decode_json(msgspec.json.encode(earlier), SharedDecisionGroup)
         with pytest.raises(ValueError, match="decides an instant matches"):
             replace(second, decisions=(group,), matched=False)
         with pytest.raises(ValueError, match="out of order"):

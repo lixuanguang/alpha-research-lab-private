@@ -106,7 +106,7 @@ class _DedicatedHistory:
                         time_in_force="ioc",
                     ),
                 ),
-                reference=self._price("1.00"),
+                touch=None,
                 maximum_fee=Money(value=Decimal("0.50"), currency=self.currency),
             )
             assert committed.status == "committed"

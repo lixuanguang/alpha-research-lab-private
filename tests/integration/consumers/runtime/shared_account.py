@@ -27,6 +27,7 @@ from execution import (
     AccountDecision,
     AccountObservation,
     AccountQuote,
+    MarketTouch,
     OrderDecision,
     OrderEvent,
     OrderState,
@@ -114,6 +115,7 @@ class SharedAccountConsumer:
                 ),
                 max_quote_age_us=1_000_000,
                 max_state_age_us=86_400_000_000,
+                max_residual_age_us=86_400_000_000,
                 max_price_deviation_bps=100,
                 max_order_notional=cls._money("9000"),
             ),
@@ -179,6 +181,7 @@ class SharedAccountConsumer:
             quote=AccountQuote(price=cls._price("100"), at=quote_at or at),
             maximum_fee=cls._money(fee),
             checkpoint=checkpoint,
+            touch=MarketTouch(bid=cls._price("99.99"), ask=cls._price("100")),
         )
 
     @staticmethod

@@ -14,6 +14,7 @@ from accounting import LedgerBalance, LedgerState
 from configuration import PaperConfiguration
 from execution import (
     AccountReservations,
+    MarketTouch,
     OrderDecision,
     OrderEvent,
     OrderState,
@@ -22,7 +23,7 @@ from execution import (
     PaperOrderJournal,
     StepCommit,
 )
-from financial_units import Money, Price, Quantity
+from financial_units import Money, Quantity
 from risk import SpotLimits
 from serialization import DomainCodec, WireRecord
 
@@ -36,7 +37,7 @@ class PaperExecutionRequest(WireRecord, frozen=True):
     identity: str
     checkpoint: bytes = b""
     decision: OrderDecision | None = None
-    reference: Price | None = None
+    touch: MarketTouch | None = None
     market: PaperMarket | None = None
     event: OrderEvent | None = None
     order_id: str | None = None
@@ -77,12 +78,10 @@ class PaperExecutionRequest(WireRecord, frozen=True):
                 or self.expected_holding is not None
                 or self.open_order_ids
             ):
-                raise ValueError(
-                    "paper decision requires only its intent, reference and checkpoint"
-                )
+                raise ValueError("paper decision requires only its intent, touch and checkpoint")
             self.decision.__post_init__()
-            if self.reference is not None:
-                self.reference.model_copy()
+            if self.touch is not None:
+                self.touch.__post_init__()
         elif self.action == "replace":
             if (
                 self.decision is None
@@ -95,11 +94,11 @@ class PaperExecutionRequest(WireRecord, frozen=True):
                 or self.open_order_ids
             ):
                 raise ValueError(
-                    "paper replacement requires old order ID, intent, reference and checkpoint"
+                    "paper replacement requires old order ID, intent, touch and checkpoint"
                 )
             self.decision.__post_init__()
-            if self.reference is not None:
-                self.reference.model_copy()
+            if self.touch is not None:
+                self.touch.__post_init__()
         elif self.action == "market":
             if self.market is None or self._has_other_than("market"):
                 raise ValueError("paper market request has mixed payloads")
@@ -133,7 +132,7 @@ class PaperExecutionRequest(WireRecord, frozen=True):
         return (
             self.checkpoint != b""
             or self.decision is not None
-            or self.reference is not None
+            or self.touch is not None
             or self.market is not None
             or self.event is not None
             or self.order_id is not None
@@ -148,7 +147,7 @@ class PaperExecutionRequest(WireRecord, frozen=True):
         return (
             self.checkpoint != b""
             or self.decision is not None
-            or self.reference is not None
+            or self.touch is not None
             or (selected != "market" and self.market is not None)
             or (selected != "event" and self.event is not None)
             or (selected != "cancel" and (self.order_id is not None or self.at is not None))
@@ -266,7 +265,7 @@ class PaperExecutionApplication:
                         step_id=f"decision:{request.identity}",
                         checkpoint=request.checkpoint,
                         decision=request.decision,
-                        reference=request.reference,
+                        touch=request.touch,
                         maximum_fee=config.maximum_fee,
                         input_bytes=request_bytes,
                         result_bytes=self._codec.encode_json(request.decision),
@@ -280,7 +279,7 @@ class PaperExecutionApplication:
                         step_id=f"replace:{request.identity}",
                         checkpoint=request.checkpoint,
                         decision=request.decision,
-                        reference=request.reference,
+                        touch=request.touch,
                         maximum_fee=config.maximum_fee,
                         input_bytes=request_bytes,
                         result_bytes=self._codec.encode_json(request.decision),
@@ -300,7 +299,7 @@ class PaperExecutionApplication:
                         step_id=step_id,
                         checkpoint=journal.checkpoint() or b"",
                         decision=None,
-                        reference=None,
+                        touch=None,
                         maximum_fee=config.maximum_fee,
                         input_bytes=request_bytes,
                         result_bytes=self._codec.encode_json(request.market),

@@ -5,13 +5,14 @@ from __future__ import annotations
 # standard library imports
 from datetime import datetime
 from fractions import Fraction
+from typing import Literal
 
 # third party library imports
 from msgspec.structs import replace
 
 # project library imports
-from execution.records import OrderEvent, OrderState, OrderStatus
-from financial_units import DecimalGrid, Price, Quantity
+from execution.records import MarketTouch, OrderEvent, OrderState, OrderStatus
+from financial_units import DecimalGrid, Quantity
 from risk import SpotLimits
 from strategies import ExposureIntent, OrderIntent, QuoteIntent, TargetIntent
 
@@ -28,19 +29,26 @@ class SpotOrderLifecycle:
         self,
         intent: TargetIntent | ExposureIntent | OrderIntent | QuoteIntent,
         holding: Quantity,
-        reference: Price | None,
+        touch: MarketTouch | None,
     ) -> tuple[tuple[str, OrderIntent], ...]:
-        """Lower target/exposure intent to one bounded IOC, retaining quote child legs."""
+        """Lower target/exposure intent to one bounded IOC, retaining quote child legs.
+
+        The IOC crosses the touch on its own side, a buy at the ask and a sell at
+        the bid. Exposure converts to whole lots at the touch midpoint, as research
+        simulation converts it.
+        """
         if isinstance(intent, OrderIntent):
             return (("order", intent),)
         if isinstance(intent, QuoteIntent):
             return (("bid", intent.bid), ("ask", intent.ask))
-        if reference is None or self.limits.price_reason(reference) is not None:
+        if touch is None or any(
+            self.limits.price_reason(price) is not None for price in (touch.bid, touch.ask)
+        ):
             raise ValueError("missing_or_invalid_reference_price")
         if isinstance(intent, ExposureIntent):
-            if intent.exposure.currency != reference.currency or intent.exposure.value < 0:
+            if intent.exposure.currency != touch.ask.currency or intent.exposure.value < 0:
                 raise ValueError("incompatible_exposure")
-            units = Fraction(intent.exposure.value) / Fraction(reference.value)
+            units = Fraction(intent.exposure.value) / touch.midpoint()
             lot_count = units // Fraction(self.limits.lot.value)
             target = Quantity(
                 value=DecimalGrid.exact_decimal(
@@ -55,10 +63,11 @@ class SpotOrderLifecycle:
         delta = target - holding
         if delta.value == 0:
             return ()
+        side: Literal["buy", "sell"] = "buy" if delta.value > 0 else "sell"
         order = OrderIntent(
-            side="buy" if delta.value > 0 else "sell",
+            side=side,
             quantity=Quantity(value=delta.value.copy_abs(), dimension=target.dimension),
-            limit=reference,
+            limit=touch.crossed_by(side),
             time_in_force="ioc",
         )
         return (("target", order),)
@@ -99,12 +108,18 @@ class SpotOrderLifecycle:
             )
             return replace(order, accepted=True, status=accepted_status)
         if event.kind == "cancel_requested":
-            if order.status in ("cancel_requested", "cancel_ack"):
+            if order.cancel_requested:
                 raise ValueError("cancel request is already pending")
+            if order.status == "unknown":
+                # Only reconciliation resolves an unknown outcome; the request waits beside it.
+                return replace(order, cancel_requested=True)
             return replace(order, cancel_requested=True, status="cancel_requested")
         if event.kind == "cancel_ack":
             if not order.cancel_requested:
                 raise ValueError("cancel acknowledgement requires a cancel request")
+            if order.status == "unknown":
+                # Reconciliation, not the acknowledgement, resolves an unknown outcome.
+                return replace(order, cancel_acknowledged=True)
             return replace(order, cancel_acknowledged=True, status="cancel_ack")
         if event.kind == "cancelled":
             if order.status == "intent":

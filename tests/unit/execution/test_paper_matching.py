@@ -227,7 +227,7 @@ class TestPaperMatcher:
                     time_in_force=time_in_force,
                 ),
             ),
-            reference=cls._price("1.00"),
+            touch=None,
             maximum_fee=cls._money(maximum_fee),
         )
         assert result.status == "committed" and len(result.orders) == 1
@@ -420,7 +420,7 @@ class TestPaperMatcher:
                         time_in_force="gtc",
                     ),
                 ),
-                reference=self._price("1.00"),
+                touch=None,
                 maximum_fee=self._money("0.03"),
             )
             assert (refused.status, refused.reason) == (
@@ -818,7 +818,7 @@ class TestPaperMatcher:
                         step_id=f"market:{market.identity}",
                         checkpoint=b"checkpoint",
                         decision=None,
-                        reference=None,
+                        touch=None,
                         maximum_fee=self._money("0"),
                         input_bytes=payload,
                     )
@@ -828,7 +828,7 @@ class TestPaperMatcher:
                 step_id="timer:claim-3",
                 checkpoint=b"checkpoint",
                 decision=None,
-                reference=None,
+                touch=None,
                 maximum_fee=self._money("0"),
             )
             unfinished = journal.unfinished_markets()

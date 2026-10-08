@@ -54,6 +54,15 @@ if TYPE_CHECKING:
 type _Clocks = tuple[tuple[str, datetime], ...]
 
 
+class SelfTradeConflict(ValueError):
+    """Refuse an order that would cross an open opposite order of its own account."""
+
+    def __init__(self, order_id: str) -> None:
+        """Name the open order that the refused order would cross."""
+        super().__init__("self_trade_conflict")
+        self.order_id = order_id
+
+
 class _Owners:
     """Map order identities to their accounts, extending the map as orders append.
 
@@ -259,7 +268,7 @@ class AccountAdmission:
             for tagged in transaction.state.orders
         ):
             raise ValueError("pending_target")
-        legs = lifecycle.lower(request.decision.intent, holding, request.quote.price)
+        legs = lifecycle.lower(request.decision.intent, holding, request.touch)
         reconciled_at = account.reconciled_at
         if reconciled_at is None:
             raise ValueError("account_not_reconciled")
@@ -360,7 +369,7 @@ class AccountAdmission:
                     else intent.limit.value <= order.intent.limit.value
                 )
             ):
-                raise ValueError("self_trade_conflict")
+                raise SelfTradeConflict(order.identity)
         identity = hashlib.sha256(
             self.codec.encode_json(
                 (
@@ -1062,65 +1071,58 @@ class AccountAdmission:
         return tuple(affected)
 
     def require_reissue_safe(
-        self, transaction: AccountTransaction, account_id: str, at: datetime
+        self,
+        transaction: AccountTransaction,
+        account_id: str,
+        at: datetime,
+        *,
+        buyers: tuple[str, ...] = (),
     ) -> None:
-        """Recheck gross capital, funding, and fresh prices before a physical send."""
+        """Recheck funding, fresh marks, and ``buyers``' gross capital before a send.
+
+        ``buyers`` names the owners of a buy the caller sends itself; their ceilings
+        are rechecked at current marks. Waiting portfolio children are not sent here,
+        so they block nothing: netting holds back any it cannot send.
+        """
         self.require_funded(transaction, account_id)
-        commitments = self.commitments(transaction, at)
+        reason = BudgetEngine().recheck(
+            self.config.budgets, self.commitments(transaction, at), tuple(sorted(set(buyers)))
+        )
+        if reason is not None:
+            raise ValueError(reason)
+
+    def expired(self, order: OrderState, at: datetime) -> bool:
+        """Report whether ``order``'s decision is older than any waiting order may be sent."""
+        return at - order.decision_at > timedelta(
+            microseconds=self.config.budgets.max_residual_age_us
+        )
+
+    def send_reason(
+        self, transaction: AccountTransaction, order: OrderState, at: datetime
+    ) -> str | None:
+        """Name why an order cannot be sent at ``at``: a stale quote, or a limit too far from it."""
+        if self.expired(order, at):
+            return "expired_decision"
         policy = self.config.budgets
-        by_instance = {owner.instance_id: owner for owner in policy.instances}
-        by_account = {account.account_id: account for account in policy.accounts}
-        account_exposure: dict[str, Fraction] = {}
-        firm_exposure = Fraction(0)
-        for commitment in commitments:
-            amount = Fraction(commitment.held_exposure.value) + Fraction(
-                commitment.reserved_exposure.value
-            )
-            if amount > Fraction(by_instance[commitment.instance_id].maximum.value):
-                raise ValueError("instance_limit")
-            account_exposure[commitment.account_id] = (
-                account_exposure.get(commitment.account_id, Fraction(0)) + amount
-            )
-            firm_exposure += amount
-        if any(
-            amount > Fraction(by_account[owner].maximum.value)
-            for owner, amount in account_exposure.items()
+        quote = next(
+            (
+                item
+                for item in transaction.state.quotes
+                if item.price.per == order.intent.quantity.dimension
+            ),
+            None,
+        )
+        if (
+            quote is None
+            or quote.at > at
+            or at - quote.at > timedelta(microseconds=policy.max_quote_age_us)
         ):
-            raise ValueError("account_limit")
-        if firm_exposure > Fraction(policy.firm_maximum.value):
-            raise ValueError("firm_limit")
-        assigned = {
-            item.child_order_id
-            for parent in transaction.state.net_orders
-            if not parent.order.is_terminal
-            for item in parent.allocations
-        }
-        for child in transaction.state.orders:
-            if (
-                child.account_id != account_id
-                or child.context is None
-                or child.order.is_terminal
-                or child.order.identity in assigned
-            ):
-                continue
-            quote = next(
-                (
-                    item
-                    for item in transaction.state.quotes
-                    if item.price.per == child.order.intent.quantity.dimension
-                ),
-                None,
-            )
-            if (
-                quote is None
-                or quote.at > at
-                or at - quote.at > timedelta(microseconds=policy.max_quote_age_us)
-            ):
-                raise ValueError("stale_quote")
-            reference = Fraction(quote.price.value)
-            limit = Fraction(child.order.intent.limit.value)
-            if abs(limit - reference) * 10_000 > reference * policy.max_price_deviation_bps:
-                raise ValueError("price_deviation")
+            return "stale_quote"
+        reference = Fraction(quote.price.value)
+        limit = Fraction(order.intent.limit.value)
+        if abs(limit - reference) * 10_000 > reference * policy.max_price_deviation_bps:
+            return "price_deviation"
+        return None
 
     def apply_order_event(
         self,

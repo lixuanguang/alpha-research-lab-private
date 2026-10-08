@@ -208,7 +208,10 @@ Cutoffs are inclusive exact Unix nanoseconds and may be queried in any order.
 A query selects the latest retained boundary available by that cutoff. It never
 falls back through a disconnect to an older priced state. Same-epoch heartbeat,
 control and duplicate boundaries can retain an unchanged book, including its
-original market clocks; they cannot refresh its age. Freshness is checked at
+original market clocks; they cannot refresh its age. A heartbeat exactly one
+sequence number after the previous boundary retains the book although its state
+identity changed, since a heartbeat applies no book data and only advances a
+sequenced venue's counter (Bitfinex); any other heartbeat must keep the identity. Freshness is checked at
 every query against original receipt, delivery and the declared source clock,
 with equality at the age limit eligible. Future source times are excluded.
 Expiry therefore works without a new message. Disconnect, gap and recovering

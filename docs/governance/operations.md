@@ -188,8 +188,12 @@ uv run --frozen alpha-governance-artifacts run \
    then supply a complete fresh account observation and current marks. A matching
    observation cannot clear unresolved sends, cancels, contradictions or earlier
    operator blocks. `control/restart` must name the current stop identity and
-   rechecks freshness, funding and budgets. Selective instance restarts remain
-   explicit. Inspect account and strategy attribution before resuming work.
+   rechecks freshness and funding. A strategy that price moves alone took over its
+   ceiling does not block the restart: its waiting buys, like any residual whose
+   quote is stale or whose limit drifted beyond the price bound, stay visible
+   portfolio residuals, and it can still sell but cannot buy. Selective instance
+   restarts remain explicit. Inspect account and strategy attribution before
+   resuming work.
 5. **Back up:** stop producers and every selected account, then send `backup`
    with an absent external `backup_root`. The SQLite locks prevent a concurrent
    restart during capture. Retain its manifest digest with the compatible signed
@@ -280,9 +284,9 @@ uv run --frozen alpha-governance-artifacts run \
    a fresh observed quote, explicit sell limit and maximum fee. Accepted means
    an IOC sell reservation. Only subsequent eligible public liquidity can create
    fills. Stale/disconnected input, unknown outcomes, unreconciled state or
-   insufficient owned inventory produce explicit refusal; partial/unfilled
-   quantities are reported without claiming liquidation. Other strategies'
-   inventory is never used to satisfy the request.
+   insufficient owned inventory produce explicit refusal; budget ceilings never
+   refuse a reduction. Partial/unfilled quantities are reported without claiming
+   liquidation. Other strategies' inventory is never used to satisfy the request.
 7. After failure, inspect retained facts and complete independent reconciliation.
    If physical order outcomes remain unresolved, use the retained current owner
    to drain existing obligations against fresh public data before replacement;

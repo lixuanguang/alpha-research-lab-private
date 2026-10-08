@@ -21,13 +21,14 @@ from execution.lifecycle import SpotOrderLifecycle
 from execution.records import (
     AccountReservations,
     JournalEvent,
+    MarketTouch,
     OrderDecision,
     OrderEvent,
     OrderState,
     StepCommit,
     StepRecord,
 )
-from financial_units import Money, Price, Quantity
+from financial_units import Money, Quantity
 from risk import SpotLimits
 from serialization import DomainCodec, SqliteLayout
 from strategies import ExposureIntent, TargetIntent
@@ -498,7 +499,7 @@ class PaperOrderJournal:
         step_id: str,
         checkpoint: bytes,
         decision: OrderDecision | None,
-        reference: Price | None,
+        touch: MarketTouch | None,
         maximum_fee: Money,
         input_bytes: bytes = b"",
         result_bytes: bytes = b"",
@@ -510,7 +511,7 @@ class PaperOrderJournal:
                 step_id=step_id,
                 checkpoint=checkpoint,
                 decision=decision,
-                reference=reference,
+                touch=touch,
                 maximum_fee=maximum_fee,
                 input_bytes=input_bytes,
                 result_bytes=result_bytes,
@@ -525,7 +526,7 @@ class PaperOrderJournal:
         step_id: str,
         checkpoint: bytes,
         decision: OrderDecision,
-        reference: Price | None,
+        touch: MarketTouch | None,
         maximum_fee: Money,
         input_bytes: bytes = b"",
         result_bytes: bytes = b"",
@@ -540,7 +541,7 @@ class PaperOrderJournal:
                 step_id=step_id,
                 checkpoint=checkpoint,
                 decision=decision,
-                reference=reference,
+                touch=touch,
                 maximum_fee=maximum_fee,
                 input_bytes=input_bytes,
                 result_bytes=result_bytes,
@@ -702,7 +703,7 @@ class PaperOrderJournal:
         step_id: str,
         checkpoint: bytes,
         decision: OrderDecision | None,
-        reference: Price | None,
+        touch: MarketTouch | None,
         maximum_fee: Money,
         input_bytes: bytes,
         result_bytes: bytes,
@@ -722,8 +723,8 @@ class PaperOrderJournal:
             raise ValueError("paper maximum fee cannot be negative")
         if decision is not None:
             decision.__post_init__()
-        if reference is not None:
-            reference.model_copy()
+        if touch is not None:
+            touch.__post_init__()
         saved = self._step(connection, step_id)
         if saved is not None:
             if (
@@ -731,7 +732,7 @@ class PaperOrderJournal:
                 or saved.input_bytes != input_bytes
                 or saved.result_bytes != result_bytes
                 or saved.decision != decision
-                or saved.reference != reference
+                or saved.touch != touch
                 or saved.maximum_fee != maximum_fee
             ):
                 raise ValueError("candidate step identity was reused with different state or input")
@@ -746,7 +747,7 @@ class PaperOrderJournal:
             connection,
             step_id=step_id,
             decision=decision,
-            reference=reference,
+            touch=touch,
             maximum_fee=maximum_fee,
             replace_of=replace_of,
         )
@@ -756,7 +757,7 @@ class PaperOrderJournal:
             input_bytes=input_bytes,
             result_bytes=result_bytes,
             decision=decision,
-            reference=reference,
+            touch=touch,
             maximum_fee=maximum_fee,
             commit=result,
         )
@@ -782,7 +783,7 @@ class PaperOrderJournal:
         *,
         step_id: str,
         decision: OrderDecision | None,
-        reference: Price | None,
+        touch: MarketTouch | None,
         maximum_fee: Money,
         replace_of: str | None,
     ) -> StepCommit:
@@ -803,7 +804,7 @@ class PaperOrderJournal:
         if any(order.status == "unknown" for order in existing):
             return StepCommit(status="rejected", reason="order_outcome_unknown", orders=())
         try:
-            legs = self._lifecycle.lower(intent, ledger.balance.holding, reference)
+            legs = self._lifecycle.lower(intent, ledger.balance.holding, touch)
         except ValueError as error:
             return StepCommit(status="rejected", reason=str(error), orders=())
         if not legs:

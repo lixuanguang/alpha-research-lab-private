@@ -6,13 +6,14 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal, Protocol
 
 # project library imports
 from execution import (
     AccountDecision,
     AccountQuote,
+    MarketTouch,
     OrderDecision,
     PaperAccount,
     PortfolioBatch,
@@ -80,15 +81,17 @@ class CandidateExecutor(Protocol):
 
 
 class SharedStrategyInput(WireRecord, frozen=True):
-    """Supply a named instance's causal inputs and the observed account quote.
+    """Supply a named instance's causal inputs, observed account quote and market touch.
 
     A source-fed candidate receives ``inputs``; a feature-served candidate receives
-    ``served``, the vector and the exact stream snapshot that served it.
+    ``served``, the vector and the exact stream snapshot that served it. The quote
+    is the account's valuation mark; a target or exposure crosses the ``touch``.
     """
 
     instance_id: str
     inputs: DecisionInputs | None
     quote: AccountQuote
+    touch: MarketTouch
     served: ServedFeature | None = None
 
     def __post_init__(self) -> None:
@@ -106,6 +109,11 @@ class SharedStrategyInput(WireRecord, frozen=True):
                 raise TypeError("shared input requires a served feature")
             self.served.__post_init__()
         self.quote.__post_init__()
+        if type(self.touch) is not MarketTouch:
+            raise TypeError("shared input requires a market touch")
+        self.touch.__post_init__()
+        if self.touch.bid.per != self.quote.price.per:
+            raise ValueError("shared touch belongs to another instrument")
 
     @property
     def decision_at(self) -> datetime:
@@ -272,8 +280,9 @@ class SharedDecisionRuntime:
         Args:
             identity: Stable batch identity; retry requires identical inputs and candidates.
             at: UTC coordination time, strictly later than every decision cutoff and
-                quote. Each account decision is dated when both its inputs and its
-                quote were known, the later of the two.
+                quote. The account learns each decision at ``at`` and dates it one
+                microsecond earlier, the latest instant at which the runtime can have
+                decided it, so never before its inputs or quote were known.
             inputs: Causal source inputs for distinct configured instances.
             crossing: Explicit policy for compatible opposite interests.
 
@@ -335,13 +344,13 @@ class SharedDecisionRuntime:
                             identity=hashlib.sha256(
                                 self._codec.encode_json((identity, step))
                             ).hexdigest(),
-                            # Decided once both its inputs and its market were known.
-                            at=max(step.at, item.quote.at),
+                            at=at - timedelta(microseconds=1),
                             intent=None if step.decision is None else step.decision.intent,
                         ),
                         quote=item.quote,
                         maximum_fee=binding.maximum_fee,
                         checkpoint=self._codec.encode_json(continuation),
+                        touch=item.touch,
                     ),
                     context=binding.context,
                     expected_checkpoint_sha256=continuation.expected_checkpoint_sha256,

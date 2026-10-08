@@ -29,7 +29,10 @@ allocation with stable identity tie-breaking. The journal chooses the quantum
 from the physical fill price so both attributed quantities and cash remain
 representable on the financial grid. An impossible exact split fails closed;
 the allocator neither drops dust nor exceeds a child's remaining quantity.
-Physical-lot residuals remain visible and reserved in the journal. Fee capacity
+Physical-lot residuals, and children held back because their quote is stale, their
+limit drifted beyond the price bound, or their owner is over a budget ceiling at
+current marks, remain visible and reserved in the journal until netting retires
+those whose decision has outlived the budget policy's residual age. Fee capacity
 also remains reserved for a completed child while its shared parent can still
 receive costs. Corrections use the original per-fill reservation weights and
 append attributed cost revisions without changing original execution facts.

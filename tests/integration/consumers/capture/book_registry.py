@@ -394,7 +394,7 @@ class _SelectedVenuePaperAcceptance:
                         time_in_force="ioc",
                     ),
                 ),
-                reference=self._price("101"),
+                touch=None,
                 maximum_fee=self._money("2"),
             )
             if admitted.status != "committed" or len(admitted.orders) != 1:

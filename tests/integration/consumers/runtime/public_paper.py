@@ -352,6 +352,7 @@ class PublicPaperWorkload:
                 ),
                 max_quote_age_us=self.freshness_us,
                 max_state_age_us=86_400_000_000,
+                max_residual_age_us=86_400_000_000,
                 max_price_deviation_bps=500,
                 max_order_notional=self.money("9000"),
             ),

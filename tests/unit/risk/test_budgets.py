@@ -62,6 +62,7 @@ class TestBudgetEngine:
             ),
             max_quote_age_us=1_000_000,
             max_state_age_us=1_000_000,
+            max_residual_age_us=86_400_000_000,
             max_price_deviation_bps=100,
             max_order_notional=cls._money("9000"),
         )
@@ -177,10 +178,11 @@ class TestBudgetEngine:
         snapshot = (self._zero_commitments(policy)[0], prior)
         assert BudgetEngine().evaluate(policy, self._request(), snapshot) == "firm_limit"
 
-    def test_sell_retains_marked_holdings_until_confirmed_fill(self) -> None:
-        """A pending sell cannot subtract held exposure; its fee still consumes capacity."""
+    def test_no_ceiling_refuses_a_sell_but_held_exposure_stays_until_its_fill(self) -> None:
+        """Marks above every ceiling still admit a sell; a buy beside it is still refused."""
         policy = replace(
             self._policy(),
+            firm_maximum=self._money("1000"),
             accounts=(AccountLimit(account_id="shared", maximum=self._money("1000")),),
             instances=(
                 InstanceLimit(
@@ -191,18 +193,61 @@ class TestBudgetEngine:
                 ),
             ),
         )
-        held = ExposureCommitment(
+        rallied = ExposureCommitment(
             account_id="shared",
             instance_id="alpha",
-            held_exposure=self._money("1000"),
+            held_exposure=self._money("1200"),
             reserved_exposure=self._money("0"),
         )
-        sell = self._request(side="sell", quantity="10")
-        assert BudgetEngine().evaluate(policy, sell, (held,)) is None
-        assert (
-            BudgetEngine().evaluate(policy, replace(sell, maximum_fee=self._money("0.01")), (held,))
-            == "instance_limit"
+        sell = replace(self._request(side="sell", quantity="10"), maximum_fee=self._money("0.01"))
+        engine = BudgetEngine()
+        assert engine.evaluate(policy, sell, (rallied,)) is None
+        stale = replace(sell, quote_at=sell.decision_at - timedelta(microseconds=1_000_001))
+        assert engine.evaluate(policy, stale, (rallied,)) == "stale_quote"
+        # The pending sell's fee joins held exposure, which stays counted until a fill.
+        pending = replace(rallied, reserved_exposure=self._money("0.01"))
+        assert engine.evaluate(policy, self._request(quantity="1"), (pending,)) == "instance_limit"
+
+    def test_recheck_holds_back_only_buyers_over_a_ceiling(self) -> None:
+        """Marks over alpha's 6,000 stop alpha's buys; beta's in-limit buys still go."""
+        policy = replace(
+            self._policy(),
+            instances=(
+                InstanceLimit(
+                    instance_id="alpha",
+                    account_id="shared",
+                    maximum=self._money("6000"),
+                    instruments=(self._instrument(1),),
+                ),
+                InstanceLimit(
+                    instance_id="beta",
+                    account_id="shared",
+                    maximum=self._money("9000"),
+                    instruments=(self._instrument(1),),
+                ),
+            ),
         )
+        alpha = ExposureCommitment(
+            account_id="shared",
+            instance_id="alpha",
+            held_exposure=self._money("6600"),
+            reserved_exposure=self._money("0"),
+        )
+        beta = ExposureCommitment(
+            account_id="shared",
+            instance_id="beta",
+            held_exposure=self._money("0"),
+            reserved_exposure=self._money("1200"),
+        )
+        engine = BudgetEngine()
+        assert engine.recheck(policy, (alpha, beta), ()) is None
+        assert engine.recheck(policy, (alpha, beta), ("beta",)) is None
+        assert engine.recheck(policy, (alpha, beta), ("alpha",)) == "instance_limit"
+        # 6,600 + 3,401 exceeds the 10,000 account ceiling though beta is within its own.
+        crowded = replace(beta, reserved_exposure=self._money("3401"))
+        assert engine.recheck(policy, (alpha, crowded), ("beta",)) == "account_limit"
+        assert engine.recheck(policy, (alpha,), ("beta",)) == "incomplete_exposure_state"
+        assert engine.recheck(policy, (alpha, beta), ("gamma",)) == "unauthorized_instance"
 
     def test_authority_and_missing_fx_fail_closed(self) -> None:
         """An account, instance, instrument or currency mismatch cannot enter a budget."""
@@ -339,6 +384,9 @@ class TestBudgetEngine:
             replace(policy, accounts=(policy.accounts[0], policy.accounts[0]))
         with pytest.raises(ValueError, match="unowned"):
             replace(policy, instances=(replace(policy.instances[0], account_id="missing"),))
+        for age in (0, 86_400_000_001):
+            with pytest.raises(ValueError, match="at most one day"):
+                replace(policy, max_residual_age_us=age)
         with pytest.raises(ValueError, match="nonnegative"):
             ExposureCommitment(
                 account_id="shared",

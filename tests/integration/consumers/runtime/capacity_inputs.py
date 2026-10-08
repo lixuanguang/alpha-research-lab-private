@@ -594,6 +594,7 @@ class CapacityWorkload:
                 ),
                 max_quote_age_us=30_000_000,
                 max_state_age_us=120_000_000,
+                max_residual_age_us=86_400_000_000,
                 max_price_deviation_bps=500,
                 max_order_notional=workload.money("1000"),
             ),

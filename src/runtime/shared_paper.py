@@ -16,7 +16,14 @@ import msgspec
 
 # project library imports
 from configuration import BookKey, PaperExecutionScenario
-from execution import AccountControl, AccountQuote, PaperAccount, PaperMarket, PortfolioCommit
+from execution import (
+    AccountControl,
+    AccountQuote,
+    MarketTouch,
+    PaperAccount,
+    PaperMarket,
+    PortfolioCommit,
+)
 from financial_units import Price, Quantity
 from market_data.books import BookAsOfIndex, BookDepth, BookRegistry
 from market_data.contracts import BookObservation, CaptureRecord
@@ -37,19 +44,20 @@ from telemetry import RuntimeMeasurementJournal
 class SharedDecisionGroup(WireRecord, frozen=True):
     """Retain one grid instant's causal inputs, observed quote and coordination clock.
 
-    The quote is the latest eligible market known at coordination: the instant's
-    own market when it decides on the delivery that crosses the instant, a later one
-    when a served feature was awaited.
-
-    Coordination is the logical boundary at which the account learns the decision:
-    one microsecond after the instant when it decides on the crossing delivery, or
-    one microsecond after the preceding delivery when a served feature was awaited.
-    It is never after the deciding delivery, so net orders and the account's
-    knowledge stay before the book that is matched next.
+    Coordination is the logical boundary at which the account learns the decision,
+    one microsecond after the decision was known and after the previous group's
+    coordination. Source-fed inputs are known at the instant: such a group is
+    quoted at the latest market before its deciding delivery and coordinates before
+    that delivery, whose book then matches it. A served snapshot is known only when
+    the deciding delivery reads it: such a group is quoted at the latest market
+    including that delivery's and coordinates after the delivery, so only a later
+    book matches it. The account dates each decision one microsecond before its
+    coordination.
     """
 
     at: datetime
     quote: AccountQuote
+    touch: MarketTouch
     inputs: tuple[SharedStrategyInput, ...]
     coordinated_at: datetime
 
@@ -57,9 +65,10 @@ class SharedDecisionGroup(WireRecord, frozen=True):
         """Bind every input and the quote to this instant, before its coordination."""
         self._require_utc(self.at, field_name="shared decision instant")
         self._require_utc(self.coordinated_at, field_name="shared book coordination")
-        if type(self.quote) is not AccountQuote:
-            raise TypeError("shared decision group requires an account quote")
+        if type(self.quote) is not AccountQuote or type(self.touch) is not MarketTouch:
+            raise TypeError("shared decision group requires an account quote and touch")
         self.quote.__post_init__()
+        self.touch.__post_init__()
         if type(self.inputs) is not tuple or not self.inputs:
             raise ValueError("shared decision group requires inputs")
         if self.quote.at >= self.coordinated_at or self.coordinated_at < self.at + timedelta(
@@ -70,15 +79,17 @@ class SharedDecisionGroup(WireRecord, frozen=True):
             if type(item) is not SharedStrategyInput:
                 raise TypeError("shared decision group requires SharedStrategyInput")
             item.__post_init__()
-            if item.decision_at != self.at or item.quote != self.quote:
+            if item.decision_at != self.at or item.quote != self.quote or item.touch != self.touch:
                 raise ValueError("shared input cutoff or quote differs from its instant")
 
 
 class SharedBookDelivery(WireRecord, frozen=True):
     """Retain original source clocks, decided grid instants and account matching.
 
-    Only a snapshot or update matches, and one that decides an instant always does.
-    A clock, heartbeat or control may decide without matching.
+    Groups follow in coordination order: source-fed groups before the delivery,
+    then served groups after it. Only a snapshot or update matches, and one that
+    decides a source-fed instant always does. A clock, heartbeat or control may
+    decide without matching.
     """
 
     source: LiveBookDelivery
@@ -100,19 +111,22 @@ class SharedBookDelivery(WireRecord, frozen=True):
         ):
             raise ValueError("unsupported shared book delivery schema")
         previous: datetime | None = None
+        instants: dict[bool, datetime] = {}
         for group in self.decisions:
             if type(group) is not SharedDecisionGroup:
                 raise TypeError("shared delivery requires decision groups")
             group.__post_init__()
+            served = group.coordinated_at > self.source.available_at
             if (
                 group.at >= self.source.available_at
-                or group.coordinated_at > self.source.available_at
-                or (previous is not None and group.at <= previous)
+                or (previous is not None and group.coordinated_at <= previous)
+                or (served in instants and group.at <= instants[served])
+                or any((item.served is not None) != served for item in group.inputs)
             ):
                 raise ValueError("shared decision instants must precede their delivery in order")
-            previous = group.at
+            previous, instants[served] = group.coordinated_at, group.at
         priced = self.source.book.outcome in ("snapshot", "update")
-        if (self.decisions and priced and not self.matched) or (self.matched and not priced):
+        if (False in instants and priced and not self.matched) or (self.matched and not priced):
             raise ValueError("a book that decides an instant matches; only books match")
 
 
@@ -193,9 +207,11 @@ class SharedPaperCaptureObserver:
     replay interleaves both logs by delivery time and re-reads the same inputs.
 
     A feature-served candidate reads its pinned stream's snapshot exactly at each
-    instant through ``features`` instead of the native sources. While that snapshot
-    is ``feature-pending`` the instant stays open and is retried on each later
-    delivery that advances the grid, coordinated after the preceding delivery; it is skipped as
+    instant through ``features`` instead of the native sources. The snapshot is known
+    only when a delivery reads it, so that decision coordinates after the delivery,
+    quoted at the market known then, and only a later book matches it. While the
+    snapshot is ``feature-pending`` the instant stays open and is retried on each
+    later delivery that advances the grid; it is skipped as
     ``feature-not-published`` when a delivery that opens the candidate's next
     instant cannot decide it either. Any other
     pause reason (missing, expired, future, changed version or unavailable service)
@@ -281,7 +297,8 @@ class SharedPaperCaptureObserver:
         self._match_due = False
         # Each instance's open grid instants, ascending.
         self._open: dict[str, list[datetime]] = {}
-        self._previous_at: datetime | None = None
+        # The latest coordination; every later decision group coordinates after it.
+        self._coordinated: datetime | None = None
         self._codec = DomainCodec()
         self._retained_bytes = 0
         self._maximum_bytes = request.recording_max_bytes * 4
@@ -359,11 +376,12 @@ class SharedPaperCaptureObserver:
         crossed = timed and self._crosses(source.available_at)
         if crossed:
             self._open_crossed(source.available_at)
-        groups = self._groups(source.available_at) if timed else ()
+        groups = self._groups(source.available_at, market) if timed else ()
         delivery = ObservedSharedBookDelivery(
             source=source,
             decisions=groups,
-            matched=market is not None and (crossed or bool(groups) or self._match_due),
+            matched=market is not None
+            and (crossed or self._decides_before(groups, source.available_at) or self._match_due),
         )
         offset, length = self._retain(delivery, self._row_payload(row))
         if self.index is not None:
@@ -416,7 +434,12 @@ class SharedPaperCaptureObserver:
         if crossed:
             self._open_crossed(delivery.source.available_at)
         if delivery.matched != (
-            market is not None and (crossed or bool(delivery.decisions) or self._match_due)
+            market is not None
+            and (
+                crossed
+                or self._decides_before(delivery.decisions, delivery.source.available_at)
+                or self._match_due
+            )
         ):
             raise ValueError("retained delivery differs from the replayed decision grid")
         self._apply(delivery, market, timed=timed, crossed=crossed, replayed=True)
@@ -479,33 +502,59 @@ class SharedPaperCaptureObserver:
             if kept:
                 self._open[name] = kept
 
-    def _coordination(self, instant: datetime) -> datetime:
-        """Coordinate after the instant and after the delivery preceding this one."""
-        coordinated = instant + timedelta(microseconds=1)
-        if self._previous_at is not None:
-            coordinated = max(coordinated, self._previous_at + timedelta(microseconds=1))
+    @staticmethod
+    def _coordination(known: datetime, previous: datetime | None) -> datetime:
+        """Coordinate one microsecond after the decision was known and after ``previous``."""
+        coordinated = known + timedelta(microseconds=1)
+        if previous is not None:
+            coordinated = max(coordinated, previous + timedelta(microseconds=1))
         return coordinated
 
-    def _groups(self, before: datetime) -> tuple[SharedDecisionGroup, ...]:
-        """Decide each open instant whose inputs are ready, coordinated by ``before``.
+    @staticmethod
+    def _decides_before(groups: tuple[SharedDecisionGroup, ...], before: datetime) -> bool:
+        """Report whether a group coordinates before the delivery, whose book then matches it."""
+        return any(group.coordinated_at <= before for group in groups)
 
-        Every group is quoted at the latest eligible market known before this
-        delivery. Instants are read in ascending order, as live sources freeze
-        ascending cutoffs. An awaited served instant stays open; any other
+    def _groups(
+        self, before: datetime, market: PaperMarket | None
+    ) -> tuple[SharedDecisionGroup, ...]:
+        """Decide each open instant whose inputs are ready, in coordination order.
+
+        A source-fed group is quoted at the latest eligible market known before this
+        delivery and coordinates by ``before``; an instant that cannot stays open.
+        A served group is quoted at the latest market including this delivery's and
+        coordinates after it. Instants are read in ascending order, as live sources
+        freeze ascending cutoffs. An awaited served instant stays open; any other
         unavailable input closes its instant unread.
         """
         pending = self._pending
         if pending is None:
             return ()
-        quote = AccountQuote(price=pending.ask, at=pending.at)
+        known = pending if market is None else market
+        quotes = {
+            False: (
+                AccountQuote(price=pending.ask, at=pending.at),
+                MarketTouch(bid=pending.bid, ask=pending.ask),
+            ),
+            True: (
+                AccountQuote(price=known.ask, at=known.at),
+                MarketTouch(bid=known.bid, ask=known.ask),
+            ),
+        }
         bindings = {binding.instance_id: binding for binding in self.runtime.bindings}
         opened = sorted(
             ((instant, name) for name, items in self._open.items() for instant in items),
             key=self._open_order,
         )
-        due: dict[datetime, list[SharedStrategyInput]] = {}
+        due: dict[bool, dict[datetime, list[SharedStrategyInput]]] = {False: {}, True: {}}
+        previous = self._coordinated
         for instant, name in opened:
-            if self._coordination(instant) > before:
+            served = bindings[name].candidate.deployment.input_mode == "online_features"
+            if (
+                not served
+                and instant not in due[False]
+                and self._coordination(instant, previous) > before
+            ):
                 continue
             # An instant the account already committed is not decided again live.
             last = self.runtime.last_committed(name)
@@ -517,20 +566,34 @@ class SharedPaperCaptureObserver:
                 if inputs != "feature-pending":
                     self._open[name].remove(instant)
                 continue
-            due.setdefault(instant, []).append(
-                SharedStrategyInput(instance_id=name, inputs=None, quote=quote, served=inputs)
-                if isinstance(inputs, ServedFeature)
-                else SharedStrategyInput(instance_id=name, inputs=inputs, quote=quote)
-            )
-        return tuple(
-            SharedDecisionGroup(
-                at=instant,
-                quote=quote,
-                inputs=tuple(due[instant]),
-                coordinated_at=self._coordination(instant),
-            )
-            for instant in sorted(due)
-        )
+            quote, touch = quotes[served]
+            if isinstance(inputs, ServedFeature):
+                item = SharedStrategyInput(
+                    instance_id=name, inputs=None, quote=quote, touch=touch, served=inputs
+                )
+            else:
+                if instant not in due[False]:
+                    previous = self._coordination(instant, previous)
+                item = SharedStrategyInput(
+                    instance_id=name, inputs=inputs, quote=quote, touch=touch
+                )
+            due[served].setdefault(instant, []).append(item)
+        groups: list[SharedDecisionGroup] = []
+        previous = self._coordinated
+        for served, instants in due.items():
+            quote, touch = quotes[served]
+            for instant in sorted(instants):
+                previous = self._coordination(before if served else instant, previous)
+                groups.append(
+                    SharedDecisionGroup(
+                        at=instant,
+                        quote=quote,
+                        touch=touch,
+                        inputs=tuple(instants[instant]),
+                        coordinated_at=previous,
+                    )
+                )
+        return tuple(groups)
 
     def _replayed(
         self, binding: SharedStrategyBinding, at: datetime, item: SharedStrategyInput
@@ -643,15 +706,16 @@ class SharedPaperCaptureObserver:
         crossed: bool,
         replayed: bool,
     ) -> None:
-        """Apply one delivery, then make it the preceding delivery for coordination."""
-        try:
-            self._apply_delivery(delivery, market, timed=timed, replayed=replayed)
-        finally:
-            self._previous_at = delivery.source.available_at
-        if delivery.matched:
-            self._match_due = False
-        elif market is None and (crossed or delivery.decisions):
+        """Apply one delivery, then record whether the next eligible book must match."""
+        self._apply_delivery(delivery, market, timed=timed, replayed=replayed)
+        # A served group decided after this delivery's match awaits the next eligible book.
+        served = any(
+            group.coordinated_at > delivery.source.available_at for group in delivery.decisions
+        )
+        if served or (market is None and (crossed or delivery.decisions)):
             self._match_due = True
+        elif delivery.matched:
+            self._match_due = False
 
     def _apply_delivery(
         self,
@@ -685,50 +749,73 @@ class SharedPaperCaptureObserver:
             return
         if market is not None:
             self._ineligible_book = False
-        pending = self._pending
+        boundary = delivery.source.available_at
         for group in delivery.decisions:
-            if group.coordinated_at != self._coordination(group.at):
-                raise ValueError("shared decision coordination differs from its delivery order")
-            if pending is None or group.quote != AccountQuote(price=pending.ask, at=pending.at):
-                raise ValueError("shared decision substituted its known market quote")
-            for item in group.inputs:
-                if group.at not in self._open.get(item.instance_id, ()):
-                    raise ValueError("shared decision names an instant that is not open")
-            # A live delivery's inputs were just read from these sources; a replayed one
-            # is read again, in ascending instants, and must equal what it retained.
-            bindings = {binding.instance_id: binding for binding in self.runtime.bindings}
-            for item in group.inputs:
-                binding = bindings.get(item.instance_id)
-                if binding is None or (replayed and not self._replayed(binding, group.at, item)):
-                    raise ValueError("shared decision substituted native input lineage")
-            identity = hashlib.sha256(self._codec.encode_json((delivery.source, group))).hexdigest()
-            # An already retained batch is an exact retry; its quote was observed with it.
-            if self.journal.portfolio_batch(identity) is None:
-                self.journal.observe(group.quote)
-            commit = self.runtime.evaluate(
-                identity=identity, at=group.coordinated_at, inputs=group.inputs
-            )
-            if commit is not None:
-                self.decisions.append(commit)
-            for item in group.inputs:
-                self._open[item.instance_id].remove(group.at)
-        self._close_open()
+            if group.coordinated_at <= boundary:
+                self._decide(delivery, group, self._pending, replayed=replayed)
         if self._phases is not None and delivery.decisions:
             self._phases["evaluated_ns"] = time.monotonic_ns()
-        if market is None:
-            return
-        self.last_market = market
-        self._pending = market
-        if not delivery.matched:
-            return
-        if not self.journal.paper_market_seen(self.account_id, market.identity):
-            self.journal.observe(AccountQuote(price=market.ask, at=market.at))
-        if self._phases is not None:
-            self._phases["observed_ns"] = time.monotonic_ns()
-        if self.journal.config.mode == "paper":
-            self.journal.match_public_market(self.account_id, market, self.scenario)
-        if self._phases is not None:
-            self._phases["matched_ns"] = time.monotonic_ns()
+        if market is not None:
+            self.last_market = market
+            self._pending = market
+            if delivery.matched:
+                if not self.journal.paper_market_seen(self.account_id, market.identity):
+                    self.journal.observe(AccountQuote(price=market.ask, at=market.at))
+                if self._phases is not None:
+                    self._phases["observed_ns"] = time.monotonic_ns()
+                if self.journal.config.mode == "paper":
+                    self.journal.match_public_market(self.account_id, market, self.scenario)
+                if self._phases is not None:
+                    self._phases["matched_ns"] = time.monotonic_ns()
+        # A served snapshot became known with this delivery, so its book cannot fill it.
+        for group in delivery.decisions:
+            if group.coordinated_at > boundary:
+                self._decide(delivery, group, self._pending, replayed=replayed)
+        self._close_open()
+
+    def _decide(
+        self,
+        delivery: SharedBookDelivery,
+        group: SharedDecisionGroup,
+        known: PaperMarket | None,
+        *,
+        replayed: bool,
+    ) -> None:
+        """Check one group's clock, quote and lineage, then commit its batch."""
+        served = group.coordinated_at > delivery.source.available_at
+        expected = self._coordination(
+            delivery.source.available_at if served else group.at, self._coordinated
+        )
+        if group.coordinated_at != expected:
+            raise ValueError("shared decision coordination differs from its delivery order")
+        if (
+            known is None
+            or group.quote != AccountQuote(price=known.ask, at=known.at)
+            or group.touch != MarketTouch(bid=known.bid, ask=known.ask)
+        ):
+            raise ValueError("shared decision substituted its known market quote")
+        for item in group.inputs:
+            if group.at not in self._open.get(item.instance_id, ()):
+                raise ValueError("shared decision names an instant that is not open")
+        # A live delivery's inputs were just read from these sources; a replayed one
+        # is read again, in ascending instants, and must equal what it retained.
+        bindings = {binding.instance_id: binding for binding in self.runtime.bindings}
+        for item in group.inputs:
+            binding = bindings.get(item.instance_id)
+            if binding is None or (replayed and not self._replayed(binding, group.at, item)):
+                raise ValueError("shared decision substituted native input lineage")
+        identity = hashlib.sha256(self._codec.encode_json((delivery.source, group))).hexdigest()
+        # An already retained batch is an exact retry; its quote was observed with it.
+        if self.journal.portfolio_batch(identity) is None:
+            self.journal.observe(group.quote)
+        commit = self.runtime.evaluate(
+            identity=identity, at=group.coordinated_at, inputs=group.inputs
+        )
+        if commit is not None:
+            self.decisions.append(commit)
+        for item in group.inputs:
+            self._open[item.instance_id].remove(group.at)
+        self._coordinated = group.coordinated_at
 
     def _source_invalidated(self, delivery: SharedBookDelivery) -> bool:
         """Separate loss after a priced book from harmless controls and finite completion."""

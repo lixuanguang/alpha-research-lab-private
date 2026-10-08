@@ -11,6 +11,7 @@ from typing import Literal
 from accounting import Ledger
 from configuration import PaperConfiguration
 from execution import (
+    MarketTouch,
     OrderDecision,
     OrderEvent,
     PaperMarket,
@@ -18,12 +19,12 @@ from execution import (
     PaperOrderJournal,
     StepCommit,
 )
-from financial_units import Money, Price, Quantity
+from financial_units import Money, Quantity
 from research.observations import DecisionInputs, DecisionSource
 from runtime.candidates import CandidateCheckpoint, CandidateSession, CandidateStep, LoadedCandidate
 from runtime.feature_feed import CandidateFeatureFeed
 from serialization import DomainCodec, WireRecord
-from strategies import ExposureIntent, StrategyEvent, TargetIntent
+from strategies import StrategyEvent
 
 
 class PaperCheckpoint(WireRecord, frozen=True):
@@ -305,7 +306,7 @@ class PaperCandidateRuntime:
             at,
             result=step,
             decision=decision,
-            reference=self._reference(decision),
+            touch=self._touch(decision),
         )
         return step, result
 
@@ -549,7 +550,7 @@ class PaperCandidateRuntime:
         *,
         result: CandidateStep | StrategyEvent,
         decision: OrderDecision | None = None,
-        reference: Price | None = None,
+        touch: MarketTouch | None = None,
         market: PaperMarket | None = None,
         order_sequence: int | None = None,
         blocked: str | None = None,
@@ -570,7 +571,7 @@ class PaperCandidateRuntime:
             step_id=identity,
             checkpoint=self._codec.encode_json(successor),
             decision=decision,
-            reference=reference,
+            touch=touch,
             maximum_fee=self.config.maximum_fee,
             input_bytes=payload,
             result_bytes=self._codec.encode_json(result),
@@ -593,17 +594,12 @@ class PaperCandidateRuntime:
             return "market-unavailable"
         return None
 
-    def _reference(self, decision: OrderDecision | None) -> Price | None:
-        """Select a side-aware current touch for target/exposure conversion."""
+    def _touch(self, decision: OrderDecision | None) -> MarketTouch | None:
+        """Offer the current touch; lowering crosses whichever side the target needs."""
         market = self._current().market
         if decision is None or market is None:
             return None
-        intent = decision.intent
-        holding = self.journal.ledger_balance().holding
-        selling = isinstance(intent, TargetIntent) and intent.quantity.value < holding.value
-        if isinstance(intent, ExposureIntent):
-            selling = intent.exposure.value < market.bid.amount(holding).value
-        return market.bid if selling else market.ask
+        return MarketTouch(bid=market.bid, ask=market.ask)
 
     def _admit_time(self, at: datetime) -> None:
         """Refuse clock regression before any candidate or market effect."""

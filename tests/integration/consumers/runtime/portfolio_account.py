@@ -72,14 +72,16 @@ class PortfolioAccountConsumer:
         self.config_path = output / "configuration.json"
         self.journal_path = output / "portfolio.sqlite3"
 
-    def _apply(self, label: str, request: AccountExecutionRequest) -> AccountExecutionResult:
+    def _apply(
+        self, label: str, request: AccountExecutionRequest, *, journal_path: Path | None = None
+    ) -> AccountExecutionResult:
         """Retain typed installed request and result bytes after each durable operation."""
         request_path = self.output / "requests" / f"{label}.json"
         result_path = self.output / "results" / f"{label}.json"
         request_path.write_bytes(self.codec.encode_json(request))
         result = self.application.run(
             config_path=self.config_path,
-            journal_path=self.journal_path,
+            journal_path=self.journal_path if journal_path is None else journal_path,
             request_path=request_path,
         )
         assert not result.submission_attempted
@@ -122,6 +124,70 @@ class PortfolioAccountConsumer:
         result = self._apply(label, AccountExecutionRequest(action="coordinate", batch=batch))
         assert result.portfolio is not None
         return result
+
+    def _oversubscribed(self, budget_at: datetime) -> PortfolioCommit:
+        """Show two in-limit strategies cannot both take the account's headroom.
+
+        Each 8,000 buy fits its own 9,000 ceiling, but together they exceed the 10,000
+        account. A separate fresh journal keeps the main scenario's state unchanged.
+        """
+        journal_path = self.output / "oversubscribed.sqlite3"
+        assert self._apply(
+            "oversubscribed-opening",
+            AccountExecutionRequest(
+                action="reconcile",
+                observation=AccountObservation(
+                    identity="oversubscribed-opening",
+                    at=self.opening_at,
+                    snapshot=self.facts.opening(),
+                    open_orders=(),
+                ),
+            ),
+            journal_path=journal_path,
+        ).reconciled
+        self._apply(
+            "oversubscribed-quote",
+            AccountExecutionRequest(
+                action="quote", quote=AccountQuote(price=self.facts.price(), at=budget_at)
+            ),
+            journal_path=journal_path,
+        )
+        cohort = self.facts.batch(
+            "oversubscribed-cohort",
+            budget_at,
+            (
+                self.facts.decision(
+                    instance_id="alpha",
+                    identity="oversized-target",
+                    at=budget_at,
+                    intent=ReferenceTargetPolicy(self.facts.quantity("80")).decide(),
+                ),
+                self.facts.decision(
+                    instance_id="beta",
+                    identity="oversized-order",
+                    at=budget_at,
+                    intent=ReferenceLimitPolicy(
+                        "buy", self.facts.quantity("80"), self.facts.price()
+                    ).decide(),
+                ),
+            ),
+            "internal_at_quote",
+        )
+        result = self._apply(
+            "oversubscribed",
+            AccountExecutionRequest(action="coordinate", batch=cohort),
+            journal_path=journal_path,
+        )
+        commit = self._require_commit(result)
+        # The first decision takes the headroom; only the second is refused.
+        assert (commit.status, [child.instance_id for child in commit.children]) == (
+            "committed",
+            ["alpha"],
+        )
+        assert [(item.instance_id, item.reason) for item in commit.refused] == [
+            ("beta", "account_limit")
+        ]
+        return commit
 
     def _net_event(self, label: str, event: OrderEvent) -> AccountExecutionResult:
         """Post one modeled physical event through the installed application."""
@@ -216,35 +282,7 @@ class PortfolioAccountConsumer:
         (self.output / "results" / "initial.json").write_bytes(self.codec.encode_json(initial))
         assert self._observe("opening", self.opening_at, self.facts.opening())
 
-        budget_at = self.opening_at + timedelta(seconds=1)
-        self._quote("budget-quote", budget_at)
-        oversized = self.facts.batch(
-            "oversubscribed-cohort",
-            budget_at,
-            (
-                self.facts.decision(
-                    instance_id="alpha",
-                    identity="oversized-target",
-                    at=budget_at,
-                    intent=ReferenceTargetPolicy(self.facts.quantity("80")).decide(),
-                ),
-                self.facts.decision(
-                    instance_id="beta",
-                    identity="oversized-order",
-                    at=budget_at,
-                    intent=ReferenceLimitPolicy(
-                        "buy", self.facts.quantity("80"), self.facts.price()
-                    ).decide(),
-                ),
-            ),
-            "internal_at_quote",
-        )
-        oversized_result = self._coordinate("oversubscribed", oversized)
-        assert (
-            self._require_commit(oversized_result).status,
-            self._require_commit(oversized_result).reason,
-        ) == ("rejected", "account_limit")
-        assert oversized_result.orders == () and oversized_result.net_orders == ()
+        oversubscribed = self._oversubscribed(self.opening_at + timedelta(seconds=1))
 
         decision_at = self.opening_at + timedelta(seconds=2)
         self._quote("shared-quote", decision_at)
@@ -773,7 +811,7 @@ class PortfolioAccountConsumer:
             "venue_label": self.venue,
             "currency": self.currency.code,
             "active_strategies": ["inventory-target", "limit-order"],
-            "budget_rejection": self._require_commit(oversized_result).reason,
+            "budget_rejection": oversubscribed.refused[0].reason,
             "stopped_rejection": stopped_rejection.reason,
             "physical_order_quantity": "4",
             "partial_allocation": ["1", "1"],

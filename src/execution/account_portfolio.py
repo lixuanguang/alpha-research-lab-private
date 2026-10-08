@@ -14,8 +14,9 @@ from msgspec.structs import replace
 # project library imports
 from accounting import Fill
 from configuration import AccountConfiguration
-from execution.account_admission import AccountAdmission
+from execution.account_admission import AccountAdmission, SelfTradeConflict
 from execution.account_records import (
+    DecisionOutcome,
     NetAllocation,
     NetOrder,
     PortfolioBatch,
@@ -33,6 +34,7 @@ from execution.account_state import (
 from execution.lifecycle import SpotOrderLifecycle
 from execution.records import DroppedLeg, OrderEvent, OrderState, StepCommit
 from financial_units import DecimalGrid, Money, Quantity
+from risk import BudgetEngine
 from serialization import DomainCodec
 from strategies import OrderIntent
 
@@ -52,7 +54,12 @@ class PortfolioCoordinator:
         self.admission = admission
 
     def coordinate(self, transaction: AccountTransaction, batch: PortfolioBatch) -> PortfolioCommit:
-        """Admit risk, cross by policy, and create physical orders atomically."""
+        """Admit each decision's risk, cross by policy, and create physical orders.
+
+        A decision its own admission refuses is rolled back alone; the others commit
+        together. A self-trade conflict between the batch's own decisions, any other
+        batch-wide refusal, or every decision refused rejects the batch.
+        """
         saved = transaction.find_batch(batch.identity)
         if saved is not None:
             if saved.batch != batch:
@@ -60,7 +67,9 @@ class PortfolioCoordinator:
             return saved.result
         before = transaction.state
         children: list[TaggedOrder] = []
-        dropped: dict[str, tuple[DroppedLeg, ...]] = {}
+        # Decision identities are unique only within an instance.
+        dropped: dict[tuple[str, str], tuple[DroppedLeg, ...]] = {}
+        refused: dict[tuple[str, str], str] = {}
         persist_rejection = False
         try:
             if (
@@ -87,20 +96,42 @@ class PortfolioCoordinator:
                 transaction.state = replace(transaction.state, crossing_policy=batch.crossing)
             for item in batch.decisions:
                 request = item.request
-                step_commit = self.admission.admit(
-                    transaction,
-                    request,
-                    context=item.context,
-                    crossing_ids={child.order.identity for child in children}
-                    if batch.crossing == "internal_at_quote"
-                    else set(),
-                )
-                if step_commit.status != "committed":
-                    raise ValueError(step_commit.reason)
-                dropped[request.decision.identity] = step_commit.dropped
+                admitted_before = transaction.state
+                try:
+                    step_commit = self.admission.admit(
+                        transaction,
+                        request,
+                        context=item.context,
+                        crossing_ids={child.order.identity for child in children}
+                        if batch.crossing == "internal_at_quote"
+                        else set(),
+                    )
+                    if step_commit.status != "committed":
+                        raise ValueError(step_commit.reason)
+                except ValueError as error:
+                    # Opposing interests within the batch follow its crossing policy as
+                    # a cohort; a conflict with any earlier order refuses this decision.
+                    if isinstance(error, SelfTradeConflict) and error.order_id in {
+                        child.order.identity for child in children
+                    }:
+                        raise
+                    # Any other refusal, cancel requests included, holds back only this
+                    # strategy's decision.
+                    transaction.state = admitted_before
+                    refused[request.instance_id, request.decision.identity] = str(error)
+                    continue
+                dropped[request.instance_id, request.decision.identity] = step_commit.dropped
                 children.extend(transaction.order(order.identity) for order in step_commit.orders)
+            if len(refused) == len(batch.decisions):
+                first = batch.decisions[0].request
+                raise ValueError(refused[first.instance_id, first.decision.identity])
             for account_id in sorted({item.request.account_id for item in batch.decisions}):
                 self.admission.require_reissue_safe(transaction, account_id, batch.at)
+            # Admission-time risk alone cannot authorize a later send of this batch's orders.
+            for child in children:
+                reason = self.admission.send_reason(transaction, child.order, batch.at)
+                if reason is not None:
+                    raise ValueError(reason)
             crossed = (
                 self._cross_internal(transaction, batch, tuple(children))
                 if batch.crossing == "internal_at_quote"
@@ -116,26 +147,39 @@ class PortfolioCoordinator:
             residuals = tuple(
                 item for item in transaction.state.residuals if item.account_id in affected_accounts
             )
+            batch_ids = {child.order.identity for child in children}
+            admitted = tuple(
+                item
+                for item in batch.decisions
+                if (item.request.instance_id, item.request.decision.identity) not in refused
+            )
             portfolio_result = PortfolioCommit(
                 status="committed",
                 reason="reserved"
                 if parents
                 else "unroutable_residual"
-                if residuals
+                if any(item.child_order_id in batch_ids for item in residuals)
                 else "internal_cross"
                 if crossed
                 else "no_intent"
-                if all(item.request.decision.intent is None for item in batch.decisions)
+                if all(item.request.decision.intent is None for item in admitted)
                 else "target_matched",
                 children=committed_children,
                 net_orders=tuple(parents),
                 internal_fill_ids=crossed,
                 residuals=residuals,
+                refused=self._refusals(batch, refused),
             )
             saved_decisions: tuple[SavedDecision, ...] = tuple(
                 SavedDecision(
                     request=item.request,
                     result=StepCommit(
+                        status="rejected",
+                        reason=refused[item.request.instance_id, item.request.decision.identity],
+                        orders=(),
+                    )
+                    if (item.request.instance_id, item.request.decision.identity) in refused
+                    else StepCommit(
                         status="committed",
                         reason="reserved"
                         if any(
@@ -152,7 +196,9 @@ class PortfolioCoordinator:
                             if child.instance_id == item.request.instance_id
                             and child.order.decision_identity == item.request.decision.identity
                         ),
-                        dropped=dropped.get(item.request.decision.identity, ()),
+                        dropped=dropped.get(
+                            (item.request.instance_id, item.request.decision.identity), ()
+                        ),
                     ),
                 )
                 for item in batch.decisions
@@ -166,6 +212,7 @@ class PortfolioCoordinator:
                 children=(),
                 net_orders=(),
                 internal_fill_ids=(),
+                refused=self._refusals(batch, refused),
             )
             if persist_rejection:
                 rejected_decisions: tuple[SavedDecision, ...] = tuple(
@@ -173,7 +220,10 @@ class PortfolioCoordinator:
                         request=item.request,
                         result=StepCommit(
                             status="rejected",
-                            reason=str(error),
+                            reason=refused.get(
+                                (item.request.instance_id, item.request.decision.identity),
+                                str(error),
+                            ),
                             orders=(),
                         ),
                     )
@@ -182,6 +232,24 @@ class PortfolioCoordinator:
                 transaction.append_decisions(*rejected_decisions)
         transaction.append_batch(SavedPortfolioBatch(batch=batch, result=portfolio_result))
         return portfolio_result
+
+    @staticmethod
+    def _refusals(
+        batch: PortfolioBatch, refused: dict[tuple[str, str], str]
+    ) -> tuple[DecisionOutcome, ...]:
+        """List each decision its own admission refused, in batch order, with its reason."""
+        return tuple(
+            DecisionOutcome(
+                account_id=item.request.account_id,
+                instance_id=item.request.instance_id,
+                decision_identity=item.request.decision.identity,
+                decided_at=item.request.decision.at,
+                status="rejected",
+                reason=refused[item.request.instance_id, item.request.decision.identity],
+            )
+            for item in batch.decisions
+            if (item.request.instance_id, item.request.decision.identity) in refused
+        )
 
     def stop_instance(
         self, transaction: AccountTransaction, instance_id: str, at: datetime
@@ -375,10 +443,36 @@ class PortfolioCoordinator:
                     fill_ids.append(fill_id)
         return tuple(fill_ids)
 
+    def _exceeded_ceilings(
+        self, transaction: AccountTransaction, at: datetime, buyers: set[str]
+    ) -> dict[str, str]:
+        """Name the ceiling each buying owner now exceeds at current marks."""
+        if not buyers:
+            return {}
+        policy = self.config.budgets
+        commitments = self.admission.commitments(transaction, at)
+        engine = BudgetEngine()
+        reason = engine.recheck(policy, commitments, ())
+        if reason is not None:
+            raise ValueError(reason)
+        exceeded: dict[str, str] = {}
+        for buyer in sorted(buyers):
+            reason = engine.recheck(policy, commitments, (buyer,))
+            if reason is not None:
+                exceeded[buyer] = reason
+        return exceeded
+
     def _net_pending(
         self, transaction: AccountTransaction, account_id: str, at: datetime
     ) -> tuple[NetOrder, ...]:
-        """Group only unassigned compatible residual children into physical orders."""
+        """Group unassigned compatible children into physical orders.
+
+        A child whose decision is older than the residual age bound is retired. A
+        child that cannot be sent now (a stale quote, a limit beyond the price
+        bound, or a buy whose owner is over a ceiling at current marks) and a group
+        that cannot form a valid physical lot stay reserved as visible
+        ``PortfolioResidual`` values.
+        """
         assigned = {
             allocation.child_order_id
             for parent in transaction.state.net_orders
@@ -415,7 +509,43 @@ class PortfolioCoordinator:
             if reconciled_at is None or reconciled_at < outcome_at:
                 raise ValueError("reissue_requires_current_reconciliation")
         parents: list[NetOrder] = []
-        residuals: list[PortfolioResidual] = []
+        # A child whose decision is older than the residual age bound is retired, its
+        # reservation released, rather than sent late.
+        for child in tuple(pending):
+            if self.admission.expired(child.order, at):
+                transaction.save_order(
+                    replace(child, order=replace(child.order, status="cancelled"))
+                )
+                pending.remove(child)
+        # A child that cannot be sent now stays a visible, reserved residual and holds
+        # back no other order: its quote is stale, its limit drifted beyond the price
+        # bound, or it is a buy whose owner, account or the firm is over a ceiling.
+        held: dict[str, str] = {}
+        for child in pending:
+            reason = self.admission.send_reason(transaction, child.order, at)
+            if reason is not None:
+                held[child.order.identity] = reason
+        buys = tuple(
+            child
+            for child in pending
+            if child.order.intent.side == "buy" and child.order.identity not in held
+        )
+        exceeded = self._exceeded_ceilings(transaction, at, {child.instance_id for child in buys})
+        for child in buys:
+            if child.instance_id in exceeded:
+                held[child.order.identity] = exceeded[child.instance_id]
+        residuals = [
+            PortfolioResidual(
+                account_id=child.account_id,
+                instance_id=child.instance_id,
+                child_order_id=child.order.identity,
+                remaining=child.order.remaining,
+                reason=held[child.order.identity],
+            )
+            for child in pending
+            if child.order.identity in held
+        ]
+        pending = [child for child in pending if child.order.identity not in held]
         while pending:
             first = pending.pop(0)
             if first.context is None or first.quote is None:

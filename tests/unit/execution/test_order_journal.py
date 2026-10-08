@@ -18,11 +18,19 @@ import pytest
 
 # project library imports
 from accounting import Fill, Ledger, LedgerState
-from execution import OrderDecision, OrderEvent, PaperOrderJournal
+from execution import (
+    MarketTouch,
+    OrderDecision,
+    OrderEvent,
+    PaperOrderJournal,
+    StepCommit,
+    StepRecord,
+)
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from risk import SpotLimits
-from strategies import OrderIntent, QuoteIntent, TargetIntent
+from serialization import DomainCodec
+from strategies import ExposureIntent, OrderIntent, QuoteIntent, TargetIntent
 
 
 class TestPaperOrderJournal:
@@ -127,7 +135,7 @@ class TestPaperOrderJournal:
                     at=self.start,
                     intent=self._order(side="buy", quantity="1", limit="100"),
                 ),
-                reference=self._price("100"),
+                touch=None,
                 maximum_fee=self._money("1"),
             ).orders[0]
             assert journal.reservations().cash.value == Decimal("101")
@@ -162,7 +170,7 @@ class TestPaperOrderJournal:
                 step_id="rows",
                 checkpoint=b"rows",
                 decision=decision,
-                reference=self._price("100"),
+                touch=None,
                 maximum_fee=self._money("1"),
             ).orders[0]
             for kind in ("request_ack", "accepted"):
@@ -218,7 +226,7 @@ class TestPaperOrderJournal:
             step_id="tick-one",
             checkpoint=b"checkpoint-one",
             decision=decision,
-            reference=None,
+            touch=None,
             maximum_fee=self._money("1"),
             input_bytes=b"market-one",
             result_bytes=b"candidate-one",
@@ -238,7 +246,7 @@ class TestPaperOrderJournal:
                 step_id="tick-one",
                 checkpoint=b"changed-checkpoint",
                 decision=decision,
-                reference=None,
+                touch=None,
                 maximum_fee=self._money("1"),
                 input_bytes=b"market-one",
                 result_bytes=b"candidate-one",
@@ -281,7 +289,7 @@ class TestPaperOrderJournal:
                 step_id="stale",
                 checkpoint=b"stale",
                 decision=None,
-                reference=None,
+                touch=None,
                 maximum_fee=self._money("0"),
             )
         competing.release(second_epoch)
@@ -292,7 +300,7 @@ class TestPaperOrderJournal:
             step_id="unfunded-quote",
             checkpoint=b"committed-rejection",
             decision=decision,
-            reference=None,
+            touch=None,
             maximum_fee=self._money("1"),
         )
         assert rejected.status == "rejected"
@@ -316,7 +324,7 @@ class TestPaperOrderJournal:
                 at=self.start,
                 intent=self._order(side="buy", quantity="2", limit="100"),
             ),
-            reference=None,
+            touch=None,
             maximum_fee=self._money("1"),
         )
         order = result.orders[0]
@@ -329,7 +337,7 @@ class TestPaperOrderJournal:
                 at=self.start + timedelta(microseconds=1),
                 intent=TargetIntent(quantity=self._quantity("3")),
             ),
-            reference=self._price("100"),
+            touch=MarketTouch(bid=self._price("99"), ask=self._price("100")),
             maximum_fee=self._money("1"),
         )
         assert (pending_target.status, pending_target.reason) == ("rejected", "pending_target")
@@ -402,7 +410,7 @@ class TestPaperOrderJournal:
                 at=later + timedelta(seconds=4),
                 intent=self._order(side="buy", quantity="1", limit="99"),
             ),
-            reference=None,
+            touch=None,
             maximum_fee=self._money("1"),
         )
         assert (unknown_admission.status, unknown_admission.reason) == (
@@ -420,7 +428,7 @@ class TestPaperOrderJournal:
                     at=later,
                     intent=self._order(side="buy", quantity="1", limit="99"),
                 ),
-                reference=None,
+                touch=None,
                 maximum_fee=self._money("1"),
             )
         restored.apply_event(
@@ -445,7 +453,7 @@ class TestPaperOrderJournal:
             step_id="replacement",
             checkpoint=b"cp-replacement",
             decision=replacement_decision,
-            reference=None,
+            touch=None,
             maximum_fee=self._money("1"),
         )
         assert replacement.status == "committed"
@@ -456,7 +464,7 @@ class TestPaperOrderJournal:
                 step_id="duplicate-decision",
                 checkpoint=b"duplicate",
                 decision=replacement_decision,
-                reference=None,
+                touch=None,
                 maximum_fee=self._money("1"),
             )
         history = restored.events()
@@ -510,7 +518,7 @@ class TestPaperOrderJournal:
                 at=self.start,
                 intent=self._order(side="buy", quantity="1", limit="100"),
             ),
-            reference=None,
+            touch=None,
             maximum_fee=self._money("1"),
         )
         order = admitted.orders[0]
@@ -583,7 +591,7 @@ class TestPaperOrderJournal:
                 at=self.start,
                 intent=self._order(side="buy", quantity="1", limit="100"),
             ),
-            reference=None,
+            touch=None,
             maximum_fee=self._money("1"),
         )
         assert (rejected.status, rejected.reason, rejected.orders) == (
@@ -609,9 +617,138 @@ class TestPaperOrderJournal:
                     at=self.start + timedelta(seconds=1),
                     intent=TargetIntent(quantity=self._quantity("2")),
                 ),
-                reference=self._price("100"),
+                touch=MarketTouch(bid=self._price("99"), ask=self._price("100")),
                 maximum_fee=self._money("1"),
             )
             assert admitted.status == "committed"
             assert journal.reservations().cash.value == Decimal("201")
         journal.release(epoch)
+
+    def test_cancel_request_keeps_an_unknown_outcome_unknown(self, tmp_path: Path) -> None:
+        """A cancel request records intent but only reconciliation resolves an unknown order."""
+        journal = self._journal(tmp_path / "unknown-cancel.sqlite3")
+        epoch = journal.claim("writer")
+        order_id = (
+            journal.commit_step(
+                epoch=epoch,
+                step_id="tick-one",
+                checkpoint=b"cp-one",
+                decision=OrderDecision(
+                    identity="buy-two",
+                    at=self.start,
+                    intent=self._order(side="buy", quantity="2", limit="100"),
+                ),
+                touch=None,
+                maximum_fee=self._money("1"),
+            )
+            .orders[0]
+            .identity
+        )
+        journal.apply_event(
+            epoch=epoch,
+            event=OrderEvent(
+                identity="lost-ack",
+                order_id=order_id,
+                at=self.start + timedelta(seconds=1),
+                kind="unknown",
+            ),
+        )
+        requested = journal.request_cancel(
+            epoch=epoch,
+            order_id=order_id,
+            event_id="cancel",
+            at=self.start + timedelta(seconds=2),
+        )
+        assert (requested.status, requested.cancel_requested) == ("unknown", True)
+        with pytest.raises(ValueError, match="cancel request is already pending"):
+            journal.request_cancel(
+                epoch=epoch,
+                order_id=order_id,
+                event_id="cancel-again",
+                at=self.start + timedelta(seconds=3),
+            )
+        # A venue's acknowledgement of the cancel still leaves the outcome unknown.
+        acknowledged = journal.apply_event(
+            epoch=epoch,
+            event=OrderEvent(
+                identity="cancel-ack",
+                order_id=order_id,
+                at=self.start + timedelta(seconds=4),
+                kind="cancel_ack",
+            ),
+        )
+        assert (acknowledged.status, acknowledged.cancel_acknowledged) == ("unknown", True)
+        reconciled = journal.apply_event(
+            epoch=epoch,
+            event=OrderEvent(
+                identity="still-open",
+                order_id=order_id,
+                at=self.start + timedelta(seconds=5),
+                kind="reconcile_open",
+            ),
+        )
+        assert reconciled.status == "cancel_ack"
+        journal.release(epoch)
+
+    def test_targets_cross_their_own_touch_and_exposures_convert_at_the_midpoint(
+        self, tmp_path: Path
+    ) -> None:
+        """Holding 2 against a 99 bid and 101 ask (midpoint 100), each target crosses its side."""
+        touch = MarketTouch(bid=self._price("99"), ask=self._price("101"))
+        lowered: dict[str, tuple[tuple[str, Decimal, Decimal], ...] | str] = {}
+        for name, intent in (
+            ("lower-target", TargetIntent(quantity=self._quantity("1"))),
+            ("higher-target", TargetIntent(quantity=self._quantity("3"))),
+            ("exposure-150", ExposureIntent(exposure=self._money("150"))),
+            ("exposure-350", ExposureIntent(exposure=self._money("350"))),
+            ("exposure-200", ExposureIntent(exposure=self._money("200"))),
+            ("exposure-297", ExposureIntent(exposure=self._money("297"))),
+        ):
+            journal = self._journal(tmp_path / f"{name}.sqlite3", with_holding=True)
+            epoch = journal.claim("writer")
+            committed = journal.commit_step(
+                epoch=epoch,
+                step_id=name,
+                checkpoint=name.encode(),
+                decision=OrderDecision(identity=name, at=self.start, intent=intent),
+                touch=touch,
+                maximum_fee=self._money("1"),
+            )
+            lowered[name] = (
+                tuple(
+                    (order.intent.side, order.intent.quantity.value, order.intent.limit.value)
+                    for order in committed.orders
+                )
+                or committed.reason
+            )
+            journal.release(epoch)
+        assert lowered == {
+            "lower-target": (("sell", Decimal(1), Decimal(99)),),
+            "higher-target": (("buy", Decimal(1), Decimal(101)),),
+            "exposure-150": (("sell", Decimal(1), Decimal(99)),),
+            "exposure-350": (("buy", Decimal(1), Decimal(101)),),
+            # 200 at the midpoint is exactly the 2 held; at the ask alone it would sell one.
+            "exposure-200": "target_matched",
+            # 297 at the midpoint floors to the 2 held; at the bid alone it is 3, a buy.
+            "exposure-297": "target_matched",
+        }
+
+    def test_a_step_retained_with_a_single_reference_price_is_refused(self) -> None:
+        """Steps from the earlier format, which named one reference price, no longer decode."""
+        codec = DomainCodec()
+        encoded = codec.encode_json(
+            StepRecord(
+                step_id="step",
+                checkpoint=b"",
+                input_bytes=b"",
+                result_bytes=b"",
+                decision=None,
+                touch=None,
+                maximum_fee=self._money("1"),
+                commit=StepCommit(status="committed", reason="no_intent", orders=()),
+            )
+        )
+        earlier = encoded.replace(b'"touch":null', b'"reference":null')
+        assert earlier != encoded
+        with pytest.raises(ValueError, match="reference"):
+            codec.decode_json(earlier, StepRecord)
