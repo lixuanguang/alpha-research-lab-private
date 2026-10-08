@@ -189,6 +189,9 @@ class PaperMatchEvaluator:
     the local knowledge clock; this model does not invent an exchange or response
     clock. Repeated equal-price updates cannot replenish previously consumed
     displayed size. A different touch price starts a new conservative segment.
+    A cancel request honoured at its delay ends the order ``cancelled_on_request``;
+    a remainder ending on its own terms is ``cancelled`` even while a request is
+    still pending, so the persisted fact never borrows the request's cause.
     """
 
     def __init__(self, scenario: PaperExecutionScenario, *, lot: Quantity, tick: Price) -> None:
@@ -308,7 +311,9 @@ class PaperMatchEvaluator:
             if cancellation is not None and market.at >= cancellation + timedelta(
                 microseconds=self.scenario.cancel_delay_us
             ):
-                self._append(projected, existing_ids, account_id, market, order, "cancelled")
+                self._append(
+                    projected, existing_ids, account_id, market, order, "cancelled_on_request"
+                )
                 continue
             if market.at < order.decision_at + timedelta(microseconds=self.scenario.entry_delay_us):
                 continue
@@ -379,6 +384,7 @@ class PaperMatchEvaluator:
                         new_sell += size
             # An IOC remainder ends here, and so does a sell remainder whose fee
             # reserve can no longer pay one lot even at its limit: it can never fill.
+            # Either ends on the order's own terms, whatever request is pending.
             if Fraction(order.remaining.value) > filled_this_order and (
                 order.intent.time_in_force == "ioc"
                 or self.fees.stranded(order, paid_this_order, Fraction(self.lot.value))

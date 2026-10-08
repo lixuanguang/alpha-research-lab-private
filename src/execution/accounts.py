@@ -819,9 +819,14 @@ class AccountJournal:
             return result
 
     def apply_net_event(self, event: OrderEvent) -> NetOrder:
-        """Apply one physical fact and all attributable strategy effects atomically."""
-        if self.config.mode == "venue_test" and event.fill is not None:
-            raise ValueError("venue fills require apply_native_fill")
+        """Apply one physical fact and all attributable strategy effects atomically.
+
+        Children outlive their physical parent only on ``cancelled_on_request``.
+        A ``venue_test`` account refuses that kind: a venue's terminal cancellation
+        does not establish that our request caused it, so it arrives as
+        ``cancelled`` and ends the remaining children.
+        """
+        self._require_venue_evidence(event)
         event.__post_init__()
         with self._store.write() as transaction:
             if transaction.state.paper_activations:
@@ -874,6 +879,21 @@ class AccountJournal:
             "stopped",
             "faulted",
         ) and order.status in ("intent", "cancel_requested")
+
+    def _require_venue_evidence(self, event: OrderEvent) -> None:
+        """Refuse facts a test venue's evidence cannot support, before any effect.
+
+        Venue fills arrive with native costs through ``apply_native_fill``. A venue
+        reports a terminal cancellation without the cause our request would need,
+        and acknowledging a cancel only accepts the request, so no venue fact is a
+        requested cancellation that took effect.
+        """
+        if self.config.mode != "venue_test":
+            return
+        if event.fill is not None:
+            raise ValueError("venue fills require apply_native_fill")
+        if event.kind == "cancelled_on_request":
+            raise ValueError("venue cancellations carry no requested-cancellation cause")
 
     def correct_net_fee(self, correction: NetFeeCorrection) -> NetOrder:
         """Revise one physical fill fee and its child postings in one transaction."""
@@ -948,8 +968,7 @@ class AccountJournal:
 
     def apply_event(self, event: OrderEvent) -> OrderState:
         """Post normalized order and fill facts; durably block contradictions."""
-        if self.config.mode == "venue_test" and event.fill is not None:
-            raise ValueError("venue fills require apply_native_fill")
+        self._require_venue_evidence(event)
         event.__post_init__()
         with self._store.write() as transaction:
             if transaction.state.paper_activations:

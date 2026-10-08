@@ -367,7 +367,7 @@ class AccountOperationsConsumer:
             assert restored.accounts == pending.accounts
             assert restored.alerts == fault.alerts
             self.journal_path = restored_root / "state/accounts.sqlite3"
-            self._apply(
+            ended = self._apply(
                 "cancelled",
                 AccountExecutionRequest(
                     action="net_event",
@@ -379,6 +379,11 @@ class AccountOperationsConsumer:
                     ),
                 ),
             )
+            # The parent's outcome was unknown, so nothing shows the cancel took
+            # effect: both children end with their one filled unit, none to reissue.
+            assert {
+                item.instance_id: (item.order.status, item.order.filled) for item in ended.orders
+            } == {name: ("cancelled", self.facts.quantity("1")) for name in ("alpha", "beta")}
             fill_ids = tuple(
                 self.facts.allocated_fill_id("partial", child.order.identity)
                 for child in admitted.orders

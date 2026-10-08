@@ -182,6 +182,11 @@ uv run --frozen alpha-governance-artifacts run \
 3. **Cancel:** separately send `control/cancel`. It records requests and returns
    the physical order IDs. Supply subsequent identified order facts through
    `event`/`net_event`; a cancellation acknowledgement is not a terminal outcome.
+   A terminal `net_event` states its cause: `cancelled_on_request` confirms that a
+   pending request took effect and keeps the parent's unaffected strategy children
+   for reissue, while `cancelled` or `reconcile_cancelled` ends them. A parent whose
+   outcome is `unknown` can only end them; a `venue_test` account accepts no
+   `cancelled_on_request`.
    These actions never imply liquidation. Managed paper reduction uses the
    separate `reduce_paper` request described below.
 4. **Recover:** replay missing identified fills, fees, transfers and order facts,
@@ -483,7 +488,10 @@ background system daemon or grant private venue authority.
    any forced fence or unfinished diagnostic batch remains visible.
 4. Use `stop_instance` for a selective policy stop. Other strategies retain
    ownership, but cancellation of a shared physical parent can suspend their
-   residuals until a fresh complete reconciliation. Inspect terminal outcomes,
+   residuals until a fresh complete reconciliation. If that parent ends on its own
+   terms before the cancel takes effect (an immediate-or-cancel expiry, a stranded
+   remainder or a post-only rejection), their children end with it and nothing
+   awaits reissue. Inspect terminal outcomes,
    independently observe the complete account, then explicitly `restart_instance`.
    An optional typed `AccountObservation` on that control makes the supervisor
    reconcile through the current signed account owner and require success

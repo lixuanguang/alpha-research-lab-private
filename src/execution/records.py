@@ -32,12 +32,29 @@ type EventKind = Literal[
     "cancel_requested",
     "cancel_ack",
     "cancelled",
+    "cancelled_on_request",
     "rejected",
     "unknown",
     "reconcile_open",
     "reconcile_cancelled",
     "reconcile_rejected",
 ]
+# Every lifecycle fact a journal may persist; a durable layout that pins this
+# vocabulary refuses a journal written under another one.
+ORDER_EVENT_KINDS: tuple[EventKind, ...] = (
+    "request_ack",
+    "accepted",
+    "fill",
+    "cancel_requested",
+    "cancel_ack",
+    "cancelled",
+    "cancelled_on_request",
+    "rejected",
+    "unknown",
+    "reconcile_open",
+    "reconcile_cancelled",
+    "reconcile_rejected",
+)
 
 
 class MarketTouch(WireRecord, frozen=True):
@@ -164,7 +181,14 @@ class OrderState(WireRecord, frozen=True):
 
 
 class OrderEvent(WireRecord, frozen=True):
-    """Identify one paper lifecycle fact independently of transport retry."""
+    """Identify one paper lifecycle fact independently of transport retry.
+
+    A terminal cancellation states its cause. ``cancelled_on_request`` is
+    positive evidence that a pending cancel request took effect: the paper model
+    honoured it after its cancel delay. ``cancelled`` states no cause; it covers
+    an immediate-or-cancel or stranded remainder ending on its own terms and any
+    cancellation whose producer cannot attribute it, such as a venue report.
+    """
 
     identity: str
     order_id: str
@@ -180,20 +204,7 @@ class OrderEvent(WireRecord, frozen=True):
             or not self.identity
             or type(self.order_id) is not str
             or not self.order_id
-            or self.kind
-            not in (
-                "request_ack",
-                "accepted",
-                "fill",
-                "cancel_requested",
-                "cancel_ack",
-                "cancelled",
-                "rejected",
-                "unknown",
-                "reconcile_open",
-                "reconcile_cancelled",
-                "reconcile_rejected",
-            )
+            or self.kind not in ORDER_EVENT_KINDS
             or (self.kind == "fill") != (self.fill is not None)
         ):
             raise ValueError("invalid order event")

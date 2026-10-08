@@ -572,6 +572,14 @@ class InstalledVenueScenario:
             (self._money("0.05"),),
         )
         assert parent.order.status == "cancelled"
+        # The venue's terminal cancellation states no cause, even after an
+        # acknowledged cancel, so both children end with it rather than awaiting
+        # reissue; their posted fills and fees stay as asserted above.
+        assert tuple(item.order.status for item in restarted.orders()) == (
+            "cancelled",
+            "cancelled",
+        )
+        assert restarted.portfolio_residuals(config.account_id) == ()
         return VenueScenarioResult(
             venue=self.venue,
             config_sha256=config.identity,

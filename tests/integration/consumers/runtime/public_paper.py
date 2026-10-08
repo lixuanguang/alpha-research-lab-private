@@ -584,7 +584,10 @@ class PublicPaperWorkload:
                         ),
                         Decimal(0),
                     )
-                    cancelled = any(event.kind == "cancelled" and event.at < at for event in events)
+                    cancelled = any(
+                        event.kind in ("cancelled", "cancelled_on_request") and event.at < at
+                        for event in events
+                    )
                     if filled < order.intent.quantity.value and not cancelled:
                         replaced.add(order.identity)
                         break
@@ -644,7 +647,7 @@ class PublicPaperWorkload:
                 "filled"
                 if filled == original.intent.quantity.value
                 else "cancelled"
-                if any(event.kind == "cancelled" for event in events)
+                if any(event.kind in ("cancelled", "cancelled_on_request") for event in events)
                 else "cancel_requested"
                 if original.identity in replaced
                 else "partial"
@@ -984,8 +987,13 @@ class PublicPaperWorkload:
             "cancel-book", bid="99", ask="100", bid_quantity=self.quantity("4")
         )
         cancelled = account.match_public_market("paper", cancel_market, self.scenario)
+        # The account cancel took effect at this book, so each fact states that cause.
         if cancelled.status != "committed" or not pending.issubset(
-            {event.order_id for event in cancelled.physical_events if event.kind == "cancelled"}
+            {
+                event.order_id
+                for event in cancelled.physical_events
+                if event.kind == "cancelled_on_request"
+            }
         ):
             raise ValueError("public quote did not confirm terminal cancellation")
         cancelled_ids = tuple(sorted(pending))

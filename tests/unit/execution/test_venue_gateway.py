@@ -40,6 +40,9 @@ from execution import (
     OrderDecision,
     OrderEvent,
     OrderState,
+    PortfolioBatch,
+    PortfolioContext,
+    PortfolioDecision,
     VenueGateway,
 )
 from execution.account_state import AccountTransaction
@@ -1613,6 +1616,152 @@ class TestVenueGateway:
         assert journal.orders()[0].order.status == "cancelled"
         gateway.cancel(order_id, authorization)
         assert adapter.cancel_count == 1
+
+    def _netted_pair(
+        self, tmp_path: Path
+    ) -> tuple[
+        AccountJournal, VenueGateway, ObservedVenue, AdvancingClock, VenueAuthorization, str
+    ]:
+        """Send one physical buy of two units netted from alpha's and beta's one-unit buys."""
+        initial = self._config("okx")
+        quote_currency = initial.instruments[0].quote_currency
+        instances: tuple[InstanceLimit, ...] = tuple(
+            InstanceLimit(
+                instance_id=name,
+                account_id=initial.account_id,
+                maximum=self._money("5000", quote_currency),
+                instruments=(self.instrument_id,),
+            )
+            for name in ("alpha", "beta")
+        )
+        budgets = replace(initial.account.budgets, instances=instances)
+        config = replace(initial, account=replace(initial.account, budgets=budgets))
+        clock = AdvancingClock(self.at + timedelta(seconds=10))
+        adapter = ObservedVenue(config)
+        journal = AccountJournal(tmp_path / "account.sqlite3", config.account)
+        gateway = VenueGateway(journal, config, adapter, clock=clock)
+        assert not gateway.reconcile().recovery_required
+        price = Price(value=Decimal("100"), currency=quote_currency, per=self.dimension)
+        decided_at = clock.now()
+        quote = AccountQuote(price=price, at=decided_at)
+        journal.observe(quote)
+        batch = journal.coordinate(
+            PortfolioBatch(
+                identity="pair",
+                at=decided_at + timedelta(microseconds=1),
+                decisions=tuple(
+                    PortfolioDecision(
+                        request=AccountDecision(
+                            account_id=config.account_id,
+                            instance_id=name,
+                            decision=OrderDecision(
+                                identity=f"{name}-buy",
+                                at=decided_at,
+                                intent=OrderIntent(
+                                    side="buy",
+                                    quantity=Quantity(value=Decimal("1"), dimension=self.dimension),
+                                    limit=price,
+                                    time_in_force="gtc",
+                                ),
+                            ),
+                            quote=quote,
+                            maximum_fee=self._money("0.10", quote_currency),
+                            checkpoint=f"{name}-state".encode(),
+                        ),
+                        context=PortfolioContext(
+                            portfolio_id="reference-portfolio",
+                            strategy_id=name,
+                            model_revision="fixed-policy",
+                            config_revision="fixed-test",
+                            horizon="one-minute",
+                            reason="bounded-test-order",
+                            venue="okx",
+                            settlement="spot-immediate",
+                            risk_bucket="cash-spot",
+                            authority_scope="venue-test",
+                        ),
+                    )
+                    for name in ("alpha", "beta")
+                ),
+            )
+        )
+        assert batch.status == "committed" and len(batch.net_orders) == 1
+        parent_id = batch.net_orders[0].order.identity
+        authorization = self._authorization(config, enabled=True)
+        clock.sleep(0.001)
+        assert gateway.submit(parent_id, authorization).submission_attempted
+        return journal, gateway, adapter, clock, authorization, parent_id
+
+    @pytest.mark.parametrize(
+        "acknowledged", [True, False], ids=["cancel-acknowledged", "cancel-response-lost"]
+    )
+    def test_venue_cancelled_shared_order_ends_every_child(
+        self, tmp_path: Path, acknowledged: bool
+    ) -> None:
+        """A venue's terminal cancellation never shows that our request caused it.
+
+        One of the parent's two units fills at 100 for a 0.02 fee, half to each child.
+        Alpha's stop then requests the parent's cancel. Whether or not the venue's
+        acknowledgement arrives, it ends nothing: both children stay reserved. Once
+        the venue reports the parent cancelled, beta's child ends with it instead of
+        being reissued; each child keeps its 0.5 fill and 0.01 fee, the ledger is
+        unchanged, and only the unfilled half-units are released.
+        """
+        journal, gateway, adapter, clock, authorization, parent_id = self._netted_pair(tmp_path)
+        quote_currency = gateway.config.instruments[0].quote_currency
+        self._execute_fill(adapter, quote_currency, clock, "buy", "1", "100", "0.02")
+        assert not gateway.reconcile().recovery_required
+        journal.stop_instance("alpha", clock.now())
+        adapter.lose_cancel_ack = not acknowledged
+        if acknowledged:
+            gateway.cancel(parent_id, authorization)
+        else:
+            with pytest.raises(VenueOutcomeUnknownError):
+                gateway.cancel(parent_id, authorization)
+        assert adapter.cancel_count == 1
+        (parent,) = journal.net_orders()
+        assert parent.order.status == ("cancel_ack" if acknowledged else "cancel_requested")
+        assert not any(item.order.is_terminal for item in journal.orders())
+        filled = AccountLedger(journal.accounts()[0].ledger).snapshot()
+        adapter.cancelled = True
+        assert not gateway.reconcile().recovery_required
+        (parent,) = journal.net_orders()
+        assert parent.order.status == "cancelled"
+        children = {item.instance_id: item.order for item in journal.orders()}
+        half = Quantity(value=Decimal("0.5"), dimension=self.dimension)
+        assert {
+            name: (order.status, order.filled, order.paid_fee) for name, order in children.items()
+        } == {
+            name: ("cancelled", half, self._money("0.01", quote_currency))
+            for name in ("alpha", "beta")
+        }
+        assert AccountLedger(journal.accounts()[0].ledger).snapshot() == filled
+        assert journal.portfolio_residuals(gateway.config.account_id) == ()
+        assert journal.physical_open_orders(gateway.config.account_id) == ()
+        journal.observe(
+            AccountQuote(
+                price=Price(value=Decimal("100"), currency=quote_currency, per=self.dimension),
+                at=clock.now(),
+            )
+        )
+        assert journal.reissue_pending(gateway.config.account_id, clock.now()) == ()
+
+    def test_venue_journal_refuses_a_requested_cancellation_cause(self, tmp_path: Path) -> None:
+        """No venue fact can establish a requested cancellation, so none may be supplied."""
+        journal, _, _, clock, _, parent_id = self._netted_pair(tmp_path)
+        journal.stop_instance("alpha", clock.now())
+        before = (journal.net_orders(), journal.orders(), journal.failed_net_events())
+        for apply in (journal.apply_net_event, journal.apply_event):
+            with pytest.raises(ValueError, match="no requested-cancellation cause"):
+                apply(
+                    OrderEvent(
+                        identity="claimed-cause",
+                        order_id=parent_id,
+                        at=clock.now(),
+                        kind="cancelled_on_request",
+                    )
+                )
+        assert (journal.net_orders(), journal.orders(), journal.failed_net_events()) == before
 
     def test_definite_reject_releases_order_without_requiring_nonexistent_history(
         self, tmp_path: Path

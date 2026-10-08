@@ -41,7 +41,7 @@ from execution.account_records import (
 )
 from execution.account_reduction import PaperReductionResult
 from execution.paper_authority import PaperActivation
-from execution.records import OrderEvent, OrderState, StepCommit
+from execution.records import ORDER_EVENT_KINDS, OrderEvent, OrderState, StepCommit
 from reference_data.instruments import InstrumentId
 from serialization import DomainCodec, SqliteLayout, WireRecord
 
@@ -231,16 +231,23 @@ class FirmHead(WireRecord, frozen=True):
     """Persist the live head: current state without history, plus its summary.
 
     Paper activation is recorded only by the presence of ``paper_activations``.
+    ``event_kinds`` names the order-event vocabulary the journal's facts are
+    written in. A head without it, or with another vocabulary, belongs to another
+    journal format: the facts' meaning differs, so it is refused, not reread.
     """
 
     history: HistorySummary
     state: FirmState
+    # Strings, not EventKind: a head written under any other vocabulary must reach
+    # the refusal below instead of failing as a malformed literal.
+    event_kinds: tuple[str, ...] = ()
     schema_version: Literal["account-journal"] = "account-journal"
 
     def __post_init__(self) -> None:
         """Reject other schemas and keep committed history and row fields out of the head."""
         if (
             self.schema_version != "account-journal"
+            or self.event_kinds != ORDER_EVENT_KINDS
             or self.state.decisions
             or self.state.portfolio_batches
             or self.state.paper_traces
@@ -1089,7 +1096,9 @@ class AccountStateStore:
                 initial = self._initial()
                 rows, updates = self._rows.write(connection, {}, StateRows.row_values(initial))
                 head = FirmHead(
-                    history=replace(_EMPTY_HISTORY, rows=rows), state=StateRows.strip(initial)
+                    history=replace(_EMPTY_HISTORY, rows=rows),
+                    state=StateRows.strip(initial),
+                    event_kinds=ORDER_EVENT_KINDS,
                 )
                 connection.execute(
                     "INSERT INTO firm VALUES (1, ?, ?)", (payload, self.codec.encode_json(head))
@@ -1213,7 +1222,9 @@ class AccountStateStore:
                     connection, StateRows.row_values(head.state), StateRows.row_values(complete)
                 )
                 written = FirmHead(
-                    history=replace(history, rows=rows), state=StateRows.strip(complete)
+                    history=replace(history, rows=rows),
+                    state=StateRows.strip(complete),
+                    event_kinds=ORDER_EVENT_KINDS,
                 )
                 payload = self.codec.encode_json(written)
                 connection.execute("UPDATE firm SET payload=? WHERE id=1", (payload,))

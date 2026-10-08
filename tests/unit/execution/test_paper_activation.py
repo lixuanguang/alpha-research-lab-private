@@ -732,7 +732,7 @@ class TestPaperActivation:
             self._market(f"cancel-confirmed-{barrier}", due, ask_quantity="0"),
             self._scenario(),
         )
-        assert tuple(event.kind for event in settled.physical_events) == ("cancelled",)
+        assert tuple(event.kind for event in settled.physical_events) == ("cancelled_on_request",)
         assert worker.orders()[0].order.status == "cancelled"
         assert AccountLedger(worker.accounts()[0].ledger).snapshot() == self._opening()
         clock.at = due + timedelta(seconds=1)

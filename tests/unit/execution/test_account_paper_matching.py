@@ -23,6 +23,7 @@ from configuration import (
 )
 from configuration.accounts import InstrumentFeeRate
 from execution import (
+    AccountControl,
     AccountDecision,
     AccountJournal,
     AccountObservation,
@@ -250,23 +251,28 @@ class TestAccountPaperMatching:
         )
 
     @classmethod
+    def _context(cls, instance: str) -> PortfolioContext:
+        """Tag one instance's decision for netting in the shared reference portfolio."""
+        return PortfolioContext(
+            portfolio_id="reference",
+            strategy_id=instance,
+            model_revision="v1",
+            config_revision="v1",
+            horizon="one-minute",
+            reason="paper-acceptance",
+            venue="OKX",
+            settlement="spot-immediate",
+            risk_bucket="spot",
+            authority_scope="paper",
+        )
+
+    @classmethod
     def _coordinate_two(cls, journal: AccountJournal, at: datetime) -> PortfolioCommit:
         """Create one compatible physical parent with two independent owners."""
         decisions = tuple(
             PortfolioDecision(
                 request=cls._decision(instance, f"{instance}-decision", at),
-                context=PortfolioContext(
-                    portfolio_id="reference",
-                    strategy_id=instance,
-                    model_revision="v1",
-                    config_revision="v1",
-                    horizon="one-minute",
-                    reason="paper-acceptance",
-                    venue="OKX",
-                    settlement="spot-immediate",
-                    risk_bucket="spot",
-                    authority_scope="paper",
-                ),
+                context=cls._context(instance),
             )
             for instance in ("alpha", "beta")
         )
@@ -507,7 +513,7 @@ class TestAccountPaperMatching:
         due = reopened.match_public_market(
             "shared", self._market("cancel-due", request_at + timedelta(seconds=1)), scenario
         )
-        assert tuple(event.kind for event in due.physical_events) == ("cancelled",)
+        assert tuple(event.kind for event in due.physical_events) == ("cancelled_on_request",)
         statuses = {item.instance_id: item.order.status for item in reopened.orders()}
         assert statuses == {"alpha": "cancelled", "beta": "unknown"}
         assert tuple(order.identity for order in reopened.physical_open_orders("shared")) == (
@@ -618,6 +624,105 @@ class TestAccountPaperMatching:
         assert (order.status, order.filled.value) == ("cancelled", Decimal("1"))
         assert order.paid_fee.value <= order.maximum_fee.value
         assert journal.accounts()[0].fault is None
+
+    def test_a_shared_stranded_remainder_under_a_pending_cancel_is_not_reissued(
+        self, tmp_path: Path
+    ) -> None:
+        """A netted sell remainder that can never fill ends with its parent and its child.
+
+        The economics are the direct case's above: the 0.90 bid fills one unit at 0.89
+        for 0.089, leaving about 0.081 of the 0.17000002 reserve, below the 0.085 fee of
+        one unit at the 0.85 limit. The account cancel requested 1 ms before that book
+        needs 5 ms to take effect, so the remainder ends on its own terms: alpha keeps
+        two of its three units and nothing is re-sent.
+        """
+        scenario = self._scenario(fee_rate="0.10", cancel_delay_us=5_000)
+        journal = self._ready(tmp_path / "shared-stranded.sqlite3", scenario)
+        decision_at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price("1.00"), at=decision_at))
+        bought = journal.admit(
+            self._order(
+                "inventory",
+                decision_at,
+                side="buy",
+                quantity="3",
+                limit="1.10",
+                time_in_force="ioc",
+                maximum_fee="0.50",
+            )
+        )
+        assert bought.status == "committed"
+        journal.match_public_market(
+            "shared", self._market("inventory-book", decision_at + timedelta(seconds=1)), scenario
+        )
+        sell_at = decision_at + timedelta(seconds=2)
+        journal.observe(AccountQuote(price=self._price("1.00"), at=sell_at))
+        sold = journal.coordinate(
+            PortfolioBatch(
+                identity="netted-sell",
+                at=sell_at + timedelta(microseconds=1),
+                decisions=(
+                    PortfolioDecision(
+                        request=self._order(
+                            "netted-sell",
+                            sell_at,
+                            side="sell",
+                            quantity="2",
+                            limit="0.85",
+                            time_in_force="gtc",
+                            maximum_fee="0.17000002",
+                        ),
+                        context=self._context("alpha"),
+                    ),
+                ),
+            )
+        )
+        assert sold.status == "committed" and len(sold.net_orders) == 1
+        cancel = journal.control(
+            AccountControl(
+                identity="operator-cancel",
+                account_id="shared",
+                kind="cancel",
+                at=sell_at + timedelta(milliseconds=1),
+            )
+        )
+        assert cancel.status == "applied"
+        trace = journal.match_public_market(
+            "shared", self._market("sell-book", sell_at + timedelta(milliseconds=2)), scenario
+        )
+        assert [event.kind for event in trace.physical_events] == [
+            "request_ack",
+            "accepted",
+            "fill",
+            "cancelled",
+        ]
+        child = next(
+            item.order for item in journal.orders() if item.order.decision_identity == "netted-sell"
+        )
+        assert (child.status, child.filled.value) == ("cancelled", Decimal("1"))
+        assert journal.portfolio_residuals("shared") == ()
+        # No child awaits reissue, so another instance's batch needs no newer
+        # reconciliation and creates no physical order.
+        beta_at = sell_at + timedelta(milliseconds=3)
+        journal.observe(AccountQuote(price=self._price("1.00"), at=beta_at))
+        abstention = self._decision("beta", "beta-abstains", beta_at)
+        abstained = journal.coordinate(
+            PortfolioBatch(
+                identity="beta-abstains",
+                at=beta_at + timedelta(microseconds=1),
+                decisions=(
+                    PortfolioDecision(
+                        request=replace(
+                            abstention, decision=replace(abstention.decision, intent=None)
+                        ),
+                        context=self._context("beta"),
+                    ),
+                ),
+            )
+        )
+        assert (abstained.status, abstained.net_orders) == ("committed", ())
+        ledger = AccountLedger(journal.accounts()[0].ledger)
+        assert ledger.snapshot(instance_id="alpha").positions == (self._quantity("2"),)
 
     def test_fee_cap_failure_blocks_without_partial_lifecycle_or_economics(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

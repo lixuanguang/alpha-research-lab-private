@@ -17,6 +17,7 @@ from test_account_paper_matching import TestAccountPaperMatching as _Matching
 # project library imports
 from execution import AccountJournal, AccountQuote, StepCommit
 from execution.account_state import AccountStateStore, FirmHead, FirmState, SavedDecision
+from execution.records import ORDER_EVENT_KINDS
 from serialization import DomainCodec
 
 
@@ -197,6 +198,41 @@ class TestAccountHistory:
             connection.commit()
         with pytest.raises(ValueError, match="history differs"):
             AccountJournal.verify(path, config)
+
+    @pytest.mark.parametrize(
+        "vocabulary",
+        [None, tuple(kind for kind in ORDER_EVENT_KINDS if kind != "cancelled_on_request")],
+        ids=["before-terminal-causes", "other-vocabulary"],
+    )
+    def test_journal_from_another_event_vocabulary_is_refused_unchanged(
+        self, tmp_path: Path, vocabulary: tuple[str, ...] | None
+    ) -> None:
+        """A head that predates stated cancellation causes, or names others, is refused.
+
+        Its ``cancelled`` facts could mean a requested cancellation, so neither the
+        journal nor its verifier rereads it under the current vocabulary, and the
+        refused open leaves the file's bytes as they were.
+        """
+        path, config, codec = tmp_path / "vocabulary.sqlite3", _Matching._config(), DomainCodec()
+        AccountHistoryFixture.operate(path)
+        payload = AccountHistoryFixture.payload(path)
+        current = b'"event_kinds":' + codec.encode_json(ORDER_EVENT_KINDS) + b","
+        assert payload.count(current) == 1
+        replacement = (
+            b"" if vocabulary is None else b'"event_kinds":' + codec.encode_json(vocabulary) + b","
+        )
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute(
+                "UPDATE firm SET payload=? WHERE id=1", (payload.replace(current, replacement),)
+            )
+            connection.commit()
+            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        before = path.read_bytes()
+        with pytest.raises(ValueError, match="unsupported account journal state schema"):
+            AccountJournal(path, config)
+        with pytest.raises(ValueError, match="unsupported account journal state schema"):
+            AccountJournal.verify(path, config)
+        assert path.read_bytes() == before
 
     def test_whole_state_documents_and_document_readers_fail_closed(self, tmp_path: Path) -> None:
         """A whole-state document is refused, and a document reader refuses the head."""
