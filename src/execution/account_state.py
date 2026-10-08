@@ -6,6 +6,8 @@ from __future__ import annotations
 import hashlib
 import operator
 import sqlite3
+import threading
+import weakref
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import closing, contextmanager
 from datetime import datetime
@@ -1269,6 +1271,8 @@ class AccountStateStore:
         self._configuration_payload = codec.encode_json(config)
         self._cached_snapshot: tuple[bytes, _LoadedHead] | None = None
         self._rows = StateRows(codec)
+        self._connection: sqlite3.Connection | None = None
+        self._session_lock = threading.Lock()
         path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -1312,7 +1316,7 @@ class AccountStateStore:
 
     def read(self) -> FirmState:
         """Read one atomic firm snapshot; its history tuples are empty."""
-        with closing(self._connect()) as connection:
+        with self._session() as connection:
             # The head and its rows are separate selects; one transaction keeps
             # them on one WAL snapshot while another process commits.
             connection.execute("BEGIN")
@@ -1324,7 +1328,7 @@ class AccountStateStore:
     @contextmanager
     def snapshot(self) -> Iterator[_AccountSnapshot]:
         """Hold one read transaction so state and history lookups agree."""
-        with closing(self._connect()) as connection:
+        with self._session() as connection:
             connection.execute("BEGIN")
             try:
                 head = self._load(connection)
@@ -1391,7 +1395,7 @@ class AccountStateStore:
     @contextmanager
     def write(self) -> Iterator[AccountTransaction]:
         """Serialize read/check/write so concurrent clients cannot over-admit capacity."""
-        with closing(self._connect()) as connection:
+        with self._session() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 head = self._load(connection)
@@ -1454,9 +1458,35 @@ class AccountStateStore:
             accounts.append(AccountView(ledger=ledger.state))
         return FirmState(accounts=tuple(accounts))
 
+    @contextmanager
+    def _session(self) -> Iterator[sqlite3.Connection]:
+        """Lend the store's reused connection, or a fresh one while it is lent elsewhere.
+
+        Reusing one connection keeps SQLite's WAL index open between transactions, so
+        a transaction no longer pays a connection's setup and the checkpoint that
+        closing the last connection runs; SQLite still checkpoints as the WAL grows.
+        A nested or concurrent use gets its own connection, as every use did before.
+        The connection closes when the store is collected.
+        """
+        if not self._session_lock.acquire(blocking=False):
+            with closing(self._connect()) as fresh:
+                yield fresh
+            return
+        try:
+            if self._connection is None:
+                self._connection = self._connect()
+                weakref.finalize(self, self._connection.close)
+            yield self._connection
+        finally:
+            self._session_lock.release()
+
     def _connect(self) -> sqlite3.Connection:
-        """Open a durable bounded SQLite connection shared by all firm clients."""
-        connection = sqlite3.connect(self.path, timeout=5)
+        """Open a durable bounded SQLite connection shared by all firm clients.
+
+        The store's reused connection may serve a later caller on another thread; its
+        session lock keeps one user at a time, so the thread check is not needed.
+        """
+        connection = sqlite3.connect(self.path, timeout=5, check_same_thread=False)
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=FULL")
         return connection

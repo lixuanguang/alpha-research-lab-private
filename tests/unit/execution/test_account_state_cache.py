@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 # standard library imports
+import gc
 import sqlite3
+import threading
+import warnings
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
+from types import MethodType
 from typing import cast
 
 # third party library imports
@@ -166,3 +171,99 @@ class TestAccountStateCache:
             )
         assert row is not None and type(row[0]) is bytes
         return row[0]
+
+
+class _CountedConnections:
+    """Count the connections an account store opens."""
+
+    def __init__(self, connect: Callable[[AccountStateStore], sqlite3.Connection]) -> None:
+        """Wrap the store's connection factory with no connection counted."""
+        self._connect = connect
+        self.opened = 0
+
+    def __get__(self, store: AccountStateStore | None, owner: type[AccountStateStore]) -> object:
+        """Bind to a store as the replaced method does."""
+        return self if store is None else MethodType(self, store)
+
+    def __call__(self, store: AccountStateStore) -> sqlite3.Connection:
+        """Open and count one connection."""
+        self.opened += 1
+        return self._connect(store)
+
+
+class TestAccountStoreConnection:
+    """Reuse one SQLite connection a store, falling back to fresh ones when it is lent."""
+
+    def test_one_connection_serves_every_sequential_transaction(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """After creating its schema, a store opens one connection for every read and write."""
+        fixture = _AccountFixture
+        counted = _CountedConnections(AccountStateStore._connect)
+        monkeypatch.setattr(AccountStateStore, "_connect", counted)
+        journal = AccountJournal(tmp_path / "reused.sqlite3", fixture._config())
+        assert counted.opened == 1
+        assert journal.reconcile(
+            fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())
+        )
+        for _ in range(5):
+            journal.accounts()
+            journal.paper_trace_history()
+        with journal._store.write() as transaction:
+            transaction.state = replace(transaction.state, stopped_instances=("alpha",))
+        assert journal._store.read().stopped_instances == ("alpha",)
+        assert counted.opened == 2
+
+    def test_nested_and_concurrent_uses_get_their_own_connection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A use while the reused connection is lent opens its own and sees committed state."""
+        fixture = _AccountFixture
+        journal = AccountJournal(tmp_path / "nested.sqlite3", fixture._config())
+        store = journal._store
+        counted = _CountedConnections(AccountStateStore._connect)
+        monkeypatch.setattr(AccountStateStore, "_connect", counted)
+        with store.snapshot() as snapshot:
+            with store.write() as transaction:
+                transaction.state = replace(transaction.state, stopped_instances=("beta",))
+            assert snapshot.state.stopped_instances == ()
+            assert store.read().stopped_instances == ("beta",)
+            other = _ThreadedRead(store)
+            other.start()
+            other.join(5)
+            assert other.read == ("beta",)
+        assert counted.opened == 4
+        assert store.read().stopped_instances == ("beta",)
+        assert counted.opened == 4
+
+    def test_a_collected_store_closes_its_connection_and_checkpoints(self, tmp_path: Path) -> None:
+        """Dropping a journal closes its reused connection without a resource warning."""
+        fixture = _AccountFixture
+        path = tmp_path / "collected.sqlite3"
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            journal = AccountJournal(path, fixture._config())
+            assert journal.reconcile(
+                fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())
+            )
+            assert path.with_name(path.name + "-wal").exists()
+            del journal
+            gc.collect()
+        assert not [item for item in caught if issubclass(item.category, ResourceWarning)]
+        assert not path.with_name(path.name + "-wal").exists()
+        reopened = AccountJournal(path, fixture._config())
+        assert reopened.accounts()[0].reconciled_at == fixture.opening_at
+
+
+class _ThreadedRead(threading.Thread):
+    """Read a store's stopped instances from another thread."""
+
+    def __init__(self, store: AccountStateStore) -> None:
+        """Bind the store; nothing is read until the thread runs."""
+        super().__init__()
+        self.store = store
+        self.read: tuple[str, ...] | None = None
+
+    def run(self) -> None:
+        """Read the store's committed stopped instances."""
+        self.read = self.store.read().stopped_instances
