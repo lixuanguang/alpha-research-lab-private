@@ -423,9 +423,11 @@ fsynced line of `service-requests/<life>.jsonl` beside the journal, one append-o
 log per service life, before the account applies it; a request that cannot be
 retained is refused unapplied. `SocketPaperAccount` keeps one append-only log per
 client, `<requests>/<log>.jsonl`: each command's `request` record, with a fresh
-`attempt` identity, is fsynced before it is sent, and its `result` or `error` record
-follows the response. An attempt with neither has an uncertain outcome; inspect the
-journal before any new request. Retained file counts therefore grow with service
+`attempt` identity, is fsynced before it is sent and names the exact payload as a
+`SentRequest` (action, SHA-256 and byte length); the service's retained line holds
+those bytes, so they are kept once. Its `result` or `error` record follows the
+response. An attempt with neither has an uncertain outcome; inspect the journal
+before any new request. A payload the service never retained had no effect.
 lives, not with requests. Owner-generation checks remain inside economic
 transactions. Service startup reads only the durable activation, never the trace
 history, and does not claim, renew or widen authority. Its heartbeat file beside the

@@ -28,7 +28,7 @@ from execution.accounts import (
     PortfolioResidual,
     TaggedOrder,
 )
-from execution.installed_account import InstalledPaperAccount, SocketPaperAccount
+from execution.installed_account import InstalledPaperAccount, SentRequest, SocketPaperAccount
 from execution.journal import PaperOrderJournal
 from execution.lifecycle import SpotOrderLifecycle
 from execution.monitoring import ExecutionMonitoring
@@ -123,6 +123,7 @@ __all__ = [
     "PortfolioDecision",
     "PortfolioResidual",
     "PrivateVenueSession",
+    "SentRequest",
     "SocketPaperAccount",
     "SpotOrderLifecycle",
     "StepCommit",

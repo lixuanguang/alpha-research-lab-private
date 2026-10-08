@@ -38,6 +38,7 @@ from execution import (
     PaperMarket,
     PaperMarketOutcome,
     PaperOwner,
+    SentRequest,
     SocketPaperAccount,
 )
 from serialization import DomainCodec
@@ -89,15 +90,15 @@ class _RecordingAccountApplication:
 class _ClientLog(msgspec.Struct, frozen=True):
     """Group one socket client's retained records by attempt."""
 
-    requests: dict[str, bytes]
+    requests: dict[str, SentRequest]
     results: dict[str, bytes]
     errors: dict[str, str]
 
     @staticmethod
     def read(directory: Path) -> _ClientLog:
-        """Read the directory's single client log, keeping each record's exact bytes."""
+        """Read the directory's single client log, keeping each result's exact bytes."""
         (log,) = directory.iterdir()
-        requests: dict[str, bytes] = {}
+        requests: dict[str, SentRequest] = {}
         results: dict[str, bytes] = {}
         errors: dict[str, str] = {}
         for line in log.read_bytes().splitlines():
@@ -106,9 +107,18 @@ class _ClientLog(msgspec.Struct, frozen=True):
             ((kind, value),) = record.items()
             if kind == "error":
                 errors[attempt] = msgspec.json.decode(value, type=str)
+            elif kind == "request":
+                requests[attempt] = DomainCodec().decode_json(value, SentRequest)
             else:
-                {"request": requests, "result": results}[kind][attempt] = bytes(value)
+                results[attempt] = bytes(value)
         return _ClientLog(requests=requests, results=results, errors=errors)
+
+    @staticmethod
+    def sent(payload: bytes, action: str) -> SentRequest:
+        """Name exact payload bytes as the client's pre-dispatch record does."""
+        return SentRequest(
+            action=action, sha256=hashlib.sha256(payload).hexdigest(), bytes=len(payload)
+        )
 
 
 class TestSocketRetention:
@@ -146,7 +156,9 @@ class TestSocketRetention:
                 with pytest.raises(TimeoutError):
                     account.execute(request)
             log = _ClientLog.read(Path(root) / "requests")
-        assert list(log.requests.values()) == [DomainCodec().encode_json(request)]
+        assert list(log.requests.values()) == [
+            _ClientLog.sent(DomainCodec().encode_json(request), "block")
+        ]
         assert not log.results and not log.errors
 
     def test_a_rejection_cut_inside_a_character_keeps_its_error_record(self) -> None:
@@ -181,7 +193,9 @@ class TestSocketRetention:
                         )
                     )
             log = _ClientLog.read(Path(root) / "requests")
-        assert service.received == list(log.requests.values())
+        assert [_ClientLog.sent(payload, "block") for payload in service.received] == list(
+            log.requests.values()
+        )
         assert list(log.errors.values()) == ["refused: \ufffd"] and not log.results
 
 
@@ -743,17 +757,26 @@ class TestAccountOwnerService:
             )
             assert any(request.action == "shutdown_paper" for request in decoded)
             assert any(request.action == "control" for request in decoded)
-            # Each client's one log pairs every retained request with its outcome.
+            # Each client's one log pairs every sent request with its outcome, and names
+            # the exact bytes the service retained before applying them.
             client_log = _ClientLog.read(tmp_path / "client-requests")
             assert client_log.requests and set(client_log.requests) == set(client_log.results)
             assert not client_log.errors
-            assert {
-                codec.decode_json(payload, AccountExecutionRequest).action
-                for payload in client_log.requests.values()
-            } >= {"stop_instance", "restart_instance", "shutdown_paper"}
+            retained_identities = {
+                _ClientLog.sent(line, codec.decode_json(line, AccountExecutionRequest).action)
+                for line in retained[0].read_bytes().splitlines()
+            }
+            assert set(client_log.requests.values()) <= retained_identities
+            assert {item.action for item in client_log.requests.values()} >= {
+                "stop_instance",
+                "restart_instance",
+                "shutdown_paper",
+            }
             peer_log = _ClientLog.read(tmp_path / "peer-requests")
             assert set(peer_log.requests) == set(peer_log.errors) and len(peer_log.errors) == 2
             assert all("paper_owner_stale_or_absent" in text for text in peer_log.errors.values())
+            # The service refused the stale peer before retaining its bytes.
+            assert not set(peer_log.requests.values()) & retained_identities
         finally:
             if process.poll() is None:
                 process.terminate()

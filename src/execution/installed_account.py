@@ -42,7 +42,7 @@ from execution.account_reduction import PaperReductionResult
 from execution.paper import PaperMarket
 from execution.paper_authority import PaperActivation, PaperOwner
 from financial_units import Dimension
-from serialization import DomainCodec, DurableLines
+from serialization import DomainCodec, DurableLines, WireRecord
 
 
 class InstalledPaperAccount:
@@ -306,14 +306,42 @@ class InstalledPaperAccount:
         return result.control
 
 
+class SentRequest(WireRecord, frozen=True):
+    """Name one socket command's exact payload by its action, SHA-256 and length.
+
+    The owner service retains the payload's exact bytes as one line of its
+    ``service-requests`` log before any effect, so a client record of the payload's
+    identity joins it to those bytes without keeping a second copy. A command the
+    service never retained had no effect.
+    """
+
+    action: str
+    sha256: str
+    bytes: int
+
+    def __post_init__(self) -> None:
+        """Require an action, a lowercase SHA-256 digest and a positive length."""
+        if (
+            type(self.action) is not str
+            or not self.action
+            or type(self.sha256) is not str
+            or len(self.sha256) != 64
+            or any(character not in "0123456789abcdef" for character in self.sha256)
+            or type(self.bytes) is not int
+            or self.bytes <= 0
+        ):
+            raise ValueError("invalid sent account request identity")
+
+
 class SocketPaperAccount(InstalledPaperAccount):
     """Use the same typed PaperAccount operations through one claimed local owner.
 
     Each adapter retains its commands in one append-only log, ``<requests>/<log>.jsonl``.
     A command's ``request`` record, under a fresh ``attempt`` identity, is fsynced
-    before it is sent; its ``result`` or ``error`` record follows the response. An
-    attempt without either record has an uncertain outcome: a timeout or lost
-    response, which this adapter never resubmits.
+    before it is sent; it names the exact payload by ``SentRequest``, whose bytes the
+    owner service retains before applying them. The ``result`` or ``error`` record
+    follows the response. An attempt without either record has an uncertain outcome:
+    a timeout or lost response, which this adapter never resubmits.
     """
 
     _maximum_bytes = 1_048_576
@@ -354,7 +382,12 @@ class SocketPaperAccount(InstalledPaperAccount):
         if not 0 < len(payload) <= self._maximum_bytes:
             raise ValueError("socket paper request exceeds one MiB")
         attempt = uuid4().hex
-        self._record(attempt, "request", msgspec.Raw(payload), sync=True)
+        sent = SentRequest(
+            action=request.action,
+            sha256=hashlib.sha256(payload).hexdigest(),
+            bytes=len(payload),
+        )
+        self._record(attempt, "request", sent, sync=True)
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             connection.settimeout(self.timeout_seconds)
             connection.connect(str(self.socket_path))
@@ -375,7 +408,9 @@ class SocketPaperAccount(InstalledPaperAccount):
         self._record(attempt, "result", msgspec.Raw(response), sync=False)
         return decoded
 
-    def _record(self, attempt: str, kind: str, value: msgspec.Raw | str, *, sync: bool) -> None:
+    def _record(
+        self, attempt: str, kind: str, value: SentRequest | msgspec.Raw | str, *, sync: bool
+    ) -> None:
         """Append one attributable record of an attempt to this adapter's log."""
         line = self._codec.encode_json({"attempt": attempt, kind: value})
         with self._log_lock:

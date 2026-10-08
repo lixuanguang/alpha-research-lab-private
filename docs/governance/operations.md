@@ -531,8 +531,11 @@ background system daemon or grant private venue authority.
    pending/uncertain orders, then claim a fresh owner before restarting services.
    The supervisor's requests are in `<root>/requests/<account>/<log>.jsonl`: an
    `attempt` with a `request` record but no `result` or `error` record has an
-   uncertain outcome. The owner service's retained requests are the lines of
-   `service-requests/<life>.jsonl` beside the journal.
+   uncertain outcome. A `request` record names the payload's action, SHA-256 and
+   length; the owner service's retained requests, with their exact bytes, are the
+   lines of `service-requests/<life>.jsonl` beside the journal. A line whose
+   SHA-256 matches holds what was sent; no such line means the service never
+   retained, and so never applied, that payload.
 6. An account/delivery persistence failure stops affected admission; storage that
    cannot record a fault cannot prove a clean stop. Terminate the producer, retain
    the failure, restore writable storage, inspect current state and reconcile.

@@ -66,8 +66,12 @@ type AccountResponseProjection = Literal[
 ]
 
 
-class AccountExecutionRequest(WireRecord, frozen=True):
-    """Select exactly one durable account operation without executable authority."""
+class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
+    """Select exactly one durable account operation without executable authority.
+
+    The encoding omits every field left at its default, so a request's bytes hold
+    only its operation's payload; decoding restores the defaults.
+    """
 
     action: Literal[
         "inspect",
@@ -355,8 +359,11 @@ class AccountExecutionRequest(WireRecord, frozen=True):
             raise ValueError("recovery fields require backup or restore action")
 
 
-class AccountExecutionResult(WireRecord, frozen=True):
-    """Return current exact accounts, tagged orders and the operation outcome."""
+class AccountExecutionResult(WireRecord, frozen=True, omit_defaults=True):
+    """Return current exact accounts, tagged orders and the operation outcome.
+
+    The encoding omits every field left at its default, as requests do.
+    """
 
     accounts: tuple[AccountView, ...]
     orders: tuple[TaggedOrder, ...]
