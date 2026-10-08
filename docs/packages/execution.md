@@ -4,7 +4,10 @@
 shadow mode. It has no venue client, credentials or submit operation. The caller
 supplies a candidate binding identity, exact `SpotLimits` and a `LedgerState`.
 Opening an existing journal rejects a changed binding, mode, limits or initial
-ledger. `claim(owner)` takes a nonblocking POSIX file lock and increments the
+ledger. Each event row records its kind, checked against the current order-event
+vocabulary, so a journal written under another vocabulary, including one from
+before terminal cancellations stated their cause, is refused as an unsupported
+paper journal schema and never migrated. `claim(owner)` takes a nonblocking POSIX file lock and increments the
 persisted writer epoch. Each mutation checks both the local lock and epoch.
 
 `commit_step` saves opaque candidate checkpoint bytes, source/result bytes, the
@@ -31,7 +34,13 @@ obtain another allowance of displayed liquidity.
 Unfilled buy limit notional plus each order's unspent maximum fee reserves cash;
 unfilled sells reserve inventory. An unresolved order, including an unknown
 outcome or an acknowledged cancellation, keeps its reservation. Only a confirmed
-fill, cancellation or rejection changes that commitment. Accepted fill identities
+fill, cancellation or rejection changes that commitment. A terminal cancellation
+states its cause. `cancelled_on_request` is positive evidence that a pending cancel
+request took effect; `cancelled` states no cause and covers an order that ended on
+its own terms, such as an immediate-or-cancel or stranded remainder, and any
+cancellation whose producer cannot attribute it. The lifecycle accepts
+`cancelled_on_request` only for an order with a pending request and a known
+outcome; both end in status `cancelled`. Accepted fill identities
 post to the exact spot ledger once. `events(after_sequence)` replays committed
 facts and their then-current account balances after a runtime callback cursor.
 A mismatch in the caller's independently
@@ -75,7 +84,10 @@ another process reads the head, compares row digests and decodes only rows that
 changed. In memory the state still holds the complete tuples, so account behavior does
 not depend on this layout. Only this `account-journal` layout is readable: a journal
 with other tables, including one without `state_rows` or `dispatch_leases`, is refused
-as an unsupported account journal schema and is never migrated. The journal composes admission and reconciliation from
+as an unsupported account journal schema and is never migrated. The head also names
+the order-event vocabulary its facts are written in; a head without one, as written
+before terminal cancellations stated their cause, or with another vocabulary is
+refused as an unsupported account journal state schema. The journal composes admission and reconciliation from
 [`account_admission.py`](../../src/execution/account_admission.py), physical fill and fee attribution
 from [`account_allocation.py`](../../src/execution/account_allocation.py), and atomic portfolio order
 formation and instance controls from [`account_portfolio.py`](../../src/execution/account_portfolio.py).
@@ -161,7 +173,10 @@ delays, adverse price movement, fee rate, fraction of displayed touch size taken
 and an explicit reason gas is inapplicable to this off-chain spot model. The
 selected `SpotLimits` lot and tick still govern quantities and prices. Entry and
 cancel eligibility are evaluated at the first later received public quote; the
-model invents no intervening exchange event or response clock. A quote can fill
+model invents no intervening exchange event or response clock. A cancel request
+honoured at its delay ends the order `cancelled_on_request`. An immediate-or-cancel
+or stranded remainder that ends first is `cancelled`, and a crossing post-only order
+is `rejected`, even while a request is still pending. A quote can fill
 only an older order. The modeled fill retains both observed touch reference and
 adverse effective price, with exact quote-currency fee rounding. A limit or fee
 reservation that cannot cover those economics cannot silently become a fill.
@@ -291,6 +306,11 @@ The selected crossing policy is pinned when the journal first admits a batch.
 
 `apply_net_event(OrderEvent)` names a physical parent and commits its transition,
 allocated child fills/costs and physical-to-child lineage in one transaction.
+A terminal fact states the parent's cause by kind, never inferred from a request
+that was merely pending: only `cancelled_on_request` leaves the parent's other
+children to reissue. A caller confirming a requested cancellation, such as an
+unmanaged application, supplies that kind; `cancelled`, `reconcile_cancelled` and
+every other ending end the remaining children.
 The reference policy retains prior allocations, assigns deterministic residuals
 and never charges beyond reserved costs. The physical fill identity is distinct
 from the allocated posting identities. Complete reconciliation checks physical
@@ -305,11 +325,17 @@ contract. Parent and child fee totals change together; unreserved costs fail
 and a successful revision requires complete reconciliation before new risk.
 
 `stop_instance(instance_id, at)` blocks new decisions for that strategy. A shared
-parent must be cancelled as one physical order; the other strategy's child
-reservation and remaining quantity survive. Neither cancel request nor cancel
-acknowledgement releases uncertain exposure. After confirmed terminal state and
-complete reconciliation, `reissue_pending(account_id, at)` creates physical
-orders for unaffected residuals. `restart_instance(instance_id, at)` requires
+parent must be cancelled as one physical order; when that requested cancellation
+takes effect (`cancelled_on_request`, in paper once the modeled cancel delay has
+elapsed), the other strategy's child reservation and remaining quantity survive.
+If the parent instead ends on its own terms first, by an immediate-or-cancel or
+stranded remainder or a post-only rejection, or by a reconciled or unattributed
+cancellation, every child ends with it and nothing is reissued; posted fills and
+fees stay, and only the unfilled reservations are released. A `venue_test`
+parent's children always end this way (see test-venue execution). Neither cancel
+request nor cancel acknowledgement releases uncertain exposure. After confirmed
+terminal state and complete reconciliation, `reissue_pending(account_id, at)`
+creates physical orders for unaffected residuals. `restart_instance(instance_id, at)` requires
 the stopped strategy's unresolved orders to be settled and the account recovery
 conditions to hold. Stop, physical cancellation and position reduction remain
 distinct operations. Account-level protection applies throughout.
@@ -405,6 +431,21 @@ never authorize another submit for that identity. Request acknowledgement is not
 acceptance. Cancellation acknowledgement is not terminal cancellation. A further
 explicit cancel requires successful reconciliation confirming the order is still
 open. Replacement remains a new admitted order after confirmed terminal state.
+
+A venue's terminal cancellation does not say whether our request or the order's own
+terms ended it, and a cancel acknowledgement shows only that the venue accepted the
+request. The gateway therefore records a validated venue cancellation as
+`cancelled`, whether or not our cancel was acknowledged, and a `venue_test` account
+journal refuses `cancelled_on_request` from any caller. When a netted parent ends
+this way, its remaining children end with it instead of being reissued: their
+posted fills and fees stay and only the unfilled reservations are released. Each
+strategy decides again at its next decision. This intentionally narrows the
+shared-parent survival above to paper accounts (owner decision of 2026-10-08): no
+economic intent is re-sent without venue evidence of its cause. Venue-native cancel
+causes, such as OKX `cancelSource` or Bitfinex's distinct `IOC CANCELED` and
+`POSTONLY CANCELED` statuses, are neither parsed nor qualified; the Bitfinex adapter
+currently refuses either status as unsupported, which faults the account for
+reconciliation instead of ending the order.
 
 The gateway retains exact native receipts before applying canonical events. The
 account journal atomically posts `NativeFill`, fees/rebates and attributed child
@@ -593,7 +634,8 @@ expires or is revoked; saved decisions and batches behave the same. Changed cont
 under that identity rejects. A new reduction cannot use a nine-second-old request
 to admit an eighteen-second-old input under a ten-second freshness limit.
 
-After shared-parent cancellation, automatic coordination and the explicit residual
-reissue command both require reconciliation covering the terminal physical outcome.
+After a shared parent's requested cancellation takes effect, automatic coordination
+and the explicit residual reissue command both require reconciliation covering the
+terminal physical outcome.
 A new strategy decision cannot bypass this recovery gate. Existing residuals remain
 reserved and attributable while that gate is closed.

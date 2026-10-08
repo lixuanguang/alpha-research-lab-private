@@ -476,18 +476,21 @@ class PhysicalAllocation:
             allocations = tuple(revised)
         updated_parent = replace(parent, order=physical, allocations=allocations)
         if physical.is_terminal:
-            # Only a parent cancelled on request, such as a shared parent cancelled for
-            # another strategy's stop, leaves its other children's remainder to reissue.
-            # A child ends with its parent when its instance stopped, when its own cancel
-            # was requested as its instance replaced its orders, or when the parent ended
-            # on its own terms (an immediate order's expiry, a post-only rejection):
-            # reissuing it would repeat an order that has already ended.
+            # Only a parent whose terminal fact is a requested cancellation that took
+            # effect, such as a shared parent cancelled for another strategy's stop,
+            # leaves its other children's remainder to reissue. The cause is read from
+            # that fact, never from a request that was merely pending. A child ends with
+            # its parent when its instance stopped, when its own cancel was requested as
+            # its instance replaced its orders, or on any other ending: an immediate
+            # order's expiry, a stranded remainder, a post-only rejection, a fill, a
+            # reconciled outcome or a venue cancellation of unattributed cause.
+            # Reissuing it would repeat an order that has already ended.
             for allocation in allocations:
                 child = transaction.order(allocation.child_order_id)
                 if not child.order.is_terminal and (
                     child.instance_id in transaction.state.stopped_instances
                     or child.order.cancel_requested
-                    or not physical.cancel_requested
+                    or event.kind != "cancelled_on_request"
                 ):
                     transaction.save_order(
                         replace(child, order=replace(child.order, status="cancelled"))

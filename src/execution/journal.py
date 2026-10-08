@@ -19,6 +19,7 @@ from accounting import Fill, Ledger, LedgerBalance, LedgerState
 from configuration import InstrumentFeeRate, PaperExecutionScenario
 from execution.lifecycle import SpotOrderLifecycle
 from execution.records import (
+    ORDER_EVENT_KINDS,
     AccountReservations,
     JournalEvent,
     MarketTouch,
@@ -39,6 +40,9 @@ if TYPE_CHECKING:
 
 # The complete journal layout. Opening refuses any other, including an earlier one.
 # Applied fills are rows of ``fills``; the initial ledger is part of the binding.
+# Each event's kind is checked against the order-event vocabulary, so a journal
+# written under another vocabulary has another layout and is refused.
+_EVENT_KINDS_SQL = ", ".join(f"'{kind}'" for kind in ORDER_EVENT_KINDS)
 _LAYOUT: tuple[str, ...] = (
     "CREATE TABLE journal (id INTEGER PRIMARY KEY CHECK (id = 1), binding BLOB NOT NULL, "
     "epoch INTEGER NOT NULL, owner TEXT NOT NULL)",
@@ -52,7 +56,8 @@ _LAYOUT: tuple[str, ...] = (
     "order_id TEXT NOT NULL UNIQUE, terminal INTEGER NOT NULL, payload BLOB NOT NULL)",
     "CREATE INDEX orders_open ON orders(terminal, sequence)",
     "CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
-    "event_id TEXT NOT NULL UNIQUE, order_id TEXT NOT NULL, payload BLOB NOT NULL, "
+    "event_id TEXT NOT NULL UNIQUE, order_id TEXT NOT NULL, "
+    f"kind TEXT NOT NULL CHECK (kind IN ({_EVENT_KINDS_SQL})), payload BLOB NOT NULL, "
     "order_state BLOB NOT NULL, balance BLOB NOT NULL)",
     "CREATE INDEX events_order ON events(order_id, sequence)",
     "CREATE TABLE fills (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -624,11 +629,12 @@ class PaperOrderJournal:
             (self._codec.encode_json(current), int(current.is_terminal), current.identity),
         )
         connection.execute(
-            "INSERT INTO events(event_id, order_id, payload, order_state, balance) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO events(event_id, order_id, kind, payload, order_state, balance) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             (
                 event.identity,
                 event.order_id,
+                event.kind,
                 payload,
                 self._codec.encode_json(current),
                 self._codec.encode_json(ledger.balance),

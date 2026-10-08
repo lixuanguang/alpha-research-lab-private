@@ -7,6 +7,7 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 
 # third party library imports
 import pytest
@@ -286,7 +287,7 @@ class TestPortfolioAccounts:
                 identity="pair-cancelled",
                 order_id=parent.order.identity,
                 at=cancelled_at,
-                kind="cancelled",
+                kind="cancelled_on_request",
             )
         )
         return cancelled_at
@@ -345,7 +346,7 @@ class TestPortfolioAccounts:
                 identity="physical-cancel-confirmed",
                 order_id=parent.order.identity,
                 at=cancel_at,
-                kind="cancelled",
+                kind="cancelled_on_request",
             )
         )
         assert {child.instance_id: child.order.status for child in reopened.orders()} == {
@@ -450,7 +451,7 @@ class TestPortfolioAccounts:
                 identity="replaced-cancel-confirmed",
                 order_id=parent,
                 at=second_at + timedelta(microseconds=3),
-                kind="cancelled",
+                kind="cancelled_on_request",
             )
         )
         assert [item.order.status for item in journal.orders() if item.instance_id == "alpha"] == [
@@ -541,6 +542,443 @@ class TestPortfolioAccounts:
         )
         assert other.status == "committed", other.reason
         assert len(journal.net_orders()) == 2
+
+    @classmethod
+    def _delayed_scenario(cls) -> PaperExecutionScenario:
+        """Model a 1 ms entry delay and a 5 ms cancel delay with no costs."""
+        return PaperExecutionScenario(
+            venue="okx",
+            instrument_id=cls.dimension.instrument_id,
+            entry_delay_us=1_000,
+            cancel_delay_us=5_000,
+            adverse=cls._price("0"),
+            fee_rate=Decimal(0),
+            take_fraction=Decimal(1),
+            gas_inapplicable_reason="off-chain spot matching",
+        )
+
+    @classmethod
+    def _bound(cls, path: Path) -> AccountJournal:
+        """Bind the delayed scenario, then independently reconcile opening cash."""
+        journal = AccountJournal(path, cls._config())
+        journal.bind_paper_scenario("shared", cls._delayed_scenario())
+        assert journal.reconcile(
+            AccountObservation(
+                identity="opening", at=cls.opening_at, snapshot=cls._opening(), open_orders=()
+            )
+        )
+        return journal
+
+    @classmethod
+    def _book(cls, identity: str, at: datetime, ask: str) -> PaperMarket:
+        """Offer ten units at ``ask`` and ten at a 99.50 bid."""
+        return PaperMarket(
+            identity=identity,
+            at=at,
+            bid=cls._price("99.50"),
+            ask=cls._price(ask),
+            bid_quantity=cls._quantity("10"),
+            ask_quantity=cls._quantity("10"),
+        )
+
+    @classmethod
+    def _lasting(
+        cls,
+        decision: PortfolioDecision,
+        time_in_force: Literal["gtc", "ioc", "post-only"],
+        *,
+        portfolio: str = "portfolio",
+    ) -> PortfolioDecision:
+        """Give a decision's order another lifetime and its context another portfolio."""
+        intent = decision.request.decision.intent
+        assert isinstance(intent, OrderIntent)
+        return replace(
+            decision,
+            request=replace(
+                decision.request,
+                decision=replace(
+                    decision.request.decision, intent=replace(intent, time_in_force=time_in_force)
+                ),
+            ),
+            context=replace(decision.context, portfolio_id=portfolio),
+        )
+
+    @classmethod
+    def _abstention(cls, instance: str, identity: str, at: datetime) -> PortfolioDecision:
+        """Decide no order, which under paper replacement cancels the instance's orders."""
+        decision = cls._decision(instance=instance, identity=identity, at=at)
+        return replace(
+            decision,
+            request=replace(
+                decision.request, decision=replace(decision.request.decision, intent=None)
+            ),
+        )
+
+    @staticmethod
+    def _statuses(journal: AccountJournal) -> dict[str, str]:
+        """Map each instance to its only strategy order's status."""
+        return {item.instance_id: item.order.status for item in journal.orders()}
+
+    def test_an_order_expiring_under_a_pending_account_cancel_ends_its_child(
+        self, tmp_path: Path
+    ) -> None:
+        """An IOC that expires before an account cancel takes effect is never re-sent.
+
+        Entry takes 1 ms and cancellation 5 ms. The account cancel at +2 ms is still
+        pending at the +3 ms book, whose 101 ask is above the 100 limit, so the IOC
+        expires on its own terms. Nothing is left to reissue: the next batch on the
+        account sends nothing, and a later book at the limit leaves the account exactly
+        at its opening cash.
+        """
+        scenario = self._delayed_scenario()
+        journal = self._bound(tmp_path / "expired-under-cancel.sqlite3")
+        at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=at))
+        sent = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-ioc",
+                at=at + timedelta(microseconds=1),
+                decisions=(
+                    self._lasting(
+                        self._decision(instance="alpha", identity="alpha-ioc", at=at), "ioc"
+                    ),
+                ),
+            )
+        )
+        assert sent.status == "committed" and len(sent.net_orders) == 1
+        cancel = journal.control(
+            AccountControl(
+                identity="operator-cancel",
+                account_id="shared",
+                kind="cancel",
+                at=at + timedelta(milliseconds=2),
+            )
+        )
+        assert cancel.status == "applied"
+        expiry = journal.match_public_market(
+            "shared", self._book("expiry", at + timedelta(milliseconds=3), "101"), scenario
+        )
+        assert [event.kind for event in expiry.physical_events] == [
+            "request_ack",
+            "accepted",
+            "cancelled",
+        ]
+        assert self._statuses(journal) == {"alpha": "cancelled"}
+        assert journal.portfolio_residuals("shared") == ()
+        reconciled_at = at + timedelta(milliseconds=10)
+        assert journal.reconcile(
+            AccountObservation(
+                identity="after-expiry",
+                at=reconciled_at,
+                snapshot=self._opening(),
+                open_orders=(),
+            )
+        )
+        next_at = reconciled_at + timedelta(milliseconds=10)
+        journal.observe(AccountQuote(price=self._price(), at=next_at))
+        abstained = journal.coordinate(
+            PortfolioBatch(
+                identity="beta-abstains",
+                at=next_at + timedelta(microseconds=1),
+                decisions=(self._abstention("beta", "beta-abstains", next_at),),
+            )
+        )
+        assert (abstained.status, abstained.net_orders) == ("committed", ())
+        journal.match_public_market(
+            "shared", self._book("at-limit", next_at + timedelta(milliseconds=3), "100"), scenario
+        )
+        assert AccountLedger(journal.accounts()[0].ledger).snapshot() == self._opening()
+
+    def test_a_shared_order_expiring_after_another_strategy_replaces_ends_both_children(
+        self, tmp_path: Path
+    ) -> None:
+        """Alpha's replacement requests the shared IOC's cancel; the IOC expires first.
+
+        The +3 ms book (ask 101 above the 100 limit) ends the parent on its own terms,
+        before alpha's +2 ms request takes effect at +7 ms. Beta's child ends with it,
+        so alpha's next order needs no newer reconciliation. At the +10 ms book, ten
+        units at the 100 limit fill alpha's new two-unit IOC: alpha holds 2, beta 0.
+        """
+        scenario = self._delayed_scenario()
+        journal = self._bound(tmp_path / "expired-shared.sqlite3")
+        at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=at))
+        pair = journal.coordinate(
+            PortfolioBatch(
+                identity="pair",
+                at=at + timedelta(microseconds=1),
+                decisions=tuple(
+                    self._lasting(
+                        self._decision(instance=name, identity=f"{name}-ioc", at=at), "ioc"
+                    )
+                    for name in ("alpha", "beta")
+                ),
+            )
+        )
+        assert pair.status == "committed" and len(pair.net_orders) == 1
+        replace_at = at + timedelta(milliseconds=2)
+        journal.observe(AccountQuote(price=self._price(), at=replace_at))
+        replaced = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-replaces",
+                at=replace_at + timedelta(microseconds=1),
+                decisions=(self._abstention("alpha", "alpha-abstains", replace_at),),
+            )
+        )
+        assert (replaced.status, replaced.reason) == ("committed", "no_intent")
+        assert journal.net_orders()[0].order.cancel_requested
+        expiry = journal.match_public_market(
+            "shared", self._book("expiry", replace_at + timedelta(milliseconds=1), "101"), scenario
+        )
+        assert [event.kind for event in expiry.physical_events] == [
+            "request_ack",
+            "accepted",
+            "cancelled",
+        ]
+        assert self._statuses(journal) == {"alpha": "cancelled", "beta": "cancelled"}
+        buy_at = replace_at + timedelta(milliseconds=5)
+        journal.observe(AccountQuote(price=self._price(), at=buy_at))
+        bought = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-buys-again",
+                at=buy_at + timedelta(microseconds=1),
+                decisions=(
+                    self._lasting(
+                        self._decision(instance="alpha", identity="alpha-again", at=buy_at),
+                        "ioc",
+                        portfolio="other-portfolio",
+                    ),
+                ),
+            )
+        )
+        assert bought.status == "committed", bought.reason
+        assert [parent.order.intent.quantity for parent in bought.net_orders] == [
+            self._quantity("2")
+        ]
+        journal.match_public_market(
+            "shared", self._book("at-limit", buy_at + timedelta(milliseconds=3), "100"), scenario
+        )
+        ledger = AccountLedger(journal.accounts()[0].ledger)
+        assert ledger.snapshot(instance_id="alpha").positions == (self._quantity("2"),)
+        assert ledger.snapshot(instance_id="beta").positions == ()
+
+    def test_a_post_only_order_rejected_under_a_pending_cancel_ends_its_children(
+        self, tmp_path: Path
+    ) -> None:
+        """A shared post-only buy crossing at its first eligible book is rejected outright.
+
+        Alpha's +2 ms replacement is still pending at the +3 ms book, whose ask equals
+        the 100 limit, so the order would take liquidity: it is rejected on its own
+        terms and beta's child ends with it. Beta's next batch sends nothing.
+        """
+        scenario = self._delayed_scenario()
+        journal = self._bound(tmp_path / "post-only.sqlite3")
+        at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=at))
+        pair = journal.coordinate(
+            PortfolioBatch(
+                identity="pair",
+                at=at + timedelta(microseconds=1),
+                decisions=tuple(
+                    self._lasting(
+                        self._decision(instance=name, identity=f"{name}-maker", at=at),
+                        "post-only",
+                    )
+                    for name in ("alpha", "beta")
+                ),
+            )
+        )
+        assert pair.status == "committed" and len(pair.net_orders) == 1
+        replace_at = at + timedelta(milliseconds=2)
+        journal.observe(AccountQuote(price=self._price(), at=replace_at))
+        journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-replaces",
+                at=replace_at + timedelta(microseconds=1),
+                decisions=(self._abstention("alpha", "alpha-abstains", replace_at),),
+            )
+        )
+        crossed = journal.match_public_market(
+            "shared",
+            self._book("crossing", replace_at + timedelta(milliseconds=1), "100"),
+            scenario,
+        )
+        assert [event.kind for event in crossed.physical_events] == ["request_ack", "rejected"]
+        assert self._statuses(journal) == {"alpha": "cancelled", "beta": "cancelled"}
+        next_at = replace_at + timedelta(milliseconds=5)
+        journal.observe(AccountQuote(price=self._price(), at=next_at))
+        abstained = journal.coordinate(
+            PortfolioBatch(
+                identity="beta-abstains",
+                at=next_at + timedelta(microseconds=1),
+                decisions=(self._abstention("beta", "beta-abstains", next_at),),
+            )
+        )
+        assert (abstained.status, abstained.net_orders) == ("committed", ())
+
+    def test_a_shared_order_cancelled_for_a_stop_leaves_the_other_child_to_reissue(
+        self, tmp_path: Path
+    ) -> None:
+        """A cancel that takes effect keeps the documented reissue of unaffected children.
+
+        Both resting buys sit below the 101 ask. Alpha's stop at +3 ms requests the
+        shared parent's cancel, which the +8 ms book honours as a requested
+        cancellation. Beta's two units stay reserved and, once a reconciliation covers
+        that outcome, are reissued alone at the original limit.
+        """
+        scenario = self._delayed_scenario()
+        journal = self._bound(tmp_path / "stopped-shared.sqlite3")
+        at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=at))
+        pair = journal.coordinate(
+            PortfolioBatch(
+                identity="pair",
+                at=at + timedelta(microseconds=1),
+                decisions=tuple(
+                    self._decision(instance=name, identity=f"{name}-resting", at=at)
+                    for name in ("alpha", "beta")
+                ),
+            )
+        )
+        parent_id = pair.net_orders[0].order.identity
+        resting = journal.match_public_market(
+            "shared", self._book("resting", at + timedelta(milliseconds=2), "101"), scenario
+        )
+        assert [event.kind for event in resting.physical_events] == ["request_ack", "accepted"]
+        stop_at = at + timedelta(milliseconds=3)
+        assert [parent.order.identity for parent in journal.stop_instance("alpha", stop_at)] == [
+            parent_id
+        ]
+        early = journal.match_public_market(
+            "shared", self._book("early", stop_at + timedelta(milliseconds=4), "101"), scenario
+        )
+        assert early.physical_events == ()
+        due_at = stop_at + timedelta(milliseconds=5)
+        due = journal.match_public_market("shared", self._book("due", due_at, "101"), scenario)
+        assert [event.kind for event in due.physical_events] == ["cancelled_on_request"]
+        beta = next(item.order for item in journal.orders() if item.instance_id == "beta")
+        assert self._statuses(journal)["alpha"] == "cancelled"
+        assert not beta.is_terminal and beta.remaining == self._quantity("2")
+        retry_at = due_at + timedelta(microseconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=retry_at))
+        with pytest.raises(ValueError, match="reissue_requires_current_reconciliation"):
+            journal.reissue_pending("shared", retry_at)
+        assert journal.reconcile(
+            AccountObservation(
+                identity="after-stop", at=due_at, snapshot=self._opening(), open_orders=()
+            )
+        )
+        reissued = journal.reissue_pending("shared", retry_at)
+        assert [
+            (parent.order.intent.quantity, parent.order.intent.limit) for parent in reissued
+        ] == [(self._quantity("2"), self._price())]
+        assert [item.child_order_id for item in reissued[0].allocations] == [beta.identity]
+
+    @pytest.mark.parametrize(
+        ("kind", "beta_survives"),
+        [("cancelled_on_request", True), ("cancelled", False)],
+        ids=["requested-cancellation", "unattributed-cancellation"],
+    )
+    def test_only_a_requested_cancellation_keeps_the_other_child(
+        self, tmp_path: Path, kind: EventKind, beta_survives: bool
+    ) -> None:
+        """A stop's request is pending on the shared parent; the terminal fact decides.
+
+        An external producer, such as an unmanaged application or a venue gateway,
+        states the cause by kind. A cause-neutral ``cancelled`` ends beta's child even
+        though a request was pending, and alpha's ends in both cases.
+        """
+        journal = self._ready(tmp_path / f"{kind}.sqlite3")
+        at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=at))
+        parent = journal.coordinate(
+            PortfolioBatch(
+                identity="pair",
+                at=at + timedelta(microseconds=1),
+                decisions=tuple(
+                    self._decision(instance=name, identity=f"{name}-buy", at=at)
+                    for name in ("alpha", "beta")
+                ),
+            )
+        ).net_orders[0]
+        journal.stop_instance("alpha", at + timedelta(seconds=1))
+        journal.apply_net_event(
+            OrderEvent(
+                identity="parent-ended",
+                order_id=parent.order.identity,
+                at=at + timedelta(seconds=2),
+                kind=kind,
+            )
+        )
+        statuses = self._statuses(journal)
+        assert statuses["alpha"] == "cancelled"
+        assert (statuses["beta"] != "cancelled") is beta_survives
+
+    def test_a_reconciled_cancellation_ends_every_child(self, tmp_path: Path) -> None:
+        """Reconciliation resolves an unknown parent's end without stating its cause."""
+        journal = self._ready(tmp_path / "reconciled.sqlite3")
+        at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=at))
+        parent_id = (
+            journal.coordinate(
+                PortfolioBatch(
+                    identity="pair",
+                    at=at + timedelta(microseconds=1),
+                    decisions=tuple(
+                        self._decision(instance=name, identity=f"{name}-buy", at=at)
+                        for name in ("alpha", "beta")
+                    ),
+                )
+            )
+            .net_orders[0]
+            .order.identity
+        )
+        journal.apply_net_event(
+            OrderEvent(
+                identity="lost-ack",
+                order_id=parent_id,
+                at=at + timedelta(seconds=1),
+                kind="unknown",
+            )
+        )
+        # Alpha's stop leaves a request pending beside the unknown outcome.
+        journal.stop_instance("alpha", at + timedelta(seconds=2))
+        journal.apply_net_event(
+            OrderEvent(
+                identity="found-cancelled",
+                order_id=parent_id,
+                at=at + timedelta(seconds=3),
+                kind="reconcile_cancelled",
+            )
+        )
+        assert self._statuses(journal) == {"alpha": "cancelled", "beta": "cancelled"}
+
+    def test_a_requested_cancellation_without_a_request_is_refused(self, tmp_path: Path) -> None:
+        """A fact claiming a requested cancellation must have a request to name."""
+        journal = self._ready(tmp_path / "unrequested.sqlite3")
+        at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=at))
+        parent = journal.coordinate(
+            PortfolioBatch(
+                identity="pair",
+                at=at + timedelta(microseconds=1),
+                decisions=tuple(
+                    self._decision(instance=name, identity=f"{name}-buy", at=at)
+                    for name in ("alpha", "beta")
+                ),
+            )
+        ).net_orders[0]
+        claimed = OrderEvent(
+            identity="unrequested",
+            order_id=parent.order.identity,
+            at=at + timedelta(seconds=1),
+            kind="cancelled_on_request",
+        )
+        with pytest.raises(ValueError, match="requires a pending cancel request"):
+            journal.apply_net_event(claimed)
+        assert journal.failed_net_events() == (claimed,)
+        assert not any(item.order.is_terminal for item in journal.orders())
+        assert not journal.net_orders()[0].order.is_terminal
 
     def test_reconciliation_projection_states_the_accounts_knowledge_clock(
         self, tmp_path: Path

@@ -668,8 +668,47 @@ class TestPaperMatcher:
             )
             final = journal.order(order.identity)
             assert final is not None and final.status == "cancelled"
+            assert journal.events()[-1].event.kind == "cancelled_on_request"
             assert len(journal.ledger_state().fills) == 1
             assert journal.reservations().cash.value == 0
+
+    def test_ioc_remainder_ends_on_its_own_terms_while_a_cancel_is_pending(
+        self, tmp_path: Path
+    ) -> None:
+        """An IOC expiring before its requested cancel takes effect states no request cause.
+
+        The cancel requested at +0.5 s takes 3 s; the +1 s book fills the one displayed
+        unit and the IOC's other three units expire then, on the order's own terms.
+        """
+        scenario = self._scenario(cancel_delay_us=3_000_000, adverse="0.00")
+        with self._journal(tmp_path) as journal:
+            epoch = journal.claim("pending-cancel-owner")
+            order = self._admit(
+                journal, epoch, step_id="ioc", quantity="4", limit="1.10", time_in_force="ioc"
+            )
+            journal.request_cancel(
+                epoch=epoch,
+                order_id=order.identity,
+                event_id="pending-cancel",
+                at=self.decision_at + timedelta(milliseconds=500),
+            )
+            PaperMatcher(journal, lot=self._quantity("1"), scenario=scenario).match(
+                self._market(
+                    "thin-ask", at=self.decision_at + timedelta(seconds=1), ask_quantity="1"
+                ),
+                epoch=epoch,
+            )
+            assert tuple(item.event.kind for item in journal.events()) == (
+                "cancel_requested",
+                "request_ack",
+                "accepted",
+                "fill",
+                "cancelled",
+            )
+            current = journal.order(order.identity)
+            assert current is not None
+            assert (current.status, current.filled.value) == ("cancelled", Decimal("1"))
+            assert journal.reservations().cash.value == Decimal("0")
 
     def test_scenario_never_fills_on_its_own_decision_quote(self, tmp_path: Path) -> None:
         """Zero modeled entry delay still requires a subsequent public observation."""
@@ -740,6 +779,10 @@ class TestPaperMatcher:
             )
             current = journal.order(order.identity)
             assert current is not None and current.status == "cancelled"
+            assert tuple(item.event.kind for item in journal.events()) == (
+                "cancel_requested",
+                "cancelled_on_request",
+            )
             assert journal.reservations().cash.value == 0
             assert journal.ledger_state().fills == ()
 

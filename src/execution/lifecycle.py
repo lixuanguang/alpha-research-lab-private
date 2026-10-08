@@ -125,6 +125,13 @@ class SpotOrderLifecycle:
             if order.status == "intent":
                 raise ValueError("cancellation requires an order outcome")
             return replace(order, status="cancelled")
+        if event.kind == "cancelled_on_request":
+            # The fact names its cause, so it must have a request to name. An unknown
+            # outcome gives no evidence that the request took effect, so this fact
+            # never ends one.
+            if not order.cancel_requested or order.status == "unknown":
+                raise ValueError("requested cancellation requires a pending cancel request")
+            return replace(order, status="cancelled")
         if event.kind == "rejected":
             return replace(order, status="rejected")
         if event.kind == "unknown":

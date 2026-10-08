@@ -768,6 +768,10 @@ class VenueGateway:
                 raise VenueProtocolError("terminal venue fill lacks individual executions")
         elif fact.status in ("cancelled", "rejected"):
             if not order.is_terminal:
+                # A venue's terminal cancellation does not say whether our request or
+                # the order's own terms ended it, acknowledged or not, so it is never
+                # recorded as a requested cancellation: a netted parent's remaining
+                # children end with it instead of being reissued.
                 kind: EventKind = "cancelled" if fact.status == "cancelled" else "rejected"
                 if order.status == "unknown":
                     kind = (

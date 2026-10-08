@@ -121,6 +121,30 @@ class TestPaperOrderJournal:
         with pytest.raises(ValueError, match="unsupported paper journal schema"):
             self._journal(path)
 
+    def test_journal_from_before_terminal_causes_is_refused_unchanged(self, tmp_path: Path) -> None:
+        """A journal whose events carry no checked kind predates stated cancellation causes.
+
+        Its ``cancelled`` facts could mean a requested cancellation, so it is refused
+        at open, before any effect, rather than reread under the current vocabulary.
+        """
+        path = tmp_path / "paper.sqlite3"
+        self._journal(path).close()
+        with closing(sqlite3.connect(path)) as connection:
+            # The layout that predates the kind column, exactly as it was created.
+            connection.execute("DROP TABLE events")
+            connection.execute(
+                "CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "event_id TEXT NOT NULL UNIQUE, order_id TEXT NOT NULL, payload BLOB NOT NULL, "
+                "order_state BLOB NOT NULL, balance BLOB NOT NULL)"
+            )
+            connection.execute("CREATE INDEX events_order ON events(order_id, sequence)")
+            connection.commit()
+            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        before = path.read_bytes()
+        with pytest.raises(ValueError, match="unsupported paper journal schema"):
+            self._journal(path)
+        assert path.read_bytes() == before
+
     def test_open_order_reads_refuse_a_disagreeing_terminal_flag(self, tmp_path: Path) -> None:
         """Reservations read only open orders and refuse a terminal one flagged open."""
         path = tmp_path / "paper.sqlite3"

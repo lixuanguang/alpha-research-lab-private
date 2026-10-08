@@ -426,11 +426,13 @@ class PortfolioAccountConsumer:
         cancel_at = cancel_ack_at + timedelta(seconds=1)
         cancelled = self._net_event(
             "cancel-confirmed",
+            # The caller states the stop's cancel took effect; only that cause
+            # leaves beta's remainder to reissue.
             OrderEvent(
                 identity="physical-cancelled",
                 order_id=parent.order.identity,
                 at=cancel_at,
-                kind="cancelled",
+                kind="cancelled_on_request",
             ),
         )
         assert cancelled.net_orders[0].order.status == "cancelled"

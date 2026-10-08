@@ -103,8 +103,11 @@ compatible netting and deterministic allocation of fills, fees and residual unit
 Acceptance requires two distinct active reference strategies on the
 same instrument/account to reconcile separately and together, including selective
 stop/restart with ownership and account safety. A stopped child in a physical
-parent retains its reservation until a terminal outcome; unaffected residuals are
-reissued only after reconciliation and current mark/budget/funding checks.
+parent retains its reservation until a terminal outcome. Unaffected residuals
+survive only a requested cancellation that took effect, which a terminal fact
+states by its kind, and are reissued only after reconciliation and current
+mark/budget/funding checks; a parent ending on its own terms, or a venue
+cancellation of unattributed cause, ends every child.
 Unroutable physical-lot residuals stay visible and reserved; a completed child
 retains fee capacity while its physical parent can still receive costs.
 The [roadmap](../roadmap/overview.md#capabilities) records
