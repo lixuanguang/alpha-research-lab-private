@@ -130,6 +130,7 @@ class TestPaperActivation:
                 ),
                 max_quote_age_us=10_000_000,
                 max_state_age_us=60_000_000,
+                max_residual_age_us=86_400_000_000,
                 max_price_deviation_bps=200,
                 max_order_notional=cls._money("1000"),
             ),

@@ -388,6 +388,7 @@ class TestServedSharedDecisions:
                 ),
                 max_quote_age_us=5_000_000,
                 max_state_age_us=86_400_000_000,
+                max_residual_age_us=86_400_000_000,
                 max_price_deviation_bps=500,
                 max_order_notional=cls._money("900"),
             ),

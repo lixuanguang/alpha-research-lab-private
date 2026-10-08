@@ -667,6 +667,27 @@ class TestPaperOrderJournal:
                 event_id="cancel-again",
                 at=self.start + timedelta(seconds=3),
             )
+        # A venue's acknowledgement of the cancel still leaves the outcome unknown.
+        acknowledged = journal.apply_event(
+            epoch=epoch,
+            event=OrderEvent(
+                identity="cancel-ack",
+                order_id=order_id,
+                at=self.start + timedelta(seconds=4),
+                kind="cancel_ack",
+            ),
+        )
+        assert (acknowledged.status, acknowledged.cancel_acknowledged) == ("unknown", True)
+        reconciled = journal.apply_event(
+            epoch=epoch,
+            event=OrderEvent(
+                identity="still-open",
+                order_id=order_id,
+                at=self.start + timedelta(seconds=5),
+                kind="reconcile_open",
+            ),
+        )
+        assert reconciled.status == "cancel_ack"
         journal.release(epoch)
 
     def test_targets_cross_their_own_touch_and_exposures_convert_at_the_midpoint(

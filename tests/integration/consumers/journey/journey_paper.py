@@ -229,6 +229,7 @@ class PaperPlan:
                 ),
                 max_quote_age_us=30_000_000,
                 max_state_age_us=120_000_000,
+                max_residual_age_us=86_400_000_000,
                 max_price_deviation_bps=500,
                 max_order_notional=Money(value=Decimal("1000"), currency=currency),
             ),
@@ -895,11 +896,13 @@ class RaceCheck:
         """Pass when one contender met the shared limit because another held, and it held.
 
         Which contender acts first depends on the market, so either ordering is the race.
+        A batch lists each contender its own admission refused at the limit in
+        ``refused``; a batch-wide refusal at the limit counts every contender in it.
         Another contender holds when it has fills, or when its latest admitted decision
         reserved a working order: a resting order counts against the shared limit until
         it fills or its cancel completes. A refusal while every other contender is flat
-        and unreserved is a contender's own limit, not the race. Groups are read in order
-        until the race is seen.
+        and unreserved is a contender's own limit, not the race. Groups are read in
+        order until the race is seen.
         """
         fills = self.installed.execute(
             AccountExecutionRequest(action="inspect", account_id=account_id, projection="facts")
@@ -927,12 +930,27 @@ class RaceCheck:
                 instances = [item.instance_id for item in group.inputs]
                 status = None if result is None else result.status
                 reason = None if result is None else result.reason
-                outcomes.append(
-                    {"at": group.at, "instances": instances, "status": status, "reason": reason}
+                refusals = (
+                    []
+                    if result is None
+                    else [
+                        item.instance_id
+                        for item in result.refused
+                        if item.reason == "holding_limit"
+                    ]
+                    # A batch-wide refusal at the limit names no decision.
+                    or (instances if (status, reason) == ("rejected", "holding_limit") else [])
                 )
-                if status != "rejected" or reason != "holding_limit":
-                    continue
-                for refused in instances:
+                outcomes.append(
+                    {
+                        "at": group.at,
+                        "instances": instances,
+                        "status": status,
+                        "reason": reason,
+                        "refused": refusals,
+                    }
+                )
+                for refused in refusals:
                     if refused not in contenders:
                         continue
                     for other in contenders:

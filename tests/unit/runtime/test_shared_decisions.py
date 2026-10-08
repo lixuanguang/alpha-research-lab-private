@@ -162,6 +162,7 @@ class TestSharedDecisions:
                 ),
                 max_quote_age_us=1_000_000,
                 max_state_age_us=86_400_000_000,
+                max_residual_age_us=86_400_000_000,
                 max_price_deviation_bps=100,
                 max_order_notional=cls._money("9000"),
             ),
@@ -370,8 +371,11 @@ class TestSharedDecisions:
     def test_rejection_persists_state_but_changed_retry_and_future_input_fail(
         self, tmp_path: Path
     ) -> None:
-        """Do not repeatedly evaluate rejected policies or retain partially evaluated inputs."""
-        config, bindings = self._config("300"), self._bindings()
+        """Do not repeatedly evaluate rejected policies or retain partially evaluated inputs.
+
+        Each 201 buy alone exceeds the 150 account ceiling, so both decisions are refused.
+        """
+        config, bindings = self._config("150"), self._bindings()
         path = tmp_path / "account.sqlite3"
         at = self.at + timedelta(seconds=1)
         decision = SharedPaperDecision(

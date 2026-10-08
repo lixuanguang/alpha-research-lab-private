@@ -106,6 +106,7 @@ class TestPortfolioAccounts:
                 ),
                 max_quote_age_us=1_000_000,
                 max_state_age_us=86_400_000_000,
+                max_residual_age_us=86_400_000_000,
                 max_price_deviation_bps=100,
                 max_order_notional=cls._money("9000"),
             ),
@@ -1798,3 +1799,223 @@ class TestPortfolioAccounts:
             )
         )
         assert (abstained.status, abstained.reason) == ("committed", "no_intent")
+
+    def test_a_strategy_refused_in_a_batch_leaves_the_others_to_commit(
+        self, tmp_path: Path
+    ) -> None:
+        """Alpha, over its ceiling at 110, is refused; beta's buy in the same batch commits."""
+        journal = self._holding(tmp_path / "separate.sqlite3")
+        rally_at = self.opening_at + timedelta(seconds=2)
+        journal.observe(AccountQuote(price=self._price("110"), at=rally_at))
+        alpha, beta = (
+            self._decision(
+                instance=name,
+                identity=f"{name}-buy",
+                at=rally_at,
+                quantity=quantity,
+                maximum_fee="0",
+                price="110",
+            )
+            for name, quantity in (("alpha", "1"), ("beta", "2"))
+        )
+        batch = PortfolioBatch(
+            identity="mixed",
+            at=rally_at + timedelta(microseconds=1),
+            decisions=(alpha, beta),
+        )
+        committed = journal.coordinate(batch)
+        assert (committed.status, committed.reason) == ("committed", "reserved")
+        # An exact retry returns the durable outcome, refusal included.
+        assert journal.coordinate(batch) == committed
+        assert [child.instance_id for child in committed.children] == ["beta"]
+        assert [parent.order.intent.quantity for parent in committed.net_orders] == [
+            self._quantity("2")
+        ]
+        assert [(item.instance_id, item.status, item.reason) for item in committed.refused] == [
+            ("alpha", "rejected", "instance_limit")
+        ]
+        # The refused decision's continuation is retained, as for a refused batch.
+        assert journal.checkpoint("alpha") == alpha.request.checkpoint
+
+    def test_a_residual_older_than_its_age_bound_is_retired_not_sent(self, tmp_path: Path) -> None:
+        """With a 2 s residual age, reissue at 1.3 s sends both residuals; at 3 s retires them."""
+        config = self._config()
+        config = replace(config, budgets=replace(config.budgets, max_residual_age_us=2_000_000))
+        decided_at = self.opening_at + timedelta(seconds=1)
+        outcomes: list[tuple[int, list[str]]] = []
+        for name, reissue_after in (
+            ("young", timedelta(seconds=1.3)),
+            ("old", timedelta(seconds=3)),
+        ):
+            journal = AccountJournal(tmp_path / f"{name}.sqlite3", config)
+            assert journal.reconcile(
+                AccountObservation(
+                    identity="opening",
+                    at=self.opening_at,
+                    snapshot=self._opening(),
+                    open_orders=(),
+                )
+            )
+            self._cancelled_pair(journal, decided_at)
+            reissue_at = decided_at + reissue_after
+            journal.observe(AccountQuote(price=self._price(), at=reissue_at))
+            assert journal.reconcile(
+                AccountObservation(
+                    identity="after-cancel",
+                    at=reissue_at,
+                    snapshot=AccountLedger(journal.accounts()[0].ledger).snapshot(),
+                    open_orders=(),
+                )
+            )
+            reissued = journal.reissue_pending("shared", reissue_at + timedelta(microseconds=1))
+            outcomes.append((len(reissued), [child.order.status for child in journal.orders()]))
+            assert journal.portfolio_residuals("shared") == ()
+        assert outcomes == [(1, ["intent", "intent"]), (0, ["cancelled", "cancelled"])]
+
+    def test_opposing_strategies_under_the_reject_policy_are_refused_together(
+        self, tmp_path: Path
+    ) -> None:
+        """Alpha's sell and beta's buy at 100 would cross, so the whole cohort is refused."""
+        journal = self._holding(tmp_path / "opposing.sqlite3")
+        decided_at = self.opening_at + timedelta(seconds=2)
+        journal.observe(AccountQuote(price=self._price(), at=decided_at))
+        refused = journal.coordinate(
+            PortfolioBatch(
+                identity="opposing",
+                at=decided_at + timedelta(microseconds=1),
+                decisions=(
+                    self._decision(
+                        instance="alpha", identity="alpha-sell", at=decided_at, side="sell"
+                    ),
+                    self._decision(instance="beta", identity="beta-buy", at=decided_at),
+                ),
+                crossing="reject",
+            )
+        )
+        assert (refused.status, refused.reason) == ("rejected", "self_trade_conflict")
+        assert (refused.children, refused.refused) == ((), ())
+
+    def test_strategies_may_share_a_decision_name_within_a_batch(self, tmp_path: Path) -> None:
+        """Refusals belong to a strategy's own decision, even when names coincide."""
+        rally_at = self.opening_at + timedelta(seconds=2)
+        outcomes: list[tuple[str, list[str], list[str]]] = []
+        for name, beta_quantity in (("one-refused", "2"), ("both-refused", "100")):
+            journal = self._holding(tmp_path / f"{name}.sqlite3")
+            journal.observe(AccountQuote(price=self._price("110"), at=rally_at))
+            committed = journal.coordinate(
+                PortfolioBatch(
+                    identity=name,
+                    at=rally_at + timedelta(microseconds=1),
+                    decisions=tuple(
+                        self._decision(
+                            instance=instance,
+                            identity="d",
+                            at=rally_at,
+                            quantity=quantity,
+                            maximum_fee="0",
+                            price="110",
+                        )
+                        for instance, quantity in (("alpha", "1"), ("beta", beta_quantity))
+                    ),
+                )
+            )
+            outcomes.append(
+                (
+                    committed.status,
+                    [child.instance_id for child in committed.children],
+                    [f"{item.instance_id}:{item.reason}" for item in committed.refused],
+                )
+            )
+        # Alpha is over its ceiling at 110; beta's 11,000 buy exceeds the order notional.
+        assert outcomes == [
+            ("committed", ["beta"], ["alpha:instance_limit"]),
+            ("rejected", [], ["alpha:instance_limit", "beta:order_notional_limit"]),
+        ]
+
+    def test_a_conflict_with_an_earlier_order_refuses_only_its_own_strategy(
+        self, tmp_path: Path
+    ) -> None:
+        """Alpha's sell crosses its own resting buy from an earlier batch; beta still trades."""
+        journal = self._holding(tmp_path / "earlier-conflict.sqlite3")
+        first_at = self.opening_at + timedelta(seconds=2)
+        journal.observe(AccountQuote(price=self._price(), at=first_at))
+        resting = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-rests",
+                at=first_at + timedelta(microseconds=1),
+                decisions=(
+                    self._decision(
+                        instance="alpha", identity="alpha-buy", at=first_at, maximum_fee="0"
+                    ),
+                ),
+            )
+        )
+        assert resting.status == "committed"
+        second_at = first_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=second_at))
+        committed = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-sells-beta-buys",
+                at=second_at + timedelta(microseconds=1),
+                decisions=(
+                    self._decision(
+                        instance="alpha",
+                        identity="alpha-sell",
+                        at=second_at,
+                        side="sell",
+                        maximum_fee="0",
+                    ),
+                    self._decision(
+                        instance="beta",
+                        identity="beta-buy",
+                        at=second_at,
+                        quantity="1",
+                        maximum_fee="0",
+                    ),
+                ),
+            )
+        )
+        assert (committed.status, [child.instance_id for child in committed.children]) == (
+            "committed",
+            ["beta"],
+        )
+        assert [(item.instance_id, item.reason) for item in committed.refused] == [
+            ("alpha", "self_trade_conflict")
+        ]
+
+    def test_a_batch_whose_own_decision_outlived_the_residual_age_is_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        """Exactly at the 2 s bound a batch still sends; one microsecond later it is refused."""
+        config = self._config()
+        config = replace(
+            config,
+            budgets=replace(
+                config.budgets, max_quote_age_us=5_000_000, max_residual_age_us=2_000_000
+            ),
+        )
+        decided_at = self.opening_at + timedelta(seconds=1)
+        outcomes: list[tuple[str, str]] = []
+        for name, delay in (
+            ("at-bound", timedelta(seconds=2)),
+            ("past-bound", timedelta(seconds=2, microseconds=1)),
+        ):
+            journal = AccountJournal(tmp_path / f"{name}.sqlite3", config)
+            assert journal.reconcile(
+                AccountObservation(
+                    identity="opening",
+                    at=self.opening_at,
+                    snapshot=self._opening(),
+                    open_orders=(),
+                )
+            )
+            journal.observe(AccountQuote(price=self._price(), at=decided_at))
+            result = journal.coordinate(
+                PortfolioBatch(
+                    identity=name,
+                    at=decided_at + delay,
+                    decisions=(self._decision(instance="alpha", identity="late", at=decided_at),),
+                )
+            )
+            outcomes.append((result.status, result.reason))
+        assert outcomes == [("committed", "reserved"), ("rejected", "expired_decision")]

@@ -154,7 +154,10 @@ class PaperMonitoring:
                 sample,
                 observed_at,
                 "boolean",
-                int(any(item.status == "rejected" for item in decisions)) if decisions else None,
+                # A strategy refused inside a committed batch is a rejection too.
+                int(any(item.status == "rejected" or item.refused for item in decisions))
+                if decisions
+                else None,
                 missing_reason=None if decisions else "not_measured",
             )
         )

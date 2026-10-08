@@ -242,9 +242,10 @@ in each new runtime; `restore` resumes the journal's continuation.
 
 The shared runtime stages decisions only. It does not observe markets, reconcile
 accounts or synthesize order events; those facts remain explicit inputs to the
-account journal. A business rejection has no partial account reservations; it
-does retain the evaluated policy continuations and rejected outcome, so retry
-cannot evaluate a different decision from the same state. Identity, policy and
+account journal. A business rejection of a decision leaves no reservation for
+it, while the cohort's other decisions commit; it does retain the refused policy
+continuation and its outcome, so retry cannot evaluate a different decision from
+the same state. Identity, policy and
 stale-checkpoint preflight failures leave continuation unchanged. Retrying an
 older accepted or rejected batch cannot rewind a newer checkpoint. The account
 journal owns selective instance stop/restart

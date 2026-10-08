@@ -54,6 +54,15 @@ if TYPE_CHECKING:
 type _Clocks = tuple[tuple[str, datetime], ...]
 
 
+class SelfTradeConflict(ValueError):
+    """Refuse an order that would cross an open opposite order of its own account."""
+
+    def __init__(self, order_id: str) -> None:
+        """Name the open order that the refused order would cross."""
+        super().__init__("self_trade_conflict")
+        self.order_id = order_id
+
+
 class _Owners:
     """Map order identities to their accounts, extending the map as orders append.
 
@@ -360,7 +369,7 @@ class AccountAdmission:
                     else intent.limit.value <= order.intent.limit.value
                 )
             ):
-                raise ValueError("self_trade_conflict")
+                raise SelfTradeConflict(order.identity)
         identity = hashlib.sha256(
             self.codec.encode_json(
                 (
@@ -1082,10 +1091,18 @@ class AccountAdmission:
         if reason is not None:
             raise ValueError(reason)
 
+    def expired(self, order: OrderState, at: datetime) -> bool:
+        """Report whether ``order``'s decision is older than any waiting order may be sent."""
+        return at - order.decision_at > timedelta(
+            microseconds=self.config.budgets.max_residual_age_us
+        )
+
     def send_reason(
         self, transaction: AccountTransaction, order: OrderState, at: datetime
     ) -> str | None:
         """Name why an order cannot be sent at ``at``: a stale quote, or a limit too far from it."""
+        if self.expired(order, at):
+            return "expired_decision"
         policy = self.config.budgets
         quote = next(
             (

@@ -62,6 +62,7 @@ class TestBudgetEngine:
             ),
             max_quote_age_us=1_000_000,
             max_state_age_us=1_000_000,
+            max_residual_age_us=86_400_000_000,
             max_price_deviation_bps=100,
             max_order_notional=cls._money("9000"),
         )
@@ -383,6 +384,9 @@ class TestBudgetEngine:
             replace(policy, accounts=(policy.accounts[0], policy.accounts[0]))
         with pytest.raises(ValueError, match="unowned"):
             replace(policy, instances=(replace(policy.instances[0], account_id="missing"),))
+        for age in (0, 86_400_000_001):
+            with pytest.raises(ValueError, match="at most one day"):
+                replace(policy, max_residual_age_us=age)
         with pytest.raises(ValueError, match="nonnegative"):
             ExposureCommitment(
                 account_id="shared",

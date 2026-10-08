@@ -5,7 +5,8 @@ Owner: `risk`. Status: implemented for local cash-funded spot admission.
 `risk.budgets` provides the pure limit decision used by the account journal. A
 `BudgetPolicy` declares one valuation currency, a firm ceiling, account and
 instance ceilings, permitted instrument IDs per instance, quote and state age
-limits, maximum order price deviation in basis points, and maximum order
+limits, the age after its decision beyond which a waiting order is retired rather
+than sent, maximum order price deviation in basis points, and maximum order
 notional. The initial local paper accounting path is cash-funded spot. An order
 in another currency is rejected until an explicit FX valuation policy exists;
 the currency type and instrument identity remain general.

@@ -117,6 +117,9 @@ class SpotOrderLifecycle:
         if event.kind == "cancel_ack":
             if not order.cancel_requested:
                 raise ValueError("cancel acknowledgement requires a cancel request")
+            if order.status == "unknown":
+                # Reconciliation, not the acknowledgement, resolves an unknown outcome.
+                return replace(order, cancel_acknowledged=True)
             return replace(order, cancel_acknowledged=True, status="cancel_ack")
         if event.kind == "cancelled":
             if order.status == "intent":

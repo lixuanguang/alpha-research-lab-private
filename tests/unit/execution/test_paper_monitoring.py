@@ -36,6 +36,7 @@ from execution import (
     AccountJournal,
     AccountObservation,
     AccountQuote,
+    DecisionOutcome,
     OrderDecision,
     OrderState,
     PaperActivation,
@@ -45,6 +46,7 @@ from execution import (
     PaperReductionRequest,
     PaperReductionResult,
     PortfolioBatch,
+    PortfolioCommit,
     PortfolioContext,
     PortfolioDecision,
     TaggedOrder,
@@ -130,6 +132,7 @@ class TestPaperMonitoring:
                 ),
                 max_quote_age_us=1_000_000,
                 max_state_age_us=86_400_000_000,
+                max_residual_age_us=86_400_000_000,
                 max_price_deviation_bps=2000,
                 max_order_notional=cls._money("1000"),
             ),
@@ -352,6 +355,46 @@ class TestPaperMonitoring:
         assert self._value(failed, account, "account.reconciliation_failed") == 1
         assert self._value(failed, account, "risk.blocked") == 1
         assert self._value(failed, account, f"execution.pending_quantity.{instrument}") == 6
+
+    def test_a_strategy_refused_inside_a_committed_batch_is_an_admission_rejection(
+        self, tmp_path: Path
+    ) -> None:
+        """One refused strategy raises the signal though the batch committed; none does not."""
+        journal = self._ready(tmp_path / "refused.sqlite3", self._scenario())
+        observed_at = self.opening_at + timedelta(seconds=1)
+        committed = PortfolioCommit(
+            status="committed",
+            reason="target_matched",
+            children=(),
+            net_orders=(),
+            internal_fill_ids=(),
+        )
+        refusal = DecisionOutcome(
+            account_id="shared",
+            instance_id="alpha",
+            decision_identity="alpha-decision",
+            decided_at=self.opening_at,
+            status="rejected",
+            reason="instance_limit",
+        )
+        signals = [
+            self._value(
+                PaperMonitoring().account(
+                    journal,
+                    account_id="shared",
+                    observed_at=observed_at,
+                    sample=sample,
+                    decisions=(outcome,),
+                ),
+                "account:shared",
+                "risk.admission_rejected",
+            )
+            for sample, outcome in (
+                ("all-committed", committed),
+                ("one-refused", replace(committed, refused=(refusal,))),
+            )
+        ]
+        assert signals == [0, 1]
 
     def test_report_omission_means_unposted_strategy_has_zero_economics(
         self, tmp_path: Path

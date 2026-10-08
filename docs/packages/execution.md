@@ -116,9 +116,9 @@ the normalized knowledge/receipt cutoff and `fill.filled_at` retains economic
 event time. New events cannot regress the account knowledge clock. Identical
 retries and repeated fill identities do not double-post. Unknown orders and
 cancel acknowledgements retain capacity over restart. A cancel request, including
-one from a strategy or account stop, records intent beside an unknown outcome but
-leaves it unknown: only reconciliation resolves it, so admission stays blocked and
-paper matching cannot cancel it first. Order and fill/cost postings commit
+one from a strategy or account stop, and a venue's acknowledgement of it are
+recorded beside an unknown outcome but leave it unknown: only reconciliation
+resolves it, so admission stays blocked and paper matching cannot cancel it first. Order and fill/cost postings commit
 together using [AccountLedger](accounting.md).
 
 `post(AccountPosting)` applies identified transfers, separate currency fees or
@@ -249,7 +249,20 @@ The batch retains every original `AccountDecision` and its complete
 `PortfolioContext`. Its coordination time must be strictly later than each
 decision cutoff. A stable batch identity binds the original bytes and outcome;
 an exact retry cannot create another reservation, internal transfer or physical
-order. A failed batch leaves no partial economic effects.
+order. Each decision's own admission refuses only that decision, rolled back whole
+with its cancel requests, while the batch's other decisions commit together;
+`PortfolioCommit.refused` lists each refusal with its reason. Decisions are admitted
+in batch order against the state staged so far, so when strategies contend for the
+same account or firm headroom, cash or holding capacity, the earlier one is
+admitted; the shared runtime orders a cohort by instance identity. Account and firm
+ceilings with room for every instance's own ceiling keep per-strategy research
+results free of this priority. A batch-wide
+refusal leaves no partial economic effects: for example a stale strategy checkpoint,
+an already admitted decision, a changed crossing policy, a decision crossing an
+order of an earlier decision in the batch (the crossing policy settles it for the
+whole cohort, though a crossing quote leg is dropped instead), funding, the
+send-time check of the batch's own orders, a netting failure, or every decision
+refused, which `refused` then lists in full.
 
 Targets and exposures lower against only their owner's attributed holdings;
 order and quote intents retain their native child legs. All pre-net children
@@ -310,12 +323,14 @@ price moves alone took over its ceiling holds back only its own buys.
 `portfolio_residuals(account_id)` and application inspection expose held-back
 children with their reason, and child quantities that cannot form a valid
 physical lot. These quantities stay reserved;
-they are never silently rounded away or reported as a matched target. A held-back
-child has no expiry of its own: a later coordination or reissue sends it at its
-original limit once it passes these checks, its owner's next paper decision
-replaces it, or stopping its owning instance retires the unattached reservation
-without inventing a physical cancellation. Outside paper mode, decisions do not
-replace working orders, so the operator retires a residual whose intent is too old.
+they are never silently rounded away or reported as a matched target. A later
+coordination or reissue sends a held-back child at its original limit once it
+passes these checks, while its decision is younger than the budget policy's
+`max_residual_age_us`. Netting retires an older waiting child, releasing its
+reservation without inventing a physical cancellation, and a batch whose own
+children are already that old is rejected `expired_decision`. A paper decision
+also replaces its owner's waiting children, and stopping the owning instance
+retires them at once.
 
 The [installed account command](execute-application.md#shared-account-command)
 exposes these operations without a transport or credentials. The

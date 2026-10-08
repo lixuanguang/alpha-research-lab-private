@@ -63,6 +63,8 @@ class BudgetPolicy(WireRecord, frozen=True):
     The initial cash spot implementation requires all marked exposure and orders
     to use this currency. A different quote currency needs an evidenced FX and
     valuation policy before it can be admitted; no implicit conversion exists.
+    ``max_residual_age_us`` bounds how long after its decision a waiting order may
+    still be sent; an older one is retired instead.
     """
 
     valuation_currency: Currency
@@ -71,6 +73,7 @@ class BudgetPolicy(WireRecord, frozen=True):
     instances: tuple[InstanceLimit, ...]
     max_quote_age_us: int
     max_state_age_us: int
+    max_residual_age_us: int
     max_price_deviation_bps: int
     max_order_notional: Money
 
@@ -112,7 +115,7 @@ class BudgetPolicy(WireRecord, frozen=True):
             ):
                 raise ValueError("duplicate, unowned or incompatible instance")
             instance_ids.add(instance.instance_id)
-        for age in (self.max_quote_age_us, self.max_state_age_us):
+        for age in (self.max_quote_age_us, self.max_state_age_us, self.max_residual_age_us):
             if type(age) is not int or not 0 < age <= 86_400_000_000:
                 raise ValueError("risk freshness ages must be positive and at most one day")
         if (

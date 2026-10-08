@@ -921,6 +921,7 @@ class TestVenueGateway:
                 ),
                 max_quote_age_us=3_600_000_000,
                 max_state_age_us=86_400_000_000,
+                max_residual_age_us=86_400_000_000,
                 max_price_deviation_bps=100,
                 max_order_notional=cls._money("5000", quote),
             ),
@@ -1189,7 +1190,9 @@ class TestVenueGateway:
         assert probe.free > 0 and probe.locked == probe.leased == 0
         submitted = probe.free
         gateway.cancel(order_id, authorization)
-        assert self._order_state(journal, order_id).status == "cancel_ack"
+        # The venue has not yet reported the sent order's state, so it stays unknown.
+        cancelled = self._order_state(journal, order_id)
+        assert (cancelled.status, cancelled.cancel_acknowledged) == ("unknown", True)
         assert probe.free > submitted and probe.locked == probe.leased == 0
 
     def test_bitfinex_private_session_survives_flat_account_snapshots(self, tmp_path: Path) -> None:

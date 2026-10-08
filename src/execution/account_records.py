@@ -227,7 +227,8 @@ class DecisionOutcome(WireRecord, frozen=True):
     """Summarize one saved decision's admission outcome for an operator read.
 
     ``dropped`` names the quote legs admission refused while the other leg was
-    admitted; a rejected decision carries the reason its whole batch was refused.
+    admitted; a rejected decision carries the reason it, or its whole batch, was
+    refused.
     """
 
     account_id: str
@@ -409,7 +410,13 @@ class PortfolioResidual(WireRecord, frozen=True):
 
 
 class PortfolioCommit(WireRecord, frozen=True):
-    """Expose one atomic batch outcome and every external order to route."""
+    """Expose one batch outcome and every external order to route.
+
+    Each decision's own admission refuses only that decision, and ``refused`` lists
+    every such refusal with its reason; the batch's other decisions commit together.
+    A batch-wide refusal, including a self-trade conflict between its own decisions,
+    or every decision refused, rejects the batch and leaves no effects.
+    """
 
     status: str
     reason: str
@@ -417,6 +424,7 @@ class PortfolioCommit(WireRecord, frozen=True):
     net_orders: tuple[NetOrder, ...]
     internal_fill_ids: tuple[str, ...]
     residuals: tuple[PortfolioResidual, ...] = ()
+    refused: tuple[DecisionOutcome, ...] = ()
 
     def __post_init__(self) -> None:
         """Keep rejected batches free of admitted orders and crossing effects."""
@@ -432,6 +440,9 @@ class PortfolioCommit(WireRecord, frozen=True):
             parent.__post_init__()
         for residual in self.residuals:
             residual.__post_init__()
+        for outcome in self.refused:
+            if type(outcome) is not DecisionOutcome or outcome.status != "rejected":
+                raise ValueError("a refused portfolio decision must be a rejected outcome")
 
 
 class NetFeeCorrection(WireRecord, frozen=True):
