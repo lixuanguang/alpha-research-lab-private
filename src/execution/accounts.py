@@ -44,6 +44,7 @@ from execution.account_records import AccountPaperFill as AccountPaperFill
 from execution.account_records import AccountPaperTrace as AccountPaperTrace
 from execution.account_records import AccountPhase as AccountPhase
 from execution.account_records import AccountQuote as AccountQuote
+from execution.account_records import AccountStatus as AccountStatus
 from execution.account_records import AccountView as AccountView
 from execution.account_records import DecisionOutcome as DecisionOutcome
 from execution.account_records import HistoryDigest as HistoryDigest
@@ -359,6 +360,10 @@ class AccountJournal:
         """Read account state, reconciliation cutoff and independent block reasons."""
         return self._store.read().accounts
 
+    def account_statuses(self) -> tuple[AccountStatus, ...]:
+        """Read each account's operating phase and blocks without its ledger."""
+        return tuple(account.status() for account in self._store.read().accounts)
+
     def result_snapshot(self, request: AccountExecutionRequest) -> AccountExecutionResult:
         """Project a typed response, reading state only for requested inspection fields."""
         if request.projection == "operation":
@@ -422,6 +427,12 @@ class AccountJournal:
             )
         if request.projection == "accounts":
             return AccountExecutionResult(accounts=state.accounts, orders=())
+        if request.projection == "statuses":
+            return AccountExecutionResult(
+                accounts=(),
+                orders=(),
+                account_statuses=tuple(account.status() for account in selected_accounts),
+            )
         if request.projection == "orders":
             return AccountExecutionResult(accounts=(), orders=state.orders)
         if request.projection == "net_orders":

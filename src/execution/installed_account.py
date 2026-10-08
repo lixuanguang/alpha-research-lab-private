@@ -31,6 +31,7 @@ from execution.account_records import (
     AccountPaperFill,
     AccountPaperTrace,
     AccountQuote,
+    AccountStatus,
     AccountView,
     HistoryDigest,
     NetOrder,
@@ -152,6 +153,10 @@ class InstalledPaperAccount:
     def accounts(self) -> tuple[AccountView, ...]:
         """Read current ledgers and controls from installed account state."""
         return self._inspect(projection="accounts").accounts
+
+    def account_statuses(self) -> tuple[AccountStatus, ...]:
+        """Read each installed account's operating phase and blocks without its ledger."""
+        return self._inspect(projection="statuses").account_statuses
 
     def orders(self) -> tuple[TaggedOrder, ...]:
         """Read attributable child commitments from installed state."""

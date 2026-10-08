@@ -42,6 +42,7 @@ from execution import (
     AccountExecutionRequest,
     AccountExecutionResult,
     AccountPaperTrace,
+    AccountStatus,
     AccountView,
     ExecutionMonitoring,
     NetOrder,
@@ -500,6 +501,10 @@ class InspectedPaperAccount(SocketPaperAccount):
     def accounts(self) -> tuple[AccountView, ...]:
         """Return the account views from the same inspection."""
         return self._state.accounts
+
+    def account_statuses(self) -> tuple[AccountStatus, ...]:
+        """Return each inspected account's operating phase and blocks."""
+        return tuple(account.status() for account in self._state.accounts)
 
     def orders(self) -> tuple[TaggedOrder, ...]:
         """Return attributable orders from the same inspection."""

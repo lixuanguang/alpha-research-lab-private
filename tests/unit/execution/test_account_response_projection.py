@@ -14,9 +14,11 @@ from test_account_journal import TestAccountJournal as _AccountFixture
 from test_account_paper_matching import TestAccountPaperMatching as _MatchingFixture
 
 # project library imports
+from accounting import AccountPosting
 from applications.execute import AccountExecutionApplication
 from configuration import AccountConfiguration, OpeningAccount
 from execution import (
+    AccountControl,
     AccountExecutionRequest,
     AccountExecutionResult,
     AccountJournal,
@@ -342,6 +344,7 @@ class TestAccountResponseProjection:
         account = _ProjectedAccount(config, journal)
 
         assert account.accounts() == full.accounts
+        assert account.account_statuses() == tuple(view.status() for view in full.accounts)
         assert account.orders() == full.orders
         assert account.net_orders() == full.net_orders
         assert account.paper_restore_quarantined() == full.paper_restore_quarantined
@@ -358,6 +361,7 @@ class TestAccountResponseProjection:
         assert account.portfolio_batch("absent") is None
         assert tuple(request.projection for request in account.seen_requests) == (
             "accounts",
+            "statuses",
             "orders",
             "net_orders",
             "quarantine",
@@ -382,6 +386,52 @@ class TestAccountResponseProjection:
         account.observe(quote)
         assert account.seen_requests[-1].projection == "operation"
         assert account.seen_requests[-1].action == "quote"
+
+    def test_status_projection_does_not_grow_with_the_ledger(self, tmp_path: Path) -> None:
+        """Protection reads name each account's phase and blocks, never its postings.
+
+        Twenty transfers add twenty postings (and, unreconciled, fault the account):
+        the accounts projection's encoded result grows by their bytes, while the
+        status projection's names the fault and no posting, and stays under 300 bytes.
+        A stopped account's status names its phase and control.
+        """
+        fixture = _AccountFixture
+        config = fixture._config()
+        journal = AccountJournal(tmp_path / "account.sqlite3", config)
+        assert journal.reconcile(
+            fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())
+        )
+        codec = DomainCodec()
+        statuses = AccountExecutionRequest(action="inspect", projection="statuses")
+        accounts = AccountExecutionRequest(action="inspect", projection="accounts")
+        accounts_before = len(codec.encode_json(journal.result_snapshot(accounts)))
+        for index in range(20):
+            at = fixture.opening_at + timedelta(seconds=index + 1)
+            journal.post(
+                AccountPosting(
+                    identity=f"transfer-{index}",
+                    account_id="shared",
+                    kind="transfer",
+                    event_at=at,
+                    known_at=at,
+                    cash=fixture._money("-1"),
+                )
+            )
+        assert len(journal.accounts()[0].ledger.postings) >= 20
+        assert len(codec.encode_json(journal.result_snapshot(accounts))) > accounts_before + 4000
+        encoded = codec.encode_json(journal.result_snapshot(statuses))
+        assert b"postings" not in encoded and len(encoded) < 300
+        (status,) = journal.result_snapshot(statuses).account_statuses
+        assert (status.account_id, status.fault) == ("shared", "posting_reconciliation")
+        assert journal.account_statuses() == (journal.accounts()[0].status(),) == (status,)
+        stop_at = fixture.opening_at + timedelta(seconds=30)
+        journal.control(
+            AccountControl(
+                identity="stop", account_id="shared", kind="stop", at=stop_at, reason="test"
+            )
+        )
+        (stopped,) = journal.result_snapshot(statuses).account_statuses
+        assert (stopped.phase, stopped.active_control_identity) == ("stopped", "stop")
 
     @staticmethod
     def _forbidden_read() -> None:

@@ -447,7 +447,10 @@ Services require explicit recovery between invocations. A paper supervisor's
 
 Account requests default to a complete response. Internal `PaperAccount` helpers
 select a typed `projection` for their requested read or operation receipt, so a
-checkpoint lookup does not transfer unrelated order and accounting history.
+checkpoint lookup does not transfer unrelated order and accounting history. The
+`statuses` projection returns each account's `AccountStatus`: its phase, blocks,
+reconciliation time and active control, without the ledger, whose postings grow
+with every fill and fee. The paper supervisor's per-period protection read uses it.
 Explicit operator inspection remains complete for state; the paper trace history,
 which grows with every eligible book, is stated by its count and hash chain
 (`paper_trace_history`) and read through the `traces` projection in pages of at

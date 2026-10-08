@@ -25,6 +25,7 @@ from execution.account_records import (
     AccountPaperFill,
     AccountPaperTrace,
     AccountQuote,
+    AccountStatus,
     AccountView,
     DecisionOutcome,
     HistoryDigest,
@@ -49,6 +50,7 @@ from telemetry import OperationAlert
 type AccountResponseProjection = Literal[
     "full",
     "accounts",
+    "statuses",
     "orders",
     "net_orders",
     "checkpoint",
@@ -144,6 +146,7 @@ class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
         if self.projection not in (
             "full",
             "accounts",
+            "statuses",
             "orders",
             "net_orders",
             "checkpoint",
@@ -387,6 +390,7 @@ class AccountExecutionResult(WireRecord, frozen=True, omit_defaults=True):
 
     accounts: tuple[AccountView, ...]
     orders: tuple[TaggedOrder, ...]
+    account_statuses: tuple[AccountStatus, ...] = ()
     net_orders: tuple[NetOrder, ...] = ()
     portfolio: PortfolioCommit | None = None
     residuals: tuple[PortfolioResidual, ...] = ()
@@ -435,6 +439,8 @@ class AccountExecutionResult(WireRecord, frozen=True, omit_defaults=True):
             self._require_utc(self.known_at, field_name="account knowledge")
         for account in self.accounts:
             account.__post_init__()
+        for status in self.account_statuses:
+            status.__post_init__()
         for order in self.orders:
             order.__post_init__()
         for parent in self.net_orders:

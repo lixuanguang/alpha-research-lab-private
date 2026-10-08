@@ -845,10 +845,14 @@ class AccountControlResult(WireRecord, frozen=True):
             raise ValueError("invalid account control result")
 
 
-class AccountView(WireRecord, frozen=True):
-    """Expose authoritative local balances and independent admission blocks."""
+class AccountStatus(WireRecord, frozen=True, omit_defaults=True):
+    """Expose one account's operating phase and blocks without its ledger.
 
-    ledger: AccountState
+    Protection reads poll this every period. An ``AccountView`` also carries the
+    ledger, whose postings grow with every fill and fee.
+    """
+
+    account_id: str
     reconciled_at: datetime | None = None
     fault: str | None = None
     operator_block: str | None = None
@@ -858,10 +862,9 @@ class AccountView(WireRecord, frozen=True):
     control_cutoff_at: datetime | None = None
 
     def __post_init__(self) -> None:
-        """Require a typed ledger and separately attributable blocking state."""
-        if type(self.ledger) is not AccountState:
-            raise TypeError("account view requires AccountState")
-        self.ledger.__post_init__()
+        """Require an account and separately attributable blocking state."""
+        if type(self.account_id) is not str or not self.account_id:
+            raise ValueError("account status requires an account")
         if self.reconciled_at is not None:
             self._require_utc(self.reconciled_at, field_name="reconciled at")
         for reason in (self.fault, self.operator_block):
@@ -885,3 +888,36 @@ class AccountView(WireRecord, frozen=True):
             raise ValueError("invalid account operating phase")
         if self.control_cutoff_at is not None:
             self._require_utc(self.control_cutoff_at, field_name="account control cutoff")
+
+
+class AccountView(WireRecord, frozen=True):
+    """Expose authoritative local balances and independent admission blocks."""
+
+    ledger: AccountState
+    reconciled_at: datetime | None = None
+    fault: str | None = None
+    operator_block: str | None = None
+    phase: AccountPhase = "running"
+    recovery_generation: int = 0
+    active_control_identity: str | None = None
+    control_cutoff_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        """Require a typed ledger and separately attributable blocking state."""
+        if type(self.ledger) is not AccountState:
+            raise TypeError("account view requires AccountState")
+        self.ledger.__post_init__()
+        self.status()
+
+    def status(self) -> AccountStatus:
+        """Return this account's operating phase and blocks, validated, without the ledger."""
+        return AccountStatus(
+            account_id=self.ledger.account_id,
+            reconciled_at=self.reconciled_at,
+            fault=self.fault,
+            operator_block=self.operator_block,
+            phase=self.phase,
+            recovery_generation=self.recovery_generation,
+            active_control_identity=self.active_control_identity,
+            control_cutoff_at=self.control_cutoff_at,
+        )

@@ -17,6 +17,7 @@ from execution.account_records import (
     AccountPaperFill,
     AccountPaperTrace,
     AccountQuote,
+    AccountStatus,
     AccountView,
     HistoryDigest,
     NetOrder,
@@ -48,6 +49,10 @@ class PaperAccount(Protocol):
 
     def accounts(self) -> tuple[AccountView, ...]:
         """Read current account ledgers and controls."""
+        ...
+
+    def account_statuses(self) -> tuple[AccountStatus, ...]:
+        """Read each account's operating phase and blocks without its ledger."""
         ...
 
     def orders(self) -> tuple[TaggedOrder, ...]:
