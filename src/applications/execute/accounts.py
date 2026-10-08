@@ -53,6 +53,7 @@ class AccountExecutionApplication:
         config_path: Path,
         journal_path: Path,
         request_path: Path | None = None,
+        request_payload: bytes | None = None,
         telemetry_path: Path | None = None,
         release_identity: str | None = None,
         opened_journal: AccountJournal | None = None,
@@ -60,8 +61,12 @@ class AccountExecutionApplication:
     ) -> AccountExecutionResult:
         """Validate configuration/request bytes before any persistent operation.
 
+        The request is a retained file at ``request_path`` or, from the account owner
+        service, the exact retained bytes in ``request_payload``; at most one is given.
         ``phases``, when given, receives opt-in monotonic clocks after each stage.
         """
+        if request_path is not None and request_payload is not None:
+            raise ValueError("account request has both a path and retained bytes")
         if release_identity is not None and (
             len(release_identity) != 64
             or any(character not in "0123456789abcdef" for character in release_identity)
@@ -71,10 +76,14 @@ class AccountExecutionApplication:
         config = codec.decode_json(self._read(config_path), AccountConfiguration)
         if config.mode == "venue_test":
             raise ValueError("venue_test account requires the separate venue command")
+        if request_path is not None:
+            request_payload = self._read(request_path)
+        elif request_payload is not None and len(request_payload) > 1_048_576:
+            raise ValueError("account request or configuration exceeds one MiB")
         request = (
             AccountExecutionRequest(action="inspect")
-            if request_path is None
-            else codec.decode_json(self._read(request_path), AccountExecutionRequest)
+            if request_payload is None
+            else codec.decode_json(request_payload, AccountExecutionRequest)
         )
         request.__post_init__()
         if opened_journal is not None and (

@@ -66,16 +66,82 @@ class _RecordingAccountApplication:
         config_path: Path,
         journal_path: Path,
         request_path: Path | None = None,
+        request_payload: bytes | None = None,
         telemetry_path: Path | None = None,
         release_identity: str | None = None,
         opened_journal: AccountJournal | None = None,
         phases: dict[str, int] | None = None,
     ) -> AccountExecutionResult:
         """Read the retained typed request and expose the selected telemetry path."""
-        assert request_path is not None and opened_journal is not None
-        request = DomainCodec().decode_json(request_path.read_bytes(), AccountExecutionRequest)
+        assert request_path is None and request_payload is not None
+        assert opened_journal is not None
+        request = DomainCodec().decode_json(request_payload, AccountExecutionRequest)
         self.requests.append((request, telemetry_path))
         return AccountExecutionResult(accounts=(), orders=())
+
+
+class _ClientLog(msgspec.Struct, frozen=True):
+    """Group one socket client's retained records by attempt."""
+
+    requests: dict[str, bytes]
+    results: dict[str, bytes]
+    errors: dict[str, str]
+
+    @staticmethod
+    def read(directory: Path) -> _ClientLog:
+        """Read the directory's single client log, keeping each record's exact bytes."""
+        (log,) = directory.iterdir()
+        requests: dict[str, bytes] = {}
+        results: dict[str, bytes] = {}
+        errors: dict[str, str] = {}
+        for line in log.read_bytes().splitlines():
+            record = msgspec.json.decode(line, type=dict[str, msgspec.Raw])
+            attempt = msgspec.json.decode(record.pop("attempt"), type=str)
+            ((kind, value),) = record.items()
+            if kind == "error":
+                errors[attempt] = msgspec.json.decode(value, type=str)
+            else:
+                {"request": requests, "result": results}[kind][attempt] = bytes(value)
+        return _ClientLog(requests=requests, results=results, errors=errors)
+
+
+class TestSocketRetention:
+    """Retain socket client requests before sending, and outcomes after."""
+
+    def test_an_unanswered_request_stays_retained_without_an_outcome(self) -> None:
+        """A timeout leaves the fsynced request alone: an uncertain outcome to inspect."""
+        config = _ActivationFixture._config()
+        owner = PaperOwner(
+            account_id=config.accounts[0].account_id,
+            deployment_sha256="a" * 64,
+            authorization_id="retention-grant",
+            release_identity="b" * 64,
+            owner_id="retention-owner",
+            generation=1,
+        )
+        with TemporaryDirectory(prefix="paper-retention-", dir=_SOCKET_ROOT) as root:
+            socket_path = Path(root) / "s.sock"
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as silent:
+                silent.bind(str(socket_path))
+                silent.listen(1)
+                account = SocketPaperAccount(
+                    config=config,
+                    socket_path=socket_path,
+                    requests=Path(root) / "requests",
+                    paper_owner=owner,
+                    timeout_seconds=0.2,
+                )
+                request = AccountExecutionRequest(
+                    action="block",
+                    account_id=owner.account_id,
+                    reason="uncertain protection",
+                    paper_owner=owner,
+                )
+                with pytest.raises(TimeoutError):
+                    account.execute(request)
+            log = _ClientLog.read(Path(root) / "requests")
+        assert list(log.requests.values()) == [DomainCodec().encode_json(request)]
+        assert not log.results and not log.errors
 
 
 class TestAccountOwnerService:
@@ -121,8 +187,10 @@ class TestAccountOwnerService:
             response = service._serve_connection(server)
             assert response is not None
         assert application.requests == [(request, None if action == "inspect" else telemetry_path)]
-        retained = tuple(service.requests_path.glob("*.json"))
-        assert len(retained) == 1 and retained[0].read_bytes() == payload
+        # One service-life log holds the exact request bytes as one fsynced line.
+        retained = tuple(service.requests_path.iterdir())
+        assert len(retained) == 1 and retained[0].suffix == ".jsonl"
+        assert retained[0].read_bytes() == payload + b"\n"
 
     @staticmethod
     def _service(
@@ -449,15 +517,28 @@ class TestAccountOwnerService:
             )
             assert not socket_path.exists()
             assert not socket_path.with_suffix(".health.json").exists()
-            retained = tuple((tmp_path / "service-requests").glob("*.json"))
+            retained = tuple((tmp_path / "service-requests").glob("*.jsonl"))
+            assert len(retained) == 1
             decoded = tuple(
-                codec.decode_json(path.read_bytes(), AccountExecutionRequest) for path in retained
+                codec.decode_json(line, AccountExecutionRequest)
+                for line in retained[0].read_bytes().splitlines()
             )
             assert {"stop_instance", "restart_instance"}.issubset(
                 {request.action for request in decoded if request.paper_owner == owner}
             )
             assert any(request.action == "shutdown_paper" for request in decoded)
             assert any(request.action == "control" for request in decoded)
+            # Each client's one log pairs every retained request with its outcome.
+            client_log = _ClientLog.read(tmp_path / "client-requests")
+            assert client_log.requests and set(client_log.requests) == set(client_log.results)
+            assert not client_log.errors
+            assert {
+                codec.decode_json(payload, AccountExecutionRequest).action
+                for payload in client_log.requests.values()
+            } >= {"stop_instance", "restart_instance", "shutdown_paper"}
+            peer_log = _ClientLog.read(tmp_path / "peer-requests")
+            assert set(peer_log.requests) == set(peer_log.errors) and len(peer_log.errors) == 2
+            assert all("paper_owner_stale_or_absent" in text for text in peer_log.errors.values())
         finally:
             if process.poll() is None:
                 process.terminate()

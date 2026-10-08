@@ -319,10 +319,14 @@ class CapacityRecovery:
         cutoff_at = datetime.now(UTC)
         try:
             # New requests still name the original directory. Freeze its removed
-            # namespace before restoration, including exact in-flight file bytes.
-            frozen_names = tuple(sorted(retained.glob("*.json")))
+            # namespace before restoration, including exact in-flight log bytes.
+            frozen_names = tuple(sorted(retained.glob("*.jsonl")))
             path.write_text(marker)
-            frozen = tuple(self._freeze_retained_request(item, cutoff_ns) for item in frozen_names)
+            frozen = tuple(
+                request
+                for item in frozen_names
+                for request in self._freeze_retained_requests(item, cutoff_ns)
+            )
             self.trial.record(
                 "request_retention_obstructed",
                 {
@@ -395,20 +399,33 @@ class CapacityRecovery:
         return elapsed
 
     @staticmethod
-    def _freeze_retained_request(path: Path, cutoff_ns: int) -> _RetainedRequest:
-        """Reject attribution from a file changed after the removed directory's cutoff."""
+    def _freeze_retained_requests(path: Path, cutoff_ns: int) -> tuple[_RetainedRequest, ...]:
+        """Freeze one service-life request log, one request per complete line.
+
+        Attribution is refused for every line of a log changed after the removed
+        directory's cutoff, and for an incomplete final line.
+        """
         before = path.stat()
-        payload = path.read_bytes()
+        content = path.read_bytes()
         after = path.stat()
-        return _RetainedRequest(
-            name=path.name,
-            payload=payload,
-            modified_ns=after.st_mtime_ns,
-            stable_before_cutoff=(
-                before.st_mtime_ns == after.st_mtime_ns <= cutoff_ns
-                and before.st_size == after.st_size == len(payload)
-                and before.st_ino == after.st_ino
-            ),
+        stable = (
+            before.st_mtime_ns == after.st_mtime_ns <= cutoff_ns
+            and before.st_size == after.st_size == len(content)
+            and before.st_ino == after.st_ino
+        )
+        lines: list[bytes] = content.split(b"\n")
+        # A whole log ends with a newline; anything after the last one is torn.
+        complete = len(lines) - 1
+        if not lines[-1]:
+            lines.pop()
+        return tuple(
+            _RetainedRequest(
+                name=f"{path.name}:{number}",
+                payload=payload,
+                modified_ns=after.st_mtime_ns,
+                stable_before_cutoff=stable and number <= complete,
+            )
+            for number, payload in enumerate(lines, start=1)
         )
 
     @staticmethod

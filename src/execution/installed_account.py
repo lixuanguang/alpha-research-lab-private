@@ -8,8 +8,12 @@ import os
 import socket
 import struct
 import subprocess  # nosec B404  # [owner=execution; rationale=Bounded signed launcher uses explicit argv without a shell; expires=2027-03-01]
+import threading
 from pathlib import Path
 from uuid import uuid4
+
+# third party library imports
+import msgspec
 
 # project library imports
 from configuration import AccountConfiguration, PaperExecutionScenario
@@ -37,7 +41,7 @@ from execution.account_reduction import PaperReductionResult
 from execution.paper import PaperMarket
 from execution.paper_authority import PaperActivation, PaperOwner
 from financial_units import Dimension
-from serialization import DomainCodec
+from serialization import DomainCodec, DurableLines
 
 
 class InstalledPaperAccount:
@@ -297,8 +301,11 @@ class InstalledPaperAccount:
 class SocketPaperAccount(InstalledPaperAccount):
     """Use the same typed PaperAccount operations through one claimed local owner.
 
-    Requests are retained before sending. A timeout or lost response is an
-    uncertain outcome and this adapter never resubmits the operation.
+    Each adapter retains its commands in one append-only log, ``<requests>/<log>.jsonl``.
+    A command's ``request`` record, under a fresh ``attempt`` identity, is fsynced
+    before it is sent; its ``result`` or ``error`` record follows the response. An
+    attempt without either record has an uncertain outcome: a timeout or lost
+    response, which this adapter never resubmits.
     """
 
     _maximum_bytes = 1_048_576
@@ -327,6 +334,8 @@ class SocketPaperAccount(InstalledPaperAccount):
         self.socket_path, self.requests = socket_path, requests
         self.timeout_seconds = timeout_seconds
         self._codec = DomainCodec()
+        self._log = DurableLines(requests / f"{uuid4().hex}.jsonl")
+        self._log_lock = threading.Lock()
 
     def execute(self, request: AccountExecutionRequest) -> AccountExecutionResult:
         """Send one retained command and decode one response without retrying."""
@@ -336,12 +345,8 @@ class SocketPaperAccount(InstalledPaperAccount):
         payload = self._codec.encode_json(request)
         if not 0 < len(payload) <= self._maximum_bytes:
             raise ValueError("socket paper request exceeds one MiB")
-        self.requests.mkdir(parents=True, exist_ok=True)
-        path = self.requests / f"{hashlib.sha256(payload).hexdigest()}.{uuid4().hex}.json"
-        with path.open("xb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
+        attempt = uuid4().hex
+        self._record(attempt, "request", msgspec.Raw(payload), sync=True)
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             connection.settimeout(self.timeout_seconds)
             connection.connect(str(self.socket_path))
@@ -352,15 +357,20 @@ class SocketPaperAccount(InstalledPaperAccount):
                 raise ValueError("socket paper response exceeds one MiB")
             response = self._read_exact(connection, length)
         if status == b"\x01":
-            path.with_suffix(".error.txt").write_bytes(response)
-            raise RuntimeError(
-                f"paper account service rejected request: {response.decode('utf-8')}"
-            )
+            reason = response.decode("utf-8")
+            self._record(attempt, "error", reason, sync=False)
+            raise RuntimeError(f"paper account service rejected request: {reason}")
         if status != b"\x00":
             raise ValueError("invalid paper account service response")
         decoded = self._codec.decode_json(response, AccountExecutionResult)
-        path.with_suffix(".result.json").write_bytes(response)
+        self._record(attempt, "result", msgspec.Raw(response), sync=False)
         return decoded
+
+    def _record(self, attempt: str, kind: str, value: msgspec.Raw | str, *, sync: bool) -> None:
+        """Append one attributable record of an attempt to this adapter's log."""
+        line = self._codec.encode_json({"attempt": attempt, kind: value})
+        with self._log_lock:
+            self._log.append(line, sync=sync)
 
     def shutdown(self, control: AccountControl) -> AccountExecutionResult:
         """Stop the account through the owner service, then end its socket loop."""

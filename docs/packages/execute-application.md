@@ -418,10 +418,17 @@ alpha-governance-artifacts run --target /absolute/target --policy /protected/pol
 ```
 
 The service keeps the installation fence, fixes configuration/journal/release, and
-serializes the existing typed requests. `SocketPaperAccount` retains requests and
-responses. Owner-generation checks remain inside economic transactions. Service
-startup reads only the durable activation, never the trace history, and does not
-claim, renew or widen authority. Its heartbeat file beside the
+serializes the existing typed requests. It retains each request's exact bytes as one
+fsynced line of `service-requests/<life>.jsonl` beside the journal, one append-only
+log per service life, before the account applies it; a request that cannot be
+retained is refused unapplied. `SocketPaperAccount` keeps one append-only log per
+client, `<requests>/<log>.jsonl`: each command's `request` record, with a fresh
+`attempt` identity, is fsynced before it is sent, and its `result` or `error` record
+follows the response. An attempt with neither has an uncertain outcome; inspect the
+journal before any new request. Retained file counts therefore grow with service
+lives, not with requests. Owner-generation checks remain inside economic
+transactions. Service startup reads only the durable activation, never the trace
+history, and does not claim, renew or widen authority. Its heartbeat file beside the
 socket exposes actual process PID, liveness and request progress separately.
 `service_seconds` may not exceed the signed account configuration's
 `service_life_seconds`. When that field is absent, the cap is 120 seconds, and the

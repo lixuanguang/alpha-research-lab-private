@@ -29,7 +29,7 @@ from execution import (
     AccountJournal,
     PaperOwner,
 )
-from serialization import DomainCodec
+from serialization import DomainCodec, DurableLines
 
 
 class _AccountApplication(Protocol):
@@ -41,6 +41,7 @@ class _AccountApplication(Protocol):
         config_path: Path,
         journal_path: Path,
         request_path: Path | None = None,
+        request_payload: bytes | None = None,
         telemetry_path: Path | None = None,
         release_identity: str | None = None,
         opened_journal: AccountJournal | None = None,
@@ -53,8 +54,10 @@ class _AccountApplication(Protocol):
 class AccountOwnerService:
     """Serialize local requests under one installed owner, journal and release.
 
-    The service retains every request before application. A response lost after a
-    commit is an uncertain outcome for the client and is never retried here.
+    The service retains every request before application: one fsynced line of its
+    exact bytes in ``service-requests/<life>.jsonl``, one append-only log per service
+    life, applied only after that line is durable. A response lost after a commit is
+    an uncertain outcome for the client and is never retried here.
     The service life is bounded by the signed configuration's cap (120 seconds when
     undeclared), and a life under a current grant must end by the grant's expiry; the
     service never renews it. The signed launcher adds an independent outer bound of
@@ -120,6 +123,7 @@ class AccountOwnerService:
         self.timings_path = socket_path.with_suffix(".request-timings.jsonl")
         self._timings: Path | None = None
         self.requests_path = journal_path.parent / "service-requests"
+        self._requests = DurableLines(self.requests_path / f"{uuid4().hex}.jsonl")
         self._codec = DomainCodec()
         self._stopping = threading.Event()
         self._heartbeat_failed = threading.Event()
@@ -228,8 +232,8 @@ class AccountOwnerService:
         request = AccountExecutionRequest(
             action="inspect", paper_owner=self.paper_owner, projection="paper_activations"
         )
-        path = self._retain_request(self._codec.encode_json(request))
-        result = self._apply(path, telemetry=False)
+        payload = self._retain_request(self._codec.encode_json(request))
+        result = self._apply(payload, telemetry=False)
         activation = next(
             (
                 item
@@ -353,7 +357,7 @@ class AccountOwnerService:
 
     def _apply(
         self,
-        request_path: Path,
+        payload: bytes,
         *,
         telemetry: bool = True,
         phases: dict[str, int] | None = None,
@@ -362,29 +366,21 @@ class AccountOwnerService:
         return self.application.run(
             config_path=self.config_path,
             journal_path=self.journal_path,
-            request_path=request_path,
+            request_payload=payload,
             telemetry_path=self.telemetry_path if telemetry else None,
             release_identity=self.release_identity,
             opened_journal=self._owner_journal,
             phases=phases,
         )
 
-    def _retain_request(self, payload: bytes) -> Path:
-        """Fsync an exact request before any account application sees it."""
+    def _retain_request(self, payload: bytes) -> bytes:
+        """Fsync an exact request line before any account application sees its bytes."""
         if len(payload) > self._maximum_bytes:
             raise ValueError("paper service request exceeds one MiB")
-        self.requests_path.mkdir(parents=True, exist_ok=True)
-        path = self.requests_path / f"{uuid4().hex}.json"
-        with path.open("xb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        descriptor = os.open(self.requests_path, os.O_RDONLY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-        return path
+        if b"\n" in payload:
+            raise ValueError("paper service request is not one compact JSON line")
+        self._requests.append(payload)
+        return payload
 
     def _write_heartbeats(self) -> None:
         """Publish process liveness independently of serial account requests."""

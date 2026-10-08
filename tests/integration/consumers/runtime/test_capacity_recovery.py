@@ -74,7 +74,7 @@ class _RetentionClient:
         if self.inspections == 1:
             return self.before
         if self.late:
-            (self.requests / "market.json").write_bytes(self.payload)
+            (self.requests / "life.jsonl").write_bytes(self.payload + b"\n")
         return self.after
 
     def checkpoint(self, instance_id: str) -> bytes:
@@ -83,7 +83,7 @@ class _RetentionClient:
         self.checkpoints += 1
         if self.checkpoints == 1:
             if not self.late:
-                (self.requests / "market.json").write_bytes(self.payload)
+                (self.requests / "life.jsonl").write_bytes(self.payload + b"\n")
             return b"old"
         return self.final_checkpoint
 
@@ -364,12 +364,28 @@ class TestCapacityRecovery:
         assert witness["passed"] is False
         if failure == "late_request":
             assert witness["frozen_requests"] == []
-            assert (client.requests / "market.json").is_file()
+            assert (client.requests / "life.jsonl").is_file()
         else:
             checkpoint = cast(dict[str, dict[str, object]], witness["comparisons"])["checkpoint"]
             assert checkpoint["equal"] is False
             assert checkpoint["before_sha256"] == hashlib.sha256(b"old").hexdigest()
             assert checkpoint["after_sha256"] == hashlib.sha256(b"changed").hexdigest()
+
+    def test_retention_freezes_each_complete_log_line_and_refuses_a_torn_one(
+        self, tmp_path: Path
+    ) -> None:
+        """One service-life log yields one request per line; a torn or late line proves nothing."""
+        log = tmp_path / "life.jsonl"
+        log.write_bytes(b'{"first":1}\n{"second":2}\n{"torn"')
+        cutoff = log.stat().st_mtime_ns
+        frozen = CapacityRecovery._freeze_retained_requests(log, cutoff)
+        assert [(item.name, item.payload, item.stable_before_cutoff) for item in frozen] == [
+            ("life.jsonl:1", b'{"first":1}', True),
+            ("life.jsonl:2", b'{"second":2}', True),
+            ("life.jsonl:3", b'{"torn"', False),
+        ]
+        late = CapacityRecovery._freeze_retained_requests(log, cutoff - 1)
+        assert not any(item.stable_before_cutoff for item in late)
 
     @pytest.mark.parametrize("failure", ("malformed", "unstable", "duplicate", "prefix"))
     def test_retention_rejects_unproved_or_rewritten_trace_history(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import os
 from decimal import Decimal
 from importlib import resources
 from pathlib import Path
@@ -13,7 +14,7 @@ import pytest
 
 # project library imports
 from financial_units import Currency, Money
-from serialization import DomainCodec, DurableDirectory
+from serialization import DomainCodec, DurableDirectory, DurableLines
 
 _CODEC = DomainCodec()
 
@@ -132,3 +133,68 @@ class TestDurableDirectories:
         """Only an existing destination is a lost race; a missing staging directory is not."""
         with pytest.raises(FileNotFoundError):
             DurableDirectory.publish(tmp_path / "absent", tmp_path / "view")
+
+
+class _InjectedFailure:
+    """Stand in for one operating-system call that always fails."""
+
+    def __init__(self, message: str) -> None:
+        """Bind the failure's message."""
+        self.message = message
+
+    def __call__(self, *arguments: int) -> None:
+        """Raise the injected failure whatever the call's arguments."""
+        raise OSError(self.message)
+
+
+class TestDurableLines:
+    """Append whole records durably, and keep the log whole when an append fails."""
+
+    def test_records_are_appended_whole_and_the_new_name_is_synchronized(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The first append creates the log and synchronizes its directory once."""
+        synced: list[Path] = []
+        monkeypatch.setattr(DurableDirectory, "sync", staticmethod(synced.append))
+        log = DurableLines(tmp_path / "requests" / "life.jsonl")
+        log.append(b'{"first":1}')
+        log.append(b'{"second":2}', sync=False)
+        log.append(b'{"third":3}')
+        assert log.path.read_bytes() == b'{"first":1}\n{"second":2}\n{"third":3}\n'
+        assert synced == [tmp_path / "requests"]
+        with pytest.raises(ValueError, match="contains a newline"):
+            log.append(b'{"split":\n1}')
+        with pytest.raises(ValueError, match="must be absolute"):
+            DurableLines(Path("relative.jsonl"))
+
+    def test_an_obstructed_directory_fails_without_writing_elsewhere(self, tmp_path: Path) -> None:
+        """A file in place of the directory refuses the append; nothing is retained."""
+        directory = tmp_path / "requests"
+        directory.write_text("obstruction\n")
+        with pytest.raises(OSError):
+            DurableLines(directory / "life.jsonl").append(b'{"request":1}')
+        assert directory.read_text() == "obstruction\n"
+        assert sorted(item.name for item in tmp_path.iterdir()) == ["requests"]
+
+    def test_a_failed_append_is_removed_and_an_unremovable_one_stops_the_log(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed fsync leaves the earlier records; a failed truncation refuses more."""
+        log = DurableLines(tmp_path / "life.jsonl")
+        log.append(b'{"kept":1}')
+        fsync = os.fsync
+        failing_fsync = _InjectedFailure("injected fsync failure")
+        monkeypatch.setattr(os, "fsync", failing_fsync)
+        with pytest.raises(OSError, match="injected fsync failure"):
+            log.append(b'{"lost":2}')
+        monkeypatch.setattr(os, "fsync", fsync)
+        assert log.path.read_bytes() == b'{"kept":1}\n'
+        log.append(b'{"after":3}')
+        assert log.path.read_bytes() == b'{"kept":1}\n{"after":3}\n'
+        monkeypatch.setattr(os, "fsync", failing_fsync)
+        monkeypatch.setattr(os, "ftruncate", _InjectedFailure("injected truncation failure"))
+        with pytest.raises(OSError, match="injected fsync failure"):
+            log.append(b'{"torn":4}')
+        monkeypatch.undo()
+        with pytest.raises(ValueError, match="incomplete record"):
+            log.append(b'{"refused":5}')

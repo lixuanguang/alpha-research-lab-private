@@ -517,6 +517,10 @@ background system daemon or grant private venue authority.
    replayed. Stop the supervisor, inspect the latest journal through the signed
    launcher, reconcile retained requests/results and independent facts, resolve
    pending/uncertain orders, then claim a fresh owner before restarting services.
+   The supervisor's requests are in `<root>/requests/<account>/<log>.jsonl`: an
+   `attempt` with a `request` record but no `result` or `error` record has an
+   uncertain outcome. The owner service's retained requests are the lines of
+   `service-requests/<life>.jsonl` beside the journal.
 6. An account/delivery persistence failure stops affected admission; storage that
    cannot record a fault cannot prove a clean stop. Terminate the producer, retain
    the failure, restore writable storage, inspect current state and reconcile.
