@@ -225,7 +225,9 @@ class AccountOwnerService:
 
     def _require_current_owner(self) -> AccountExecutionResult:
         """Read durable activation without claiming a generation or changing state."""
-        request = AccountExecutionRequest(action="inspect", paper_owner=self.paper_owner)
+        request = AccountExecutionRequest(
+            action="inspect", paper_owner=self.paper_owner, projection="paper_activations"
+        )
         path = self._retain_request(self._codec.encode_json(request))
         result = self._apply(path, telemetry=False)
         activation = next(

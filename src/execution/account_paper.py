@@ -52,8 +52,8 @@ class AccountPaperMatching:
         self.admission = admission
         self.allocation = allocation
         self.owner, self.clock = owner, clock
-        # Per account: last committed trace sequence read, its child fill events and
-        # physical fill identities. Committed traces only grow, by increasing sequence.
+        # Per account: last committed fill-bearing trace sequence read, its child fill
+        # events and physical fill identities. Committed traces only grow, by sequence.
         self._trace_facts: dict[str, tuple[int, tuple[OrderEvent, ...], frozenset[str]]] = {}
 
     def bind(self, account_id: str, scenario: PaperExecutionScenario) -> None:
@@ -199,32 +199,29 @@ class AccountPaperMatching:
     ) -> tuple[tuple[OrderEvent, ...], frozenset[str]]:
         """Collect committed traces' child fill events and physical fill identities.
 
-        Each trace decodes and validates a whole market, so a read-only snapshot decodes
-        only the traces committed since the previous call. Staged traces in a write
-        transaction are not yet committed, so that case scans every trace once.
+        Only fill-bearing traces carry these facts, and the journal indexes them, so a
+        cold read decodes those traces alone, never the whole trace history. Each call
+        then decodes only fill-bearing traces committed since the previous one. Traces
+        staged in a write transaction follow, in commit order.
         """
-        if snapshot.state.paper_traces:
-            events: list[OrderEvent] = []
-            identities: set[str] = set()
-            for trace in snapshot.iter_traces(account_id):
-                self._add_trace_facts(trace, events, identities)
-            return tuple(events), frozenset(identities)
         # Sequences start at zero, so nothing has been read before -1.
         last, known, seen = self._trace_facts.get(account_id, (-1, (), frozenset()))
         events, identities = list(known), set(seen)
-        for sequence, trace in snapshot.iter_committed_traces_after(account_id, last):
+        for sequence, trace in snapshot.iter_committed_filled_traces_after(account_id, last):
             self._add_trace_facts(trace, events, identities)
             last = sequence
-        facts = (last, tuple(events), frozenset(identities))
-        self._trace_facts[account_id] = facts
-        return facts[1], facts[2]
+        self._trace_facts[account_id] = (last, tuple(events), frozenset(identities))
+        for trace in snapshot.state.paper_traces:
+            if trace.account_id == account_id:
+                self._add_trace_facts(trace, events, identities)
+        return tuple(events), frozenset(identities)
 
     @staticmethod
     def _add_trace_facts(
         trace: AccountPaperTrace, events: list[OrderEvent], identities: set[str]
     ) -> None:
         """Add one committed trace's child fill events and physical fill identities."""
-        if trace.status != "committed":
+        if not trace.filled:
             return
         events.extend(trace.child_fill_events)
         identities.update(

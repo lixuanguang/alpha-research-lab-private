@@ -516,10 +516,13 @@ _HISTORY_TABLES = (
     "batch_identity TEXT NOT NULL UNIQUE, payload BLOB NOT NULL)",
     "CREATE TABLE paper_traces (seq INTEGER PRIMARY KEY, account_id TEXT NOT NULL, "
     "venue TEXT NOT NULL, instrument_id TEXT NOT NULL, market_identity TEXT NOT NULL, "
+    "filled INTEGER NOT NULL CHECK(filled IN (0, 1)), "
     "payload BLOB NOT NULL, UNIQUE(account_id, venue, instrument_id, market_identity))",
     "CREATE INDEX paper_traces_market ON paper_traces(market_identity, seq)",
     "CREATE INDEX paper_traces_account ON paper_traces(account_id, seq)",
     "CREATE INDEX paper_traces_instrument ON paper_traces(account_id, instrument_id, seq)",
+    # Only the few traces that posted fills: report facts never decode the rest.
+    "CREATE INDEX paper_traces_filled ON paper_traces(account_id, seq) WHERE filled=1",
 )
 
 
@@ -577,8 +580,8 @@ _TABLE_STATEMENTS: dict[str, tuple[str, str]] = {
     ),
     "paper_traces": (
         "INSERT INTO paper_traces (seq, account_id, venue, instrument_id, market_identity, "
-        "payload) VALUES (?, ?, ?, ?, ?, ?)",
-        "SELECT seq, account_id, venue, instrument_id, market_identity, payload "
+        "filled, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "SELECT seq, account_id, venue, instrument_id, market_identity, filled, payload "
         "FROM paper_traces ORDER BY seq",
     ),
 }
@@ -678,12 +681,13 @@ class _HistoryTables:
         for row in cast(Iterator[tuple[object, ...]], cursor):
             yield self.codec.decode_json(self._blob(row[0]), SavedDecision)
 
-    def iter_traces_after(
+    def iter_filled_traces_after(
         self, account_id: str, after_seq: int
     ) -> Iterator[tuple[int, AccountPaperTrace]]:
-        """Yield one account's committed traces after a sequence, in commit order."""
+        """Yield one account's committed fill-bearing traces after a sequence, in order."""
         cursor = self.connection.execute(
-            "SELECT seq, payload FROM paper_traces WHERE account_id=? AND seq>? ORDER BY seq ASC",
+            "SELECT seq, payload FROM paper_traces "
+            "WHERE account_id=? AND filled=1 AND seq>? ORDER BY seq ASC",
             (account_id, after_seq),
         )
         for row in cast(Iterator[tuple[object, ...]], cursor):
@@ -737,7 +741,7 @@ class _HistoryTables:
         table: str,
         digest: HistoryDigest,
         items: tuple[T, ...],
-        key: Callable[[T], tuple[str, ...]],
+        key: Callable[[T], tuple[str | int, ...]],
     ) -> HistoryDigest:
         """Append staged items after the committed rows, extending the table's chain."""
         statement = _TABLE_STATEMENTS[table][0]
@@ -748,7 +752,7 @@ class _HistoryTables:
         return digest
 
     def _verify_table[T](
-        self, table: str, target: type[T], key: Callable[[T], tuple[str, ...]]
+        self, table: str, target: type[T], key: Callable[[T], tuple[str | int, ...]]
     ) -> list[T]:
         """Decode one table in order and compare it with the head's digest."""
         cursor = self.connection.execute(_TABLE_STATEMENTS[table][1])
@@ -796,13 +800,14 @@ class _HistoryTables:
         return (saved.batch.identity,)
 
     @staticmethod
-    def _trace_key(trace: AccountPaperTrace) -> tuple[str, ...]:
-        """Return the paper traces table lookup columns."""
+    def _trace_key(trace: AccountPaperTrace) -> tuple[str | int, ...]:
+        """Return the paper traces table lookup columns, including the fill flag."""
         return (
             trace.account_id,
             trace.scenario.venue,
             str(trace.scenario.instrument_id.uuid_value),
             trace.market.identity,
+            int(trace.filled),
         )
 
 
@@ -817,11 +822,11 @@ class _AccountSnapshot:
         self.state = state
         self.tables = tables
 
-    def iter_committed_traces_after(
+    def iter_committed_filled_traces_after(
         self, account_id: str, after_seq: int
     ) -> Iterator[tuple[int, AccountPaperTrace]]:
-        """Yield one account's committed traces after a sequence; staged items are excluded."""
-        return self.tables.iter_traces_after(account_id, after_seq)
+        """Yield one account's committed fill-bearing traces after a sequence; no staged ones."""
+        return self.tables.iter_filled_traces_after(account_id, after_seq)
 
     def find_decision(self, instance_id: str, decision_identity: str) -> SavedDecision | None:
         """Resolve one saved decision by instance and decision identity."""

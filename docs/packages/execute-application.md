@@ -420,7 +420,8 @@ alpha-governance-artifacts run --target /absolute/target --policy /protected/pol
 The service keeps the installation fence, fixes configuration/journal/release, and
 serializes the existing typed requests. `SocketPaperAccount` retains requests and
 responses. Owner-generation checks remain inside economic transactions. Service
-startup does not claim, renew or widen authority. Its heartbeat file beside the
+startup reads only the durable activation, never the trace history, and does not
+claim, renew or widen authority. Its heartbeat file beside the
 socket exposes actual process PID, liveness and request progress separately.
 `service_seconds` may not exceed the signed account configuration's
 `service_life_seconds`. When that field is absent, the cap is 120 seconds, and the

@@ -82,9 +82,13 @@ codec bytes and sha256; the head keeps each field's row count and a sha256 over 
 digests in order. A commit writes only changed or new rows and a head of bounded size;
 another process reads the head, compares row digests and decodes only rows that
 changed. In memory the state still holds the complete tuples, so account behavior does
-not depend on this layout. Only this `account-journal` layout is readable: a journal
-with other tables, including one without `state_rows` or `dispatch_leases`, is refused
-as an unsupported account journal schema and is never migrated. The head also names
+not depend on this layout. Each paper trace row also records whether the trace posted
+a modeled fill (`filled`), checked against its bytes on verification, and only those
+rows are indexed for fills: report facts decode the fill-bearing traces alone, so a
+cold read does not grow with the number of books matched. Only this `account-journal`
+layout is readable: a journal with other tables, columns or indexes, including one
+without `state_rows`, `dispatch_leases` or the trace fill flag, is refused as an
+unsupported account journal schema and is never migrated. The head also names
 the order-event vocabulary its facts are written in; a head without one, as written
 before terminal cancellations stated their cause, or with another vocabulary is
 refused as an unsupported account journal state schema. The journal composes admission and reconciliation from

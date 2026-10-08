@@ -196,6 +196,53 @@ class TestAccountStateRows:
             with pytest.raises(ValueError, match="unsupported account journal schema"):
                 refusal()
 
+    def test_journal_without_the_trace_fill_flag_is_refused_unchanged(self, tmp_path: Path) -> None:
+        """The previous paper-trace layout is refused at open before any effect."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        history.round_trip()
+        history.busy_tick()
+        path, config = history.journal.path, history._config()
+        # Rebuild exactly the layout written before traces recorded their fill flag; a
+        # temporary table keeps the rows, so the stored schema text is the original one.
+        TestAccountStateRows.execute(
+            path,
+            "PRAGMA wal_checkpoint(TRUNCATE);"
+            "CREATE TEMP TABLE kept AS SELECT seq, account_id, venue, instrument_id, "
+            "market_identity, payload FROM paper_traces;"
+            "DROP TABLE paper_traces;"
+            "CREATE TABLE paper_traces (seq INTEGER PRIMARY KEY, account_id TEXT NOT NULL, "
+            "venue TEXT NOT NULL, instrument_id TEXT NOT NULL, market_identity TEXT NOT NULL, "
+            "payload BLOB NOT NULL, UNIQUE(account_id, venue, instrument_id, market_identity));"
+            "INSERT INTO paper_traces SELECT * FROM kept;"
+            "DROP TABLE kept;"
+            "CREATE INDEX paper_traces_market ON paper_traces(market_identity, seq);"
+            "CREATE INDEX paper_traces_account ON paper_traces(account_id, seq);"
+            "CREATE INDEX paper_traces_instrument "
+            "ON paper_traces(account_id, instrument_id, seq);"
+            "PRAGMA wal_checkpoint(TRUNCATE);",
+        )
+        before = path.read_bytes()
+        refusals: tuple[Callable[[], object], ...] = (
+            partial(AccountJournal, path, config),
+            partial(AccountJournal.verify, path, config),
+        )
+        for refusal in refusals:
+            with pytest.raises(ValueError, match="unsupported account journal schema"):
+                refusal()
+        assert path.read_bytes() == before
+
+    def test_a_fill_flag_that_differs_from_its_trace_fails_verification(
+        self, tmp_path: Path
+    ) -> None:
+        """The indexed flag is checked against each trace's bytes, so it cannot hide a fill."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        history.round_trip()
+        path, config = history.journal.path, history._config()
+        assert len(AccountJournal.verify(path, config)) == 2
+        TestAccountStateRows.execute(path, "UPDATE paper_traces SET filled = 1 - filled")
+        with pytest.raises(ValueError, match="history differs from its head"):
+            AccountJournal.verify(path, config)
+
     @pytest.mark.performance
     def test_round_trip_cost_is_flat_in_filled_orders(self, tmp_path: Path) -> None:
         """Admitting and filling an order costs about the same at 40 and 400 filled orders."""

@@ -129,6 +129,14 @@ class AccountPaperTrace(WireRecord, frozen=True):
             if self.rejected_event.at != self.market.at:
                 raise ValueError("paper rejection availability differs from source market")
 
+    @property
+    def filled(self) -> bool:
+        """Whether this committed trace posted a modeled physical or child fill."""
+        return self.status == "committed" and (
+            bool(self.child_fill_events)
+            or any(event.fill is not None for event in self.physical_events)
+        )
+
 
 class AccountPaperFill(WireRecord, frozen=True):
     """Expose a modeled fill under its final strategy and order owner."""
