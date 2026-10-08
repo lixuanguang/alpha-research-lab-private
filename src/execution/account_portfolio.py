@@ -58,13 +58,10 @@ class PortfolioCoordinator:
 
         A decision its own admission refuses is rolled back alone; the others commit
         together. A self-trade conflict between the batch's own decisions, any other
-        batch-wide refusal, or every decision refused rejects the batch.
+        batch-wide refusal, or every decision refused rejects the batch. The journal
+        resolves a saved batch identity before authority and input checks, so this
+        receives only a batch identity it has not saved.
         """
-        saved = transaction.find_batch(batch.identity)
-        if saved is not None:
-            if saved.batch != batch:
-                raise ValueError("portfolio batch identity reused with different content")
-            return saved.result
         before = transaction.state
         children: list[TaggedOrder] = []
         # Decision identities are unique only within an instance.

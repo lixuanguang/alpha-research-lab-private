@@ -237,8 +237,11 @@ Each request carries the digest of the previously saved continuation; the accoun
 transaction checks that precondition before committing, so a stale concurrent
 decision cannot overwrite newer state. Exact batch retries reopen their saved
 result, while changed input bytes or a continuation of another binding fail
-closed. A candidate whose restart rule is `reset` starts fresh at its first step
-in each new runtime; `restore` resumes the journal's continuation.
+closed. Ageing inputs and an expired or revoked paper grant do not block an exact
+retry. A superseded or stale owner, restore quarantine or a regressed clock does;
+the current successor owner retrieves the original saved outcome. A candidate
+whose restart rule is `reset` starts fresh at its first step in each new runtime;
+`restore` resumes the journal's continuation.
 
 The shared runtime stages decisions only. It does not observe markets, reconcile
 accounts or synthesize order events; those facts remain explicit inputs to the

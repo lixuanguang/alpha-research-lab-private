@@ -1051,3 +1051,334 @@ class TestPaperActivation:
         assert after.positions == (self._quantity("1"),)
         assert after.fees == (self._money("0.2996"),)
         assert worker.reduce_paper(request) == result
+
+    @staticmethod
+    def _journal_rows(path: Path) -> tuple[bytes, tuple[tuple[str, int], ...], tuple[str, ...]]:
+        """Read the committed head payload, every table's row count and every row."""
+        with closing(sqlite3.connect(path)) as connection:
+            (head,) = cast(
+                tuple[bytes | str],
+                connection.execute("SELECT payload FROM firm WHERE id=1").fetchone(),
+            )
+            tables = cast(
+                list[tuple[str]],
+                connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+                ).fetchall(),
+            )
+            counts = tuple(
+                (
+                    table,
+                    cast(
+                        tuple[int],
+                        connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone(),
+                    )[0],
+                )
+                for (table,) in tables
+            )
+            rows = tuple(connection.iterdump())
+        return head if isinstance(head, bytes) else head.encode(), counts, rows
+
+    @classmethod
+    def _context(cls) -> PortfolioContext:
+        """Bind a batch decision to the installed model, venue and paper authority."""
+        return PortfolioContext(
+            portfolio_id="managed-portfolio",
+            strategy_id="alpha",
+            model_revision="no-model",
+            config_revision="config",
+            horizon="one-minute",
+            reason="bounded-paper-order",
+            venue="okx",
+            settlement="spot-immediate",
+            risk_bucket="spot",
+            authority_scope="paper",
+        )
+
+    @classmethod
+    def _batch(cls, identity: str, decision_at: datetime, quote: AccountQuote) -> PortfolioBatch:
+        """Coordinate one checkpointed alpha buy one microsecond after its cutoff."""
+        request = replace(
+            cls._decision(identity, decision_at, quote),
+            checkpoint=f"checkpoint-{identity}".encode(),
+        )
+        return PortfolioBatch(
+            identity=identity,
+            at=decision_at + timedelta(microseconds=1),
+            decisions=(PortfolioDecision(request=request, context=cls._context()),),
+        )
+
+    @classmethod
+    def _end_authority(
+        cls,
+        barrier: Literal["stale_input", "expired", "revoked"],
+        admin: AccountJournal,
+        grant: PaperAuthorization,
+        clock: _PaperClock,
+    ) -> str:
+        """Age the original inputs or end the grant; return the refusal of new content."""
+        if barrier == "stale_input":
+            clock.at = cls._at(25)
+            return "paper_input_stale_or_future"
+        if barrier == "expired":
+            clock.at = cls._at(31)
+            return "paper_authorization_expired_or_not_yet_valid"
+        revoked_at = clock.at + timedelta(seconds=1)
+        clock.at = revoked_at
+        admin.revoke_paper("shared", grant.identity, revoked_at)
+        clock.at = revoked_at + timedelta(seconds=1)
+        return "paper_authorization_revoked"
+
+    @pytest.mark.parametrize("barrier", ("stale_input", "expired", "revoked"))
+    def test_exact_decision_retry_returns_saved_result_after_authority_ends(
+        self, tmp_path: Path, barrier: Literal["stale_input", "expired", "revoked"]
+    ) -> None:
+        """Ageing, expiry and revocation fence new content, never the saved outcome."""
+        path = tmp_path / f"admit-{barrier}.sqlite3"
+        admin, worker, clock, _, grant, _ = self._bootstrap(path)
+        quote = self._quote(self._at(12))
+        request = self._decision("retried-buy", self._at(14), quote)
+        clock.at = self._at(14)
+        admitted = worker.admit(request)
+        assert (admitted.status, admitted.reason, len(admitted.orders)) == (
+            "committed",
+            "reserved",
+            1,
+        )
+        new_content_refusal = self._end_authority(barrier, admin, grant, clock)
+        journal = self._journal_rows(path)
+
+        assert worker.admit(request) == admitted
+        assert self._journal_rows(path) == journal
+        with pytest.raises(ValueError, match="decision identity reused with different content"):
+            worker.admit(replace(request, checkpoint=b"changed-continuation"))
+        with pytest.raises(ValueError, match=new_content_refusal):
+            worker.admit(self._decision("new-buy", self._at(14), quote))
+        assert self._journal_rows(path) == journal
+        assert worker.admit(request) == admitted
+        assert [item.order for item in worker.orders()] == list(admitted.orders)
+
+    @pytest.mark.parametrize("barrier", ("stale_input", "expired", "revoked"))
+    def test_exact_batch_retry_returns_saved_result_after_authority_ends(
+        self, tmp_path: Path, barrier: Literal["stale_input", "expired", "revoked"]
+    ) -> None:
+        """Ageing, expiry and revocation fence a new batch, never the saved batch."""
+        path = tmp_path / f"coordinate-{barrier}.sqlite3"
+        admin, worker, clock, _, grant, _ = self._bootstrap(path, maximum_orders=2)
+        quote = self._quote(self._at(12))
+        batch = self._batch("retried-batch", self._at(14), quote)
+        clock.at = batch.at
+        committed = worker.coordinate(batch)
+        assert (committed.status, committed.reason) == ("committed", "reserved")
+        assert (len(committed.children), len(committed.net_orders)) == (1, 1)
+        # A later order uses the grant's last order, so new content is refused on limits.
+        clock.at = self._at(15)
+        later = worker.admit(self._decision("later-buy", self._at(15), quote))
+        assert later.status == "committed"
+        clock.at = self._at(16)
+        with pytest.raises(ValueError, match="paper_authorization_order_limit"):
+            worker.coordinate(self._batch("over-limit-batch", self._at(16), quote))
+        assert worker.portfolio_batch("over-limit-batch") is None
+        new_content_refusal = self._end_authority(barrier, admin, grant, clock)
+        journal = self._journal_rows(path)
+
+        assert worker.coordinate(batch) == committed
+        assert self._journal_rows(path) == journal
+        changed_request = replace(batch.decisions[0].request, checkpoint=b"changed-continuation")
+        changed = replace(batch, decisions=(replace(batch.decisions[0], request=changed_request),))
+        with pytest.raises(
+            ValueError, match="portfolio batch identity reused with different content"
+        ):
+            worker.coordinate(changed)
+        with pytest.raises(ValueError, match=new_content_refusal):
+            worker.coordinate(self._batch("new-batch", self._at(14), quote))
+        assert worker.portfolio_batch("new-batch") is None
+        assert self._journal_rows(path) == journal
+        assert worker.coordinate(batch) == committed
+        assert worker.portfolio_batch(batch.identity) == batch
+
+    def test_exact_retries_return_saved_results_after_replacement_grant_lowers_limit(
+        self, tmp_path: Path
+    ) -> None:
+        """A lower replacement cap refuses new content but not the saved outcomes."""
+        path = tmp_path / "lower-cap.sqlite3"
+        admin, worker, clock, deployment, _, _ = self._bootstrap(path, maximum_orders=2)
+        quote = self._quote(self._at(12))
+        batch = self._batch("capped-batch", self._at(14), quote)
+        clock.at = batch.at
+        committed = worker.coordinate(batch)
+        assert committed.status == "committed"
+        clock.at = self._at(15)
+        later_request = self._decision("later-buy", self._at(15), quote)
+        later = worker.admit(later_request)
+        assert later.status == "committed"
+        # The later decision replaced the batch's order: the first book confirms that
+        # cancellation and the next one fills the later order.
+        worker.match_public_market("shared", self._market("cancel", self._at(15)), self._scenario())
+        clock.at = self._at(16)
+        worker.match_public_market("shared", self._market("fill", self._at(16)), self._scenario())
+        assert sorted(item.order.status for item in worker.orders()) == ["cancelled", "filled"]
+        settled = AccountLedger(worker.accounts()[0].ledger).snapshot()
+        assert settled.positions == (self._quantity("1"),)
+        assert (
+            admin.control(
+                AccountControl(
+                    identity="stop-for-lower-cap",
+                    account_id="shared",
+                    kind="stop",
+                    at=self._at(16),
+                    reason="operator grant replacement",
+                )
+            ).status
+            == "applied"
+        )
+        clock.at = self._at(17)
+        admin.authorize_paper(
+            self._authorization(deployment, identity="lower-cap-session", maximum_orders=1)
+        )
+        assert admin.reconcile(
+            AccountObservation(
+                identity="settled-for-lower-cap", at=self._at(17), snapshot=settled, open_orders=()
+            )
+        )
+        current_quote = self._quote(self._at(17))
+        admin.observe(current_quote)
+        clock.at = self._at(18)
+        successor_owner = admin.claim_paper(
+            "shared",
+            "worker-lower-cap",
+            self.first_release,
+            AccountControl(
+                identity="claim-lower-cap",
+                account_id="shared",
+                kind="restart",
+                at=self._at(18),
+                expected_control_identity="stop-for-lower-cap",
+            ),
+        )
+        successor = AccountJournal(path, self._config(), paper_owner=successor_owner, clock=clock)
+        journal = self._journal_rows(path)
+
+        assert successor.coordinate(batch) == committed
+        assert successor.admit(later_request) == later
+        assert self._journal_rows(path) == journal
+        with pytest.raises(ValueError, match="paper_authorization_order_limit"):
+            successor.coordinate(self._batch("over-lower-cap", self._at(18), current_quote))
+        assert successor.portfolio_batch("over-lower-cap") is None
+        assert self._journal_rows(path) == journal
+
+    def test_exact_retries_still_require_current_owner_clock_and_retained_journal(
+        self, tmp_path: Path
+    ) -> None:
+        """A replaced owner, a regressed clock or a quarantined restore refuses retries."""
+        path = tmp_path / "fenced-retries.sqlite3"
+        admin, worker, clock, _, _, _ = self._bootstrap(path)
+        quote = self._quote(self._at(12))
+        request = self._decision("fenced-buy", self._at(14), quote)
+        clock.at = self._at(14)
+        admitted = worker.admit(request)
+        assert admitted.status == "committed"
+        batch = self._batch("fenced-batch", self._at(14), quote)
+        clock.at = batch.at
+        committed = worker.coordinate(batch)
+        assert committed.status == "committed"
+        clock.at = self._at(15)
+        worker.match_public_market(
+            "shared", self._market("fill-both", self._at(15)), self._scenario()
+        )
+        # The batch replaced the direct order; one book cancels it and fills the batch.
+        assert [item.order.status for item in worker.orders()] == ["cancelled", "filled"]
+        filled = AccountLedger(worker.accounts()[0].ledger).snapshot()
+        assert filled.positions == (self._quantity("1"),)
+        clock.at = self._at(16)
+        assert (
+            admin.control(
+                AccountControl(
+                    identity="stop-for-claim",
+                    account_id="shared",
+                    kind="stop",
+                    at=self._at(16),
+                    reason="operator replacement drill",
+                )
+            ).status
+            == "applied"
+        )
+        clock.at = self._at(17)
+        assert worker.reconcile(
+            AccountObservation(
+                identity="before-replacement", at=self._at(17), snapshot=filled, open_orders=()
+            )
+        )
+        worker.observe(self._quote(self._at(17)))
+        clock.at = self._at(18)
+        successor_owner = admin.claim_paper(
+            "shared",
+            "worker-successor",
+            self.first_release,
+            AccountControl(
+                identity="claim-successor",
+                account_id="shared",
+                kind="restart",
+                at=self._at(18),
+                expected_control_identity="stop-for-claim",
+            ),
+        )
+        successor = AccountJournal(path, self._config(), paper_owner=successor_owner, clock=clock)
+        journal = self._journal_rows(path)
+
+        with pytest.raises(ValueError, match="paper_owner_stale_or_absent"):
+            worker.admit(request)
+        with pytest.raises(ValueError, match="paper_owner_stale_or_absent"):
+            worker.coordinate(batch)
+        assert successor.admit(request) == admitted
+        assert successor.coordinate(batch) == committed
+        clock.at = self._at(17)
+        with pytest.raises(ValueError, match="paper_owner_clock_regressed"):
+            successor.admit(request)
+        with pytest.raises(ValueError, match="paper_owner_clock_regressed"):
+            successor.coordinate(batch)
+        assert self._journal_rows(path) == journal
+        clock.at = self._at(19)
+        admin.quarantine_paper_restore()
+        quarantined = self._journal_rows(path)
+        with pytest.raises(ValueError, match="paper_restore_requires_current_retained_journal"):
+            successor.admit(request)
+        with pytest.raises(ValueError, match="paper_restore_requires_current_retained_journal"):
+            successor.coordinate(batch)
+        assert self._journal_rows(path) == quarantined
+
+    def test_unmanaged_retries_return_saved_results_without_wall_clock_checks(
+        self, tmp_path: Path
+    ) -> None:
+        """Without an installed deployment, retries keep their exact-content contract."""
+        path = tmp_path / "unmanaged.sqlite3"
+        clock = _PaperClock(self._at(14))
+        journal = AccountJournal(path, self._config(), clock=clock)
+        assert journal.reconcile(
+            AccountObservation(
+                identity="opening", at=self._at(1), snapshot=self._opening(), open_orders=()
+            )
+        )
+        quote = self._quote(self._at(12))
+        journal.observe(quote)
+        request = self._decision("unmanaged-buy", self._at(14), quote)
+        admitted = journal.admit(request)
+        assert admitted.status == "committed"
+        batch = self._batch("unmanaged-batch", self._at(14), quote)
+        clock.at = batch.at
+        committed = journal.coordinate(batch)
+        assert committed.status == "committed"
+        clock.at = self._at(31)
+        rows = self._journal_rows(path)
+        assert journal.admit(request) == admitted
+        assert journal.coordinate(batch) == committed
+        assert self._journal_rows(path) == rows
+        with pytest.raises(ValueError, match="decision identity reused with different content"):
+            journal.admit(replace(request, checkpoint=b"changed-continuation"))
+        changed_request = replace(batch.decisions[0].request, checkpoint=b"changed-continuation")
+        with pytest.raises(
+            ValueError, match="portfolio batch identity reused with different content"
+        ):
+            journal.coordinate(
+                replace(batch, decisions=(replace(batch.decisions[0], request=changed_request),))
+            )
