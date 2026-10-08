@@ -106,6 +106,8 @@ class AccountWorkspace:
         # published with it.
         with closing(AccountJournal(self._journal(root), self.config)) as journal:
             journal.quarantine_paper_restore()
+            if not journal.paper_restore_quarantined():
+                raise ValueError("account restore quarantine was not recorded")
         _StoppedAccounts(self.config, self._journal(root), storage="snapshot").validate()
 
     def _require_component(self, manifest: WorkspaceManifest) -> None:

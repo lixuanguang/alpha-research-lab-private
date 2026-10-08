@@ -1474,11 +1474,11 @@ class AccountStateStore:
         a transaction no longer pays a connection's setup and the checkpoint that
         closing the last connection runs; SQLite still checkpoints as the WAL grows.
         A nested or concurrent use gets its own connection, as every use did before.
-        A use that raises, or that leaves its transaction open (an interrupt just after
-        ``BEGIN``, or a failed rollback), closes the reused connection, which rolls the
-        transaction back and releases its locks, as closing each use's connection did;
-        the next use opens another. The connection also closes on ``close`` or when
-        the store is collected.
+        A use that leaves its transaction open (an interrupt just after ``BEGIN``, or a
+        failed rollback) or raises a SQLite error closes the reused connection, which
+        rolls the transaction back and releases its locks, as closing each use's
+        connection did; the next use opens another. A refusal that rolled back keeps
+        it. The connection also closes on ``close`` or when the store is collected.
         """
         if not self._session_lock.acquire(blocking=False):
             with closing(self._connect()) as fresh:
@@ -1491,8 +1491,9 @@ class AccountStateStore:
             connection = self._connection
             try:
                 yield connection
-            except BaseException:
-                self._release()
+            except BaseException as error:
+                if isinstance(error, sqlite3.Error) or connection.in_transaction:
+                    self._release()
                 raise
             if connection.in_transaction:
                 self._release()
@@ -1503,7 +1504,8 @@ class AccountStateStore:
         """Close the reused connection now; a later use opens another.
 
         A journal opened briefly, for example to quarantine a staged restore, closes
-        it before its files move, so no SQLite side file moves with them.
+        it before its files move, so no SQLite side file moves with them. Closing is
+        refused while the connection is lent to a use.
         """
         if not self._session_lock.acquire(blocking=False):
             raise RuntimeError("account store connection is in use")

@@ -500,7 +500,7 @@ class TestPaperRecovery:
         assert published == expected
 
     def test_failed_quarantine_and_mismatched_metadata_never_publish(self, tmp_path: Path) -> None:
-        """A failed staged fence or wrong backup/config identity leaves no restore."""
+        """A failed or unrecorded staged fence or wrong backup/config identity leaves no restore."""
         rig = self._prepare(tmp_path)
         failed_root = tmp_path / "failed-quarantine"
         with patch.object(
@@ -515,6 +515,15 @@ class TestPaperRecovery:
                     expected_manifest_sha256=rig.receipt.manifest_sha256,
                 )
         assert not failed_root.exists()
+        unrecorded_root = tmp_path / "unrecorded-quarantine"
+        with patch.object(AccountJournal, "quarantine_paper_restore", return_value=None):
+            with pytest.raises(ValueError, match="quarantine was not recorded"):
+                rig.workspace.restore(
+                    rig.backup_root,
+                    unrecorded_root,
+                    expected_manifest_sha256=rig.receipt.manifest_sha256,
+                )
+        assert not unrecorded_root.exists()
         wrong_digest_root = tmp_path / "wrong-digest"
         with pytest.raises(ValueError, match="manifest identity differs"):
             rig.workspace.restore(

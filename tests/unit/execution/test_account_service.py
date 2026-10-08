@@ -99,7 +99,7 @@ class _ClientLog(msgspec.Struct, frozen=True):
         """Read the directory's single client log, keeping each result's exact bytes.
 
         A repeated result resolves to the earlier result record whose bytes its
-        SHA-256 names.
+        SHA-256 names; one naming no such record leaves its attempt uncertain.
         """
         (log,) = directory.iterdir()
         requests: dict[str, SentRequest] = {}
@@ -119,7 +119,9 @@ class _ClientLog(msgspec.Struct, frozen=True):
                 held[hashlib.sha256(results[attempt]).hexdigest()] = results[attempt]
             else:
                 assert kind == "repeated_result"
-                results[attempt] = held[msgspec.json.decode(value, type=str)]
+                digest = msgspec.json.decode(value, type=str)
+                if digest in held:
+                    results[attempt] = held[digest]
         return _ClientLog(requests=requests, results=results, errors=errors)
 
     @staticmethod
@@ -252,6 +254,60 @@ class TestSocketRetention:
         assert text.count(b'"repeated_result":"' + hashlib.sha256(first).hexdigest().encode()) == 1
         assert list(log.results.values()) == [first, first, second]
         assert list(log.requests) == list(log.results) and not log.errors
+
+    @staticmethod
+    def _checkpoint_answer(state: str) -> bytes:
+        """Encode one checkpoint read's answer naming the given state."""
+        return DomainCodec().encode_json(
+            AccountExecutionResult(accounts=(), orders=(), checkpoint=state.encode())
+        )
+
+    def test_the_repeat_window_holds_the_latest_64_distinct_results(self) -> None:
+        """A repeat refreshes its result; the 65th distinct result evicts the oldest.
+
+        Answers: A, then B1 to B63 (64 distinct), A again (a repeat, now newest),
+        C (evicting B1, not A), A again (a repeat) and B1 again (in full, evicted).
+        """
+        config = _ActivationFixture._config()
+        owner = PaperOwner(
+            account_id=config.accounts[0].account_id,
+            deployment_sha256="a" * 64,
+            authorization_id="retention-grant",
+            release_identity="b" * 64,
+            owner_id="retention-owner",
+            generation=1,
+        )
+        answer = self._checkpoint_answer
+        first, others, last = answer("A"), [answer(f"B{i}") for i in range(1, 64)], answer("C")
+        replies = (first, *others, first, last, first, others[0])
+        read = AccountExecutionRequest(
+            action="inspect", projection="checkpoint", query_instance="alpha"
+        )
+        with TemporaryDirectory(prefix="paper-retention-", dir=_SOCKET_ROOT) as root:
+            socket_path = Path(root) / "s.sock"
+            with _ReplyService(socket_path, b"\x00", replies):
+                account = SocketPaperAccount(
+                    config=config,
+                    socket_path=socket_path,
+                    requests=Path(root) / "requests",
+                    paper_owner=owner,
+                    timeout_seconds=2,
+                )
+                for _ in replies:
+                    account.execute(read)
+            (log_path,) = (Path(root) / "requests").iterdir()
+            kinds = [
+                next(
+                    key
+                    for key in msgspec.json.decode(line, type=dict[str, msgspec.Raw])
+                    if key != "attempt"
+                )
+                for line in log_path.read_bytes().splitlines()
+                if b'"request":' not in line
+            ]
+            log = _ClientLog.read(Path(root) / "requests")
+        assert kinds == ["result"] * 64 + ["repeated_result", "result", "repeated_result", "result"]
+        assert list(log.results.values()) == list(replies)
 
 
 class _ReplyService:

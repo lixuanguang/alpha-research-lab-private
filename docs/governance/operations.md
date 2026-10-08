@@ -531,9 +531,10 @@ background system daemon or grant private venue authority.
    pending/uncertain orders, then claim a fresh owner before restarting services.
    The supervisor's requests are in `<root>/requests/<account>/<log>.jsonl`: an
    `attempt` with a `request` record but no `result`, `repeated_result` or `error`
-   record has an uncertain outcome. A `repeated_result` names by SHA-256 the
-   earlier `result` record of the same log with exactly those bytes. A `request`
-   record names the payload's action, SHA-256 and
+   record has an uncertain outcome. A `repeated_result` is the SHA-256 of the exact
+   bytes of an earlier `result` record's value in the same log; one that names no
+   such record (possible after a power loss, since results are not synced one by
+   one) is uncertain too. A `request` record names the payload's action, SHA-256 and
    length; the owner service's retained requests, with their exact bytes, are the
    lines of `service-requests/<life>.jsonl` beside the journal. A line whose
    SHA-256 matches holds what was sent; no such line means the service never

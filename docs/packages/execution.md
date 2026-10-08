@@ -164,10 +164,11 @@ This is an atomic local command service with no venue transport, credential
 resolver or submission. Concurrent calls serialize at SQLite; the separately
 described test-venue gateway owns its executing fence and physical reconciliation.
 A journal lends one SQLite connection to its sequential transactions; a nested or
-concurrent use opens its own. A use that raises or leaves its transaction open
-closes that connection, releasing its locks, and the next use opens another.
-`close()` closes it at once; otherwise it closes when the journal is collected.
-Close a briefly opened journal before moving its files.
+concurrent use opens its own. A use that leaves its transaction open or raises a
+SQLite error closes that connection, releasing its locks, and the next use opens
+another; a refusal that rolled back keeps it. `close()` closes it at once and is
+refused while the connection is lent; otherwise it closes when the journal is
+collected. Close a briefly opened journal before moving its files.
 State is pinned
 to exact configuration bytes and uses the `account-runtime` and
 `account-postings` contracts. It establishes correctness for
