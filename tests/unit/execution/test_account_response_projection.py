@@ -195,6 +195,59 @@ class TestAccountMarketMembership:
             )
 
 
+class TestAccountValuation:
+    """Expose one instrument's latest valuation quote without other account state."""
+
+    def test_valuation_reads_the_latest_quote_through_the_installed_boundary(
+        self, tmp_path: Path
+    ) -> None:
+        """A reader sees another writer's newest quote; an unvalued instrument has none."""
+        fixture = _MatchingFixture
+        config = fixture._config()
+        path = tmp_path / "valuation.sqlite3"
+        writer = AccountJournal(path, config)
+        account = _ProjectedAccount(config, AccountJournal(path, config))
+        assert account.valuation(fixture.dimension) is None
+        first = AccountQuote(price=fixture._price("10"), at=fixture.opening_at)
+        later = AccountQuote(
+            price=fixture._price("11"), at=fixture.opening_at + timedelta(seconds=1)
+        )
+        writer.observe(first)
+        writer.observe(later)
+        assert writer.valuation(fixture.dimension) == later
+        assert account.valuation(fixture.dimension) == later
+        request = account.seen_requests[-1]
+        assert request == AccountExecutionRequest(
+            action="inspect", query_instrument=fixture.dimension, projection="valuation"
+        )
+        result = account.journal.result_snapshot(request)
+        assert result == AccountExecutionResult(accounts=(), orders=(), valuation=later)
+        codec = DomainCodec()
+        assert codec.decode_json(codec.encode_json(result), AccountExecutionResult) == result
+        assert codec.decode_json(codec.encode_json(request), AccountExecutionRequest) == request
+
+    @pytest.mark.parametrize(
+        ("changes", "message"),
+        (
+            ({"query_instrument": None}, "requires only an instrument query"),
+            ({"account_id": "shared"}, "requires only an instrument query"),
+            ({"query_instance": "alpha"}, "requires only an instrument query"),
+            ({"projection": "accounts"}, "instrument query requires the valuation projection"),
+        ),
+    )
+    def test_valuation_rejects_missing_or_ambiguous_queries(
+        self, changes: dict[str, object], message: str
+    ) -> None:
+        """The request names exactly one instrument and nothing else."""
+        request = AccountExecutionRequest(
+            action="inspect",
+            query_instrument=_MatchingFixture.dimension,
+            projection="valuation",
+        )
+        with pytest.raises(ValueError, match=message):
+            replace(request, **changes)
+
+
 class TestAccountResponseProjection:
     """Project account responses without reading or replaying more state than they need."""
 

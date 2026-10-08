@@ -68,6 +68,7 @@ from execution.account_state import (
     AccountStateStore,
     AccountTransaction,
     DispatchLease,
+    FirmState,
     SavedDecision,
     _AccountSnapshot,
     _SavedNativeFill,
@@ -75,7 +76,7 @@ from execution.account_state import (
 from execution.paper import PaperMarket
 from execution.paper_authority import PaperActivation, PaperAuthority, PaperOwner
 from execution.records import OrderEvent, OrderState, StepCommit
-from financial_units import DecimalGrid, Money, Quantity
+from financial_units import DecimalGrid, Dimension, Money, Quantity
 from portfolio import ProRataAllocator
 from serialization import DomainCodec
 
@@ -361,6 +362,14 @@ class AccountJournal:
     ) -> AccountExecutionResult:
         """Project one inspection from a single consistent snapshot."""
         state = snapshot.state
+        if request.projection == "valuation":
+            if request.query_instrument is None:
+                raise ValueError("valuation projection requires only an instrument query")
+            return AccountExecutionResult(
+                accounts=(),
+                orders=(),
+                valuation=self._valuation(state, request.query_instrument),
+            )
         if request.projection == "market_membership":
             if request.account_id is None or request.query_market is None:
                 raise ValueError("market membership requires account and market identities")
@@ -654,6 +663,15 @@ class AccountJournal:
     def paper_market_seen(self, account_id: str, market_identity: str) -> bool:
         """Read fresh account membership and recheck the bound managed owner generation."""
         return self._paper.market_seen(account_id, market_identity)
+
+    def valuation(self, instrument: Dimension) -> AccountQuote | None:
+        """Read the latest observed valuation quote of one instrument, if any."""
+        return self._valuation(self._store.read(), instrument)
+
+    @staticmethod
+    def _valuation(state: FirmState, instrument: Dimension) -> AccountQuote | None:
+        """Select the one retained valuation quote of an instrument."""
+        return next((quote for quote in state.quotes if quote.price.per == instrument), None)
 
     def paper_report_facts(
         self, account_id: str

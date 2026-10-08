@@ -151,7 +151,7 @@ class PaperSourceMonitoring:
         clocks: list[PaperSourceClock] = []
         path = root / "deliveries.jsonl"
         for line in path.read_bytes().splitlines() if path.is_file() else ():
-            delivery = codec.decode_json(line, SharedBookDelivery)
+            delivery = SharedBookDelivery.decode(line, codec)
             clocks.append(
                 PaperSourceClock(
                     position=delivery.source.book.position,

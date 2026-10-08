@@ -84,15 +84,16 @@ Supervised instances decide on candidate grids: each instance's candidate
 declares its cadence and UTC grid origin, bounded by source freshness and capture
 idle time, and the signed deployment binds the candidate's identity. Every native
 record is retained and validated in order. At each grid instant the due
-candidates decide from the latest eligible market at or before it; the book that
-crossed the instant then matches outstanding paper orders. Books between instants
-advance the freshest monitoring mark without modeled fills or candidate
-checkpoints; invalid source input still faults promptly. A valid but momentarily
-one-sided or crossed book is unpriced and faults only if no eligible market
-follows within the smaller of source freshness and capture idle time. Retained
-`SharedBookDelivery` records hold each decided instant and whether the book
-matched, for exact replay. This is a declared paper market model rather than
-native-feed downsampling or throughput evidence.
+candidates decide from the latest eligible market at or before it. Every eligible
+book then matches the account's open paper orders under the scenario's entry and
+cancel delays, as dedicated paper matches every market; books between instants
+update the monitoring mark and can fill, but advance no candidate checkpoint.
+Invalid source input still faults promptly. A valid but momentarily one-sided or
+crossed book is unpriced and faults only if no eligible market follows within the
+smaller of source freshness and capture idle time. Retained `SharedBookDelivery`
+records hold each decided instant and whether the book matched, for exact replay.
+This is a declared paper market model rather than native-feed downsampling or
+throughput evidence.
 
 The immutable deployment can bind multiple explicit source/scenario identities
 per account. A versioned active selection can enable an already provisioned

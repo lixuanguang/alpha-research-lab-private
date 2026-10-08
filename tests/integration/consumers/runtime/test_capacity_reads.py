@@ -481,7 +481,7 @@ class TestCapacityReads:
         assert tuple(count for _, _, count in retained) == tuple(map(len, original_lines))
         codec = DomainCodec()
         for quote, payload, count in retained:
-            delivery = codec.decode_json(payload, SharedBookDelivery)
+            delivery = SharedBookDelivery.decode(payload, codec)
             assert delivery.source.book.position == quote.position
             assert delivery.source.available_at == base + timedelta(milliseconds=quote.position + 1)
             assert count == len(codec.encode_json(delivery)) + 1
@@ -531,8 +531,8 @@ class TestCapacityReads:
         """A durable delivery whose index row is pending is partial coverage, not a new quote."""
         index, source, base = self._index(tmp_path)
         codec = DomainCodec()
-        latest = codec.decode_json(
-            source.delivery_path.read_bytes().splitlines()[-1], SharedBookDelivery
+        latest = SharedBookDelivery.decode(
+            source.delivery_path.read_bytes().splitlines()[-1], codec
         )
         fourth = self._next(latest, 3, base)
         self.writer.append(fourth)
@@ -558,8 +558,8 @@ class TestCapacityReads:
         """A half-written next boundary cannot pass as an eligible current read."""
         index, source, base = self._index(tmp_path)
         codec = DomainCodec()
-        latest = codec.decode_json(
-            source.delivery_path.read_bytes().splitlines()[-1], SharedBookDelivery
+        latest = SharedBookDelivery.decode(
+            source.delivery_path.read_bytes().splitlines()[-1], codec
         )
         fourth = self._next(latest, 3, base)
         payload = codec.encode_json(fourth) + b"\n"
@@ -580,6 +580,25 @@ class TestCapacityReads:
         assert completed["delivery_prefix_complete"] is True
         assert completed["quote_position"] == 3
         assert completed["eligible"] is True
+
+    def test_readers_refuse_a_replaced_delivery_format_at_its_first_line(
+        self, tmp_path: Path
+    ) -> None:
+        """Index, replay-parity and result readers refuse another delivery format by its tag."""
+        index, source, _ = self._index(tmp_path)
+        payload = source.delivery_path.read_bytes()
+        assert payload.count(b'"shared-eligible-book-delivery"') == 3
+        source.delivery_path.write_bytes(
+            payload.replace(b'"shared-eligible-book-delivery"', b'"shared-candidate-delivery"')
+        )
+        message = "unsupported shared book delivery schema"
+        with pytest.raises(ValueError, match=message):
+            index.poll()
+        with pytest.raises(ValueError, match=message):
+            index.replay_parity()
+        collector = CapacityResultsCollector(tmp_path, tmp_path)
+        with pytest.raises(ValueError, match=message):
+            collector._delivery_facts(source.delivery_path, source.capture_root, source.request)
 
     def test_native_parity_reports_unattributed_durable_tail(self, tmp_path: Path) -> None:
         """A verified capture tail without delivery cannot count as complete parity."""

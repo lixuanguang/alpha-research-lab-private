@@ -239,7 +239,10 @@ no-fill markets. `paper_report_facts(account_id)` exposes strategy-owned fills a
 their current effective fee links; a corrected-to-zero fee has an explicit zero
 link. `paper_market_seen(account_id, market_identity)` reads fresh membership of
 committed and failed traces in exactly that account. Shared observers use this
-Boolean before observing a quote. Installed clients request `market_membership`
+Boolean before observing a quote. `valuation(instrument)` reads the latest observed
+valuation quote of one instrument; installed clients request the `valuation`
+projection with only `query_instrument`. A shadow account keeps no trace, so a shared
+observer replaying into it skips a book older than that valuation as already applied. Installed clients request `market_membership`
 with `account_id` and `query_market`, avoiding transfer of historical trace bodies;
 managed queries recheck the current bound owner generation in the same snapshot.
 Reconciliation still requires a complete independently supplied

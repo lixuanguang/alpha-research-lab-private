@@ -178,7 +178,7 @@ class TestCapacityFeatures:
         codec = DomainCodec()
         replay = CaptureReplay(source.request.config, book_factory=BookAdapters.create)
         for _, encoded, _ in source.history:
-            replay.apply(codec.decode_json(encoded, SharedBookDelivery).source.record)
+            replay.apply(SharedBookDelivery.decode(encoded, codec).source.record)
         outcome = replay.apply(record)
         row = BookProjection.capture(source.deliveries, record, outcome, replay)
         self._journals[source.name].append(record)
@@ -385,9 +385,9 @@ class TestCapacityFeatures:
         codec = DomainCodec()
         for source in observer.index.sources.values():
             for _, encoded, _ in source.history:
-                fast = codec.decode_json(encoded, _IndexedSharedDelivery)
+                fast = _IndexedSharedDelivery.decode(encoded, codec)
                 assert codec.encode_json(fast) == codec.encode_json(
-                    codec.decode_json(encoded, SharedBookDelivery)
+                    SharedBookDelivery.decode(encoded, codec)
                 )
 
     @staticmethod

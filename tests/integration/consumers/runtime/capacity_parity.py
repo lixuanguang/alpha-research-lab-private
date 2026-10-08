@@ -104,7 +104,7 @@ class _DeliveryStream:
             first = stream.readline()
         if not first.endswith(b"\n"):
             raise ValueError("retained capacity delivery stream is incomplete")
-        self.start = self.codec.decode_json(first[:-1], SharedBookDelivery).source.available_at
+        self.start = SharedBookDelivery.decode(first[:-1], self.codec).source.available_at
 
     @staticmethod
     def order(stream: _DeliveryStream) -> datetime:
@@ -117,7 +117,7 @@ class _DeliveryStream:
             for line in stream:
                 if not line.endswith(b"\n"):
                     raise ValueError("retained capacity delivery stream is incomplete")
-                delivery = self.codec.decode_json(line[:-1], SharedBookDelivery)
+                delivery = SharedBookDelivery.decode(line[:-1], self.codec)
                 if self.codec.encode_json(delivery) != line[:-1]:
                     raise ValueError("capacity delivery differs from canonical event bytes")
                 yield delivery

@@ -386,7 +386,7 @@ class SustainedWorkload(CapacityWorkload):
         scratch: Path,
         reconcile_seconds: int | None,
     ) -> dict[str, object]:
-        """Drive one account's selected books through its policies and a fresh journal."""
+        """Drive one account's books through its policies and a fresh journal."""
         account = next(item for item in service.accounts if item.account_id == account_id)
         venue = self.venue_workload(source.capture.venue)
         opening = self.opening_at + timedelta(seconds=1)

@@ -25,6 +25,7 @@ from execution.account_records import (
 from execution.account_reduction import PaperReductionResult
 from execution.paper import PaperMarket
 from execution.paper_authority import PaperActivation, PaperOwner
+from financial_units import Dimension
 
 
 class PaperAccount(Protocol):
@@ -70,6 +71,10 @@ class PaperAccount(Protocol):
 
     def paper_market_seen(self, account_id: str, market_identity: str) -> bool:
         """Read fresh committed/failed membership under the current bound account owner."""
+        ...
+
+    def valuation(self, instrument: Dimension) -> AccountQuote | None:
+        """Read the latest observed valuation quote of one instrument, if any."""
         ...
 
     def paper_report_facts(

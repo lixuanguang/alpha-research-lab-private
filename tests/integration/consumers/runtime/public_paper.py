@@ -555,7 +555,7 @@ class PublicPaperWorkload:
         groups = tuple(
             (group.coordinated_at, {item.instance_id for item in group.inputs})
             for line in deliveries.read_bytes().splitlines()
-            for group in self.codec.decode_json(line, SharedBookDelivery).decisions
+            for group in SharedBookDelivery.decode(line, self.codec).decisions
         )
         owner = {
             child.order.identity: child.instance_id
@@ -828,7 +828,7 @@ class PublicPaperWorkload:
                 delivery_path=None,
             )
             for line in (output / "run/deliveries.jsonl").read_bytes().splitlines():
-                observer.deliver(self.codec.decode_json(line, SharedBookDelivery))
+                observer.deliver(SharedBookDelivery.decode(line, self.codec))
             assert before == self.codec.encode_json(
                 (journal.accounts(), journal.orders(), journal.net_orders(), journal.paper_traces())
             )
@@ -1503,7 +1503,7 @@ class PublicPaperWorkload:
         if not lines or not deliveries_bytes.endswith(b"\n"):
             raise ValueError("retained public delivery log is empty or incomplete")
         for line in lines:
-            delivery = self.codec.decode_json(line, SharedBookDelivery)
+            delivery = SharedBookDelivery.decode(line, self.codec)
             if self.codec.encode_json(delivery) != line:
                 raise ValueError("retained public delivery differs from canonical event bytes")
             observer.deliver(delivery)

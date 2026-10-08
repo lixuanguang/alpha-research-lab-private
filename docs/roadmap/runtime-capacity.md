@@ -89,6 +89,16 @@ after dropping revisions fails.
 | Sustained (counted 2026-10-03) | About 50 minutes under one-hour grants: segment rollover in signed capture, an order-light mix, an injected owner death and four-owner recovery | Every latency target in every 300 s window; recovery progressed in 11.06 s | `logs/runtime-capacity/stage2a-counted/` |
 | Grant denial (2026-10-06) | Signed 26-hour grant form: a 10-minute grant after expiry, and a revoked 26-hour grant | New exposure and claims refused; protective stops applied; neither grant renewed | `~/AlphaResearchEvidence.noindex/runtime-capacity/stage2b-denial-2` |
 
+Every result above was measured while the shared paper observer matched only the
+grid-selected books: the first eligible book at or after each crossing or decision.
+Shared paper now matches every eligible priced book (step 2 of the paper remediation
+plan, `logs/audits/2026-10-08-paper-orders-accounts-recovery-remediation-plan.md`),
+which raises matching and account-transaction frequency. These results remain evidence
+for their own revisions, not for the current per-book path, which that plan's step 3
+measures; the budgets are unchanged. In this profile a "selected" book is one that
+decides a three-second grid instant; the per-book `market_selected` measurement now
+equals `market_eligible`, so selected economic books are the deciding books.
+
 ## Day run
 
 The approved declaration (owner, 2026-10-07). Targets and budgets are the launch

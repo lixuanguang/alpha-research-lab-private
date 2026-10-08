@@ -174,7 +174,7 @@ class TargetClipPolicy(_ClipParameters):
     """Hold one constant long clip as an absolute target position.
 
     The account lowers an unmet target to one immediate-or-cancel buy at the ask, so
-    the position opens within a few selected books. Every later checkpoint then
+    the position opens within a few decisions. Every later checkpoint then
     commits as ``target_matched`` without an order, including after a recovery that
     retains the position. This engineering workload makes no profitability claim.
     """

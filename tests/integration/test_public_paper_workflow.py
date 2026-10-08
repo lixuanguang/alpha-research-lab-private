@@ -123,3 +123,24 @@ class TestPublicPaperWorkflow:
             "paper_traces",
         }
         assert original == {name: (output / name).read_bytes() for name in retained}
+        if not dedicated and not no_trade and adverse == "0.50":
+            # A delivery log in the replaced format is refused at its first line.
+            deliveries = output / "run/deliveries.jsonl"
+            verified = (output / "replay-verification.json").read_bytes()
+            deliveries.write_bytes(
+                original["run/deliveries.jsonl"].replace(
+                    b'"shared-eligible-book-delivery"', b'"shared-candidate-delivery"'
+                )
+            )
+            refused = subprocess.run(
+                [*command, "--replay"],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=90,
+                check=False,
+            )
+            deliveries.write_bytes(original["run/deliveries.jsonl"])
+            assert refused.returncode != 0
+            assert "unsupported shared book delivery schema" in refused.stderr
+            assert (output / "replay-verification.json").read_bytes() == verified

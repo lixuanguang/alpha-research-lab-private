@@ -36,6 +36,7 @@ from execution.account_records import (
 from execution.account_reduction import PaperReductionResult
 from execution.paper import PaperMarket
 from execution.paper_authority import PaperActivation, PaperOwner
+from financial_units import Dimension
 from serialization import DomainCodec
 
 
@@ -124,6 +125,7 @@ class InstalledPaperAccount:
         instance: str | None = None,
         batch: str | None = None,
         market: str | None = None,
+        instrument: Dimension | None = None,
         projection: AccountResponseProjection = "full",
     ) -> AccountExecutionResult:
         """Query fresh state without replaying any execution operation."""
@@ -134,6 +136,7 @@ class InstalledPaperAccount:
                 query_instance=instance,
                 query_batch=batch,
                 query_market=market,
+                query_instrument=instrument,
                 projection=projection,
                 paper_owner=self.paper_owner if projection == "market_membership" else None,
             )
@@ -175,6 +178,10 @@ class InstalledPaperAccount:
         if type(result.market_seen) is not bool:
             raise ValueError("installed paper response lacks Boolean market membership")
         return result.market_seen
+
+    def valuation(self, instrument: Dimension) -> AccountQuote | None:
+        """Read the latest observed valuation quote of one instrument from installed state."""
+        return self._inspect(instrument=instrument, projection="valuation").valuation
 
     def paper_report_facts(
         self, account_id: str

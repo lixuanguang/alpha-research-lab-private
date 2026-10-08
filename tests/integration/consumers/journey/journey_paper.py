@@ -746,7 +746,7 @@ class DeliveryLogs:
     def books(self) -> tuple[SharedBookDelivery, ...]:
         """Decode the account's retained book deliveries in order."""
         return tuple(
-            self.codec.decode_json(line, SharedBookDelivery)
+            SharedBookDelivery.decode(line, self.codec)
             for line in self.book_log.read_bytes().splitlines()
         )
 

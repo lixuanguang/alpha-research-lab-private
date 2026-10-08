@@ -468,12 +468,12 @@ fields, and a trades feed fault faults the source's accounts like a book fault.
 candidate and prints its candidate, policy, model and feature identities, and the
 pinned feature stream of a candidate served from the feature store. Native records
 remain retained and validated in order. At each candidate grid instant the due
-candidates decide from the latest eligible market at or before it, and the book
-that crossed the instant matches orders. Books between instants update the
-monitoring mark without matching orders, posting paper fills or advancing
+candidates decide from the latest eligible market at or before it. Every eligible
+book matches the account's open orders under the scenario's entry and cancel delays;
+books between instants update the monitoring mark and can fill, but never advance
 candidate checkpoints. Source invalidation still faults immediately. Retained
-`SharedBookDelivery` records hold each decided instant and whether the book
-matched, for exact replay. This models selected paper opportunities and does not
+`SharedBookDelivery` records hold each decided instant and whether the book matched,
+for exact replay. This models paper execution on every eligible book and does not
 qualify feed throughput or runtime capacity.
 
 The supervisor consumes at most one durable frame per source per pass. When the

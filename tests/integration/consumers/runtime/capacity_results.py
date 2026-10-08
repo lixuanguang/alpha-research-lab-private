@@ -812,7 +812,7 @@ class CapacityResultsCollector:
         for line in self._read_lines(path):
             if matched >= len(raw):
                 raise ValueError(f"delivery extends beyond acknowledged raw capture: {path}")
-            delivery = self.codec.decode_json(line, SharedBookDelivery)
+            delivery = SharedBookDelivery.decode(line, self.codec)
             delivery.__post_init__()
             record = raw[matched]
             if delivery.source.record != record:

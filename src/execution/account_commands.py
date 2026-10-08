@@ -39,6 +39,7 @@ from execution.account_reduction import PaperReductionRequest, PaperReductionRes
 from execution.paper import PaperMarket
 from execution.paper_authority import PaperActivation, PaperOwner
 from execution.records import OrderEvent, OrderState, StepCommit
+from financial_units import Dimension
 from serialization import DomainCodec, WireRecord
 from telemetry import OperationAlert
 
@@ -53,6 +54,7 @@ type AccountResponseProjection = Literal[
     "quarantine",
     "traces",
     "market_membership",
+    "valuation",
     "reconciliation",
     "facts",
     "residuals",
@@ -112,6 +114,7 @@ class AccountExecutionRequest(WireRecord, frozen=True):
     query_instance: str | None = None
     query_batch: str | None = None
     query_market: str | None = None
+    query_instrument: Dimension | None = None
     instance_id: str | None = None
     at: datetime | None = None
     account_id: str | None = None
@@ -138,6 +141,7 @@ class AccountExecutionRequest(WireRecord, frozen=True):
             "quarantine",
             "traces",
             "market_membership",
+            "valuation",
             "reconciliation",
             "facts",
             "residuals",
@@ -168,6 +172,14 @@ class AccountExecutionRequest(WireRecord, frozen=True):
                 raise ValueError("market membership requires only an account and market query")
         elif self.query_market is not None:
             raise ValueError("market query requires the membership projection")
+        if self.projection == "valuation":
+            if type(self.query_instrument) is not Dimension or any(
+                value is not None
+                for value in (self.account_id, self.query_instance, self.query_batch)
+            ):
+                raise ValueError("valuation projection requires only an instrument query")
+        elif self.query_instrument is not None:
+            raise ValueError("instrument query requires the valuation projection")
         if self.projection == "reconciliation" and (
             type(self.account_id) is not str or not self.account_id
         ):
@@ -383,6 +395,7 @@ class AccountExecutionResult(WireRecord, frozen=True):
     reduction_result: PaperReductionResult | None = None
     claimed_owner: PaperOwner | None = None
     market_seen: bool | None = None
+    valuation: AccountQuote | None = None
     # The account's knowledge clock, answered only by the reconciliation projection:
     # an observation stamped at it is never earlier than the account's own facts.
     known_at: datetime | None = None
@@ -393,6 +406,8 @@ class AccountExecutionResult(WireRecord, frozen=True):
             raise ValueError("account application cannot submit")
         if self.market_seen is not None and type(self.market_seen) is not bool:
             raise ValueError("market membership result must be Boolean")
+        if self.valuation is not None:
+            self.valuation.__post_init__()
         if self.known_at is not None:
             self._require_utc(self.known_at, field_name="account knowledge")
         for account in self.accounts:

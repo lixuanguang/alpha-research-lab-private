@@ -286,7 +286,13 @@ uv run --frozen alpha-governance-artifacts run \
    commitments until the paper matcher produces its terminal outcome. Expiry
    and revocation also leave existing obligations and reservations intact.
 6. To **request position reduction**, send `reduce_paper` with instance, quantity,
-   a fresh observed quote, explicit sell limit and maximum fee. Accepted means
+   a fresh observed quote, explicit sell limit and maximum fee. While a shared
+   observer is live it observes every eligible book, so take the quote from the
+   account's `valuation` projection (`inspect` with only `query_instrument`) and
+   send it unchanged; on `unobserved_quote` read it again and resend. Never send a
+   `quote` of your own then: one stamped after a book's availability but applied
+   before that book's own observation makes the observer's observation regress,
+   which faults the account and stops its matching. Accepted means
    an IOC sell reservation. Only subsequent eligible public liquidity can create
    fills. Stale/disconnected input, unknown outcomes, unreconciled state or
    insufficient owned inventory produce explicit refusal; budget ceilings never
@@ -462,10 +468,10 @@ background system daemon or grant private venue authority.
    candidate before signing: a reference formula, or a packaged candidate from the
    paper-services release (see the next section). Its cadence is bounded by source
    freshness and capture idle time, and the deployment binds the candidate's
-   identity. Every native book is retained/validated; only the
-   book that crosses a decision instant matches, after the due candidates decide.
-   Books between instants update monitoring marks, while source faults remain
-   immediate.
+   identity. Every native book is retained/validated; the due candidates decide on
+   the first delivery after their instant, and every eligible book matches open
+   orders under the scenario's entry and cancel delays. Books between instants
+   update monitoring marks and can fill; source faults remain immediate.
 2. Start each target through `alpha-governance-artifacts run ... -- account
    --request SERVE.json`, with action `serve_paper`, the claimed owner, absolute
    socket path and `service_seconds` no greater than 120. Start the supervisor from
