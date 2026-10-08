@@ -11,7 +11,7 @@ from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 from types import MethodType
-from typing import cast
+from typing import ClassVar, cast
 
 # third party library imports
 import msgspec
@@ -173,6 +173,29 @@ class TestAccountStateCache:
         return row[0]
 
 
+class _FailingRollback(sqlite3.Connection):
+    """Fail armed rollbacks, leaving their transactions open as an interrupt would."""
+
+    failures: ClassVar[int] = 0
+
+    def rollback(self) -> None:
+        """Raise while armed; otherwise roll back."""
+        if _FailingRollback.failures:
+            _FailingRollback.failures -= 1
+            raise sqlite3.OperationalError("disk I/O error")
+        super().rollback()
+
+    @staticmethod
+    def connect(store: AccountStateStore) -> sqlite3.Connection:
+        """Open the store's connection as the store does, with this rollback."""
+        connection = sqlite3.connect(
+            store.path, timeout=5, check_same_thread=False, factory=_FailingRollback
+        )
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=FULL")
+        return connection
+
+
 class _CountedConnections:
     """Count the connections an account store opens."""
 
@@ -235,6 +258,53 @@ class TestAccountStoreConnection:
         assert counted.opened == 4
         assert store.read().stopped_instances == ("beta",)
         assert counted.opened == 4
+
+    def test_a_use_that_leaves_its_transaction_open_discards_the_connection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed rollback neither wedges the store nor keeps its write lock.
+
+        Each rollback below fails, leaving its transaction open on the reused
+        connection, as an interrupt just after ``BEGIN IMMEDIATE`` would. A writer on
+        another connection then takes the lock at once, and the same store's next read
+        and write apply.
+        """
+        fixture = _AccountFixture
+        path = tmp_path / "rollback.sqlite3"
+        monkeypatch.setattr(AccountStateStore, "_connect", _FailingRollback.connect)
+        store = AccountJournal(path, fixture._config())._store
+        monkeypatch.setattr(_FailingRollback, "failures", 1)
+        with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
+            with store.write() as transaction:
+                transaction.state = replace(transaction.state, stopped_instances=("lost",))
+                raise RuntimeError("abandon the write")
+        with closing(sqlite3.connect(path, timeout=0)) as other:
+            other.execute("BEGIN IMMEDIATE")
+            other.rollback()
+        with store.write() as transaction:
+            transaction.state = replace(transaction.state, stopped_instances=("kept",))
+        monkeypatch.setattr(_FailingRollback, "failures", 1)
+        with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
+            store.read()
+        assert store.read().stopped_instances == ("kept",)
+
+    def test_closing_a_store_closes_its_connection_and_removes_the_wal(
+        self, tmp_path: Path
+    ) -> None:
+        """An explicitly closed journal releases its connection; a later use reopens one."""
+        fixture = _AccountFixture
+        path = tmp_path / "closed.sqlite3"
+        journal = AccountJournal(path, fixture._config())
+        assert journal.reconcile(
+            fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())
+        )
+        assert path.with_name(path.name + "-wal").exists()
+        journal.close()
+        assert not path.with_name(path.name + "-wal").exists()
+        assert not path.with_name(path.name + "-shm").exists()
+        assert journal.accounts()[0].reconciled_at == fixture.opening_at
+        journal.close()
+        journal.close()
 
     def test_a_collected_store_closes_its_connection_and_checkpoints(self, tmp_path: Path) -> None:
         """Dropping a journal closes its reused connection without a resource warning."""

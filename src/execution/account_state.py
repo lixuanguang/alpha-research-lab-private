@@ -1279,6 +1279,7 @@ class AccountStateStore:
         self._cached_snapshot: tuple[bytes, _LoadedHead] | None = None
         self._rows = StateRows(codec)
         self._connection: sqlite3.Connection | None = None
+        self._finalizer: weakref.finalize[[], AccountStateStore] | None = None
         self._session_lock = threading.Lock()
         path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
@@ -1473,7 +1474,11 @@ class AccountStateStore:
         a transaction no longer pays a connection's setup and the checkpoint that
         closing the last connection runs; SQLite still checkpoints as the WAL grows.
         A nested or concurrent use gets its own connection, as every use did before.
-        The connection closes when the store is collected.
+        A use that raises, or that leaves its transaction open (an interrupt just after
+        ``BEGIN``, or a failed rollback), closes the reused connection, which rolls the
+        transaction back and releases its locks, as closing each use's connection did;
+        the next use opens another. The connection also closes on ``close`` or when
+        the store is collected.
         """
         if not self._session_lock.acquire(blocking=False):
             with closing(self._connect()) as fresh:
@@ -1482,10 +1487,36 @@ class AccountStateStore:
         try:
             if self._connection is None:
                 self._connection = self._connect()
-                weakref.finalize(self, self._connection.close)
-            yield self._connection
+                self._finalizer = weakref.finalize(self, self._connection.close)
+            connection = self._connection
+            try:
+                yield connection
+            except BaseException:
+                self._release()
+                raise
+            if connection.in_transaction:
+                self._release()
         finally:
             self._session_lock.release()
+
+    def close(self) -> None:
+        """Close the reused connection now; a later use opens another.
+
+        A journal opened briefly, for example to quarantine a staged restore, closes
+        it before its files move, so no SQLite side file moves with them.
+        """
+        if not self._session_lock.acquire(blocking=False):
+            raise RuntimeError("account store connection is in use")
+        try:
+            self._release()
+        finally:
+            self._session_lock.release()
+
+    def _release(self) -> None:
+        """Close and forget the reused connection; closing an absent one does nothing."""
+        if self._finalizer is not None:
+            self._finalizer()
+        self._connection, self._finalizer = None, None
 
     def _connect(self) -> sqlite3.Connection:
         """Open a durable bounded SQLite connection shared by all firm clients.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import gc
 import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -466,6 +467,37 @@ class TestPaperRecovery:
             == final_outcome
         )
         assert reopened_current.paper_trace("shared", last_market.identity) == final_trace
+
+    def test_a_restore_publishes_exactly_the_backup_s_files(self, tmp_path: Path) -> None:
+        """No SQLite side file of the staged quarantine is published, whenever GC runs.
+
+        The staged journal is quarantined through its owner before publication. With
+        garbage collection held off, that journal's connection must still be closed
+        before the staging directory is published, so the restore holds exactly the
+        files the backup's payload holds.
+        """
+        rig = self._prepare(tmp_path)
+        payload = rig.backup_root / "payload"
+        expected = sorted(
+            str(path.relative_to(payload)) for path in payload.rglob("*") if path.is_file()
+        )
+        restored_root = tmp_path / "restored-exact"
+        gc.disable()
+        try:
+            rig.workspace.restore(
+                rig.backup_root,
+                restored_root,
+                expected_manifest_sha256=rig.receipt.manifest_sha256,
+            )
+            published = sorted(
+                str(path.relative_to(restored_root))
+                for path in restored_root.rglob("*")
+                if path.is_file()
+            )
+        finally:
+            gc.enable()
+        assert "state/accounts.sqlite3" in expected
+        assert published == expected
 
     def test_failed_quarantine_and_mismatched_metadata_never_publish(self, tmp_path: Path) -> None:
         """A failed staged fence or wrong backup/config identity leaves no restore."""

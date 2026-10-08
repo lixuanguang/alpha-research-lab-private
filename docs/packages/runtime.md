@@ -467,6 +467,9 @@ Keep compatible signed artifacts/trust separately and reconcile missing facts
 before any explicit selection and restart. An older stopped snapshot can be
 restored for recovery inspection; managed paper quarantines a restored journal
 before publication, so it cannot resume, claim, reduce or match from that copy.
+The quarantine's connection closes before the staged journal is checked again as
+a standalone snapshot, so a restore publishes exactly the backup's files, with no
+SQLite side files.
 This local operation provides no external venue-generation or anti-rewind
 attestation.
 

@@ -148,6 +148,14 @@ class AccountJournal:
             clock=self._now,
         )
 
+    def close(self) -> None:
+        """Close the journal's SQLite connection now; a later call opens another.
+
+        The journal otherwise keeps one connection for its life, closed when it is
+        collected. Close a briefly opened journal before moving its files.
+        """
+        self._store.close()
+
     def _now(self) -> datetime:
         """Read current UTC at every economic boundary, independently of event time."""
         at = datetime.now(UTC) if self._clock is None else self._clock()
