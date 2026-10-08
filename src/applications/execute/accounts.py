@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 import time
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -191,11 +192,45 @@ class AccountExecutionApplication:
                 journal_path = (
                     Path(request.restore_root) / journal_path.parent.name / journal_path.name
                 )
-        journal = (
+        if opened_journal is not None:
+            return self._command(
+                opened_journal,
+                request,
+                journal_path=journal_path,
+                release_identity=release_identity,
+                telemetry_path=telemetry_path,
+                recovery=recovery,
+                phases=phases,
+            )
+        # A one-shot command owns the journal it opens and closes it with the command,
+        # so its SQLite connection and WAL never outlive the command: an in-process
+        # caller may inventory or move the journal's files next.
+        with closing(
             AccountJournal(journal_path, config, paper_owner=request.paper_owner)
-            if opened_journal is None
-            else opened_journal
-        )
+        ) as journal:
+            return self._command(
+                journal,
+                request,
+                journal_path=journal_path,
+                release_identity=release_identity,
+                telemetry_path=telemetry_path,
+                recovery=recovery,
+                phases=phases,
+            )
+
+    def _command(
+        self,
+        journal: AccountJournal,
+        request: AccountExecutionRequest,
+        *,
+        journal_path: Path,
+        release_identity: str | None,
+        telemetry_path: Path | None,
+        recovery: AccountRecoveryReceipt | None,
+        phases: dict[str, int] | None,
+    ) -> AccountExecutionResult:
+        """Apply one validated request to its journal and project the response."""
+        codec = self._codec
         alert_store = OperationalAlerts(journal_path.with_suffix(".alerts.sqlite3"))
         control: AccountControlResult | None = None
         alert_error: str | None = None

@@ -466,7 +466,9 @@ its instance, decision identity and time, `committed` or `rejected` status, reas
 and the quote legs admission dropped with their reasons. A rejected batch's
 decisions carry the batch's refusal reason. The service reuses its opened
 journal handle after checking the exact configuration, path and owner; each
-query and economic transaction still reads current SQLite state. Neither response
+query and economic transaction still reads current SQLite state. A one-shot
+command closes the journal it opened when it ends, so no SQLite side file
+outlives it. Neither response
 projection nor handle reuse changes admission checks. The store may reuse a fully
 validated immutable decode only when freshly read configuration and payload bytes
 match exactly. Changed payloads are decoded and validated before use; committed

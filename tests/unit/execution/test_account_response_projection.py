@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import gc
 from datetime import timedelta
 from pathlib import Path
 
@@ -432,6 +433,38 @@ class TestAccountResponseProjection:
         )
         (stopped,) = journal.result_snapshot(statuses).account_statuses
         assert (stopped.phase, stopped.active_control_identity) == ("stopped", "stop")
+
+    def test_a_one_shot_command_closes_the_journal_it_opened(self, tmp_path: Path) -> None:
+        """No SQLite side file outlives a one-shot command, whenever GC runs.
+
+        An installer inventories the state directory right after the command, so the
+        command's own connection must close with it: only the journal file remains.
+        """
+        fixture = _AccountFixture
+        config = fixture._config()
+        state = tmp_path / "state"
+        state.mkdir()
+        config_path = tmp_path / "config.json"
+        request_path = tmp_path / "block.json"
+        codec = DomainCodec()
+        config_path.write_bytes(codec.encode_json(config))
+        request_path.write_bytes(
+            codec.encode_json(
+                AccountExecutionRequest(action="block", account_id="shared", reason="one-shot")
+            )
+        )
+        gc.disable()
+        try:
+            result = AccountExecutionApplication().run(
+                config_path=config_path,
+                journal_path=state / "accounts.sqlite3",
+                request_path=request_path,
+            )
+            remaining = sorted(path.name for path in state.iterdir())
+        finally:
+            gc.enable()
+        assert result.accounts[0].operator_block == "one-shot"
+        assert remaining == ["accounts.sqlite3"], remaining
 
     @staticmethod
     def _forbidden_read() -> None:
