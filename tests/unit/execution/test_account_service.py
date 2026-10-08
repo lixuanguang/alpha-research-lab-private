@@ -96,11 +96,16 @@ class _ClientLog(msgspec.Struct, frozen=True):
 
     @staticmethod
     def read(directory: Path) -> _ClientLog:
-        """Read the directory's single client log, keeping each result's exact bytes."""
+        """Read the directory's single client log, keeping each result's exact bytes.
+
+        A repeated result resolves to the earlier result record whose bytes its
+        SHA-256 names.
+        """
         (log,) = directory.iterdir()
         requests: dict[str, SentRequest] = {}
         results: dict[str, bytes] = {}
         errors: dict[str, str] = {}
+        held: dict[str, bytes] = {}
         for line in log.read_bytes().splitlines():
             record = msgspec.json.decode(line, type=dict[str, msgspec.Raw])
             attempt = msgspec.json.decode(record.pop("attempt"), type=str)
@@ -109,8 +114,12 @@ class _ClientLog(msgspec.Struct, frozen=True):
                 errors[attempt] = msgspec.json.decode(value, type=str)
             elif kind == "request":
                 requests[attempt] = DomainCodec().decode_json(value, SentRequest)
-            else:
+            elif kind == "result":
                 results[attempt] = bytes(value)
+                held[hashlib.sha256(results[attempt]).hexdigest()] = results[attempt]
+            else:
+                assert kind == "repeated_result"
+                results[attempt] = held[msgspec.json.decode(value, type=str)]
         return _ClientLog(requests=requests, results=results, errors=errors)
 
     @staticmethod
@@ -175,7 +184,7 @@ class TestSocketRetention:
         with TemporaryDirectory(prefix="paper-retention-", dir=_SOCKET_ROOT) as root:
             socket_path = Path(root) / "s.sock"
             # "refused: " then the first two of the three bytes of one character.
-            with _OneReplyService(socket_path, b"\x01", b"refused: \xe2\x82") as service:
+            with _ReplyService(socket_path, b"\x01", b"refused: \xe2\x82") as service:
                 account = SocketPaperAccount(
                     config=config,
                     socket_path=socket_path,
@@ -198,36 +207,84 @@ class TestSocketRetention:
         )
         assert list(log.errors.values()) == ["refused: \ufffd"] and not log.results
 
+    def test_an_exact_repeated_result_is_kept_once_and_named_by_digest(self) -> None:
+        """A read answered with bytes the log already holds records only their SHA-256.
 
-class _OneReplyService:
-    """Accept one framed request on a local socket and send one fixed reply."""
+        Three reads are answered A, A, B. The log holds A's and B's bytes once each;
+        the second attempt names A's digest, and every attempt's result resolves to
+        the exact bytes the client received.
+        """
+        config = _ActivationFixture._config()
+        owner = PaperOwner(
+            account_id=config.accounts[0].account_id,
+            deployment_sha256="a" * 64,
+            authorization_id="retention-grant",
+            release_identity="b" * 64,
+            owner_id="retention-owner",
+            generation=1,
+        )
+        codec = DomainCodec()
+        first = codec.encode_json(
+            AccountExecutionResult(accounts=(), orders=(), checkpoint=b"first-state")
+        )
+        second = codec.encode_json(
+            AccountExecutionResult(accounts=(), orders=(), checkpoint=b"second-state")
+        )
+        read = AccountExecutionRequest(
+            action="inspect", projection="checkpoint", query_instance="alpha"
+        )
+        with TemporaryDirectory(prefix="paper-retention-", dir=_SOCKET_ROOT) as root:
+            socket_path = Path(root) / "s.sock"
+            with _ReplyService(socket_path, b"\x00", (first, first, second)):
+                account = SocketPaperAccount(
+                    config=config,
+                    socket_path=socket_path,
+                    requests=Path(root) / "requests",
+                    paper_owner=owner,
+                    timeout_seconds=2,
+                )
+                received = [account.execute(read).checkpoint for _ in range(3)]
+            (log_path,) = (Path(root) / "requests").iterdir()
+            text = log_path.read_bytes()
+            log = _ClientLog.read(Path(root) / "requests")
+        assert received == [b"first-state", b"first-state", b"second-state"]
+        assert text.count(b'"result":') == 2
+        assert text.count(b'"repeated_result":"' + hashlib.sha256(first).hexdigest().encode()) == 1
+        assert list(log.results.values()) == [first, first, second]
+        assert list(log.requests) == list(log.results) and not log.errors
 
-    def __init__(self, path: Path, status: bytes, reply: bytes) -> None:
-        """Bind the socket now; serve the single exchange from a thread."""
-        self.status, self.reply = status, reply
+
+class _ReplyService:
+    """Accept framed requests on a local socket and answer each with the next reply."""
+
+    def __init__(self, path: Path, status: bytes, replies: bytes | tuple[bytes, ...]) -> None:
+        """Bind the socket now; serve one exchange per reply from a thread."""
+        self.status = status
+        self.replies = (replies,) if isinstance(replies, bytes) else replies
         self.received: list[bytes] = []
         self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.listener.bind(str(path))
         self.listener.listen(1)
         self.thread = threading.Thread(target=self._serve)
 
-    def __enter__(self) -> _OneReplyService:
-        """Start serving the one exchange."""
+    def __enter__(self) -> _ReplyService:
+        """Start serving the exchanges."""
         self.thread.start()
         return self
 
     def __exit__(self, *details: object) -> None:
-        """Wait for the exchange and close the socket."""
+        """Wait for the exchanges and close the socket."""
         self.thread.join(5)
         self.listener.close()
 
     def _serve(self) -> None:
-        """Read one frame and answer it with the fixed status and reply."""
-        connection, _ = self.listener.accept()
-        with connection:
-            length = int.from_bytes(connection.recv(4, socket.MSG_WAITALL), "big")
-            self.received.append(connection.recv(length, socket.MSG_WAITALL))
-            connection.sendall(self.status + len(self.reply).to_bytes(4, "big") + self.reply)
+        """Read one frame per reply and answer it with the fixed status and that reply."""
+        for reply in self.replies:
+            connection, _ = self.listener.accept()
+            with connection:
+                length = int.from_bytes(connection.recv(4, socket.MSG_WAITALL), "big")
+                self.received.append(connection.recv(length, socket.MSG_WAITALL))
+                connection.sendall(self.status + len(reply).to_bytes(4, "big") + reply)
 
 
 class TestPublicMarketRecovery:

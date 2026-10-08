@@ -9,6 +9,7 @@ import socket
 import struct
 import subprocess  # nosec B404  # [owner=execution; rationale=Bounded signed launcher uses explicit argv without a shell; expires=2027-03-01]
 import threading
+from collections import OrderedDict
 from collections.abc import Iterator
 from pathlib import Path
 from uuid import uuid4
@@ -391,11 +392,15 @@ class SocketPaperAccount(InstalledPaperAccount):
     A command's ``request`` record, under a fresh ``attempt`` identity, is fsynced
     before it is sent; it names the exact payload by ``SentRequest``, whose bytes the
     owner service retains before applying them. The ``result`` or ``error`` record
-    follows the response. An attempt without either record has an uncertain outcome:
-    a timeout or lost response, which this adapter never resubmits.
+    follows the response. A result whose exact bytes this log already holds, among
+    its latest distinct results, is recorded as ``repeated_result``: their SHA-256,
+    naming that earlier ``result`` record, so a repeated read is kept once. An
+    attempt without any of these records has an uncertain outcome: a timeout or
+    lost response, which this adapter never resubmits.
     """
 
     _maximum_bytes = 1_048_576
+    _remembered_results = 64
 
     def __init__(
         self,
@@ -423,6 +428,8 @@ class SocketPaperAccount(InstalledPaperAccount):
         self._codec = DomainCodec()
         self._log = DurableLines(requests / f"{uuid4().hex}.jsonl")
         self._log_lock = threading.Lock()
+        # Digests of the latest distinct results this log holds, oldest first.
+        self._results: OrderedDict[str, None] = OrderedDict()
 
     def execute(self, request: AccountExecutionRequest) -> AccountExecutionResult:
         """Send one retained command and decode one response without retrying."""
@@ -456,12 +463,25 @@ class SocketPaperAccount(InstalledPaperAccount):
         if status != b"\x00":
             raise ValueError("invalid paper account service response")
         decoded = self._codec.decode_json(response, AccountExecutionResult)
-        self._record(attempt, "result", msgspec.Raw(response), sync=False)
+        self._record_result(attempt, response)
         return decoded
 
-    def _record(
-        self, attempt: str, kind: str, value: SentRequest | msgspec.Raw | str, *, sync: bool
-    ) -> None:
+    def _record_result(self, attempt: str, response: bytes) -> None:
+        """Keep a result's bytes once in this log, recording an exact repeat by digest."""
+        digest = hashlib.sha256(response).hexdigest()
+        with self._log_lock:
+            if digest in self._results:
+                line = self._codec.encode_json({"attempt": attempt, "repeated_result": digest})
+                self._log.append(line, sync=False)
+                self._results.move_to_end(digest)
+                return
+            line = self._codec.encode_json({"attempt": attempt, "result": msgspec.Raw(response)})
+            self._log.append(line, sync=False)
+            self._results[digest] = None
+            if len(self._results) > self._remembered_results:
+                self._results.popitem(last=False)
+
+    def _record(self, attempt: str, kind: str, value: SentRequest | str, *, sync: bool) -> None:
         """Append one attributable record of an attempt to this adapter's log."""
         line = self._codec.encode_json({"attempt": attempt, kind: value})
         with self._log_lock:

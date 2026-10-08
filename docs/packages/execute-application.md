@@ -429,8 +429,11 @@ client, `<requests>/<log>.jsonl`: each command's `request` record, with a fresh
 `attempt` identity, is fsynced before it is sent and names the exact payload as a
 `SentRequest` (action, SHA-256 and byte length); the service's retained line holds
 those bytes, so they are kept once. Its `result` or `error` record follows the
-response. An attempt with neither has an uncertain outcome; inspect the journal
-before any new request. A payload the service never retained had no effect.
+response. A result whose exact bytes the log already holds, among its latest 64
+distinct results, is recorded as `repeated_result`, their SHA-256, which names
+that earlier `result` record; a repeated read is kept once. An attempt with none
+of these records has an uncertain outcome; inspect the journal before any new
+request. A payload the service never retained had no effect.
 Retained file counts therefore grow with service lives, not with requests.
 Owner-generation checks remain inside economic transactions. Service startup
 reads only the durable activation, never the trace history, and does not claim,

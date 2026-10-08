@@ -530,8 +530,10 @@ background system daemon or grant private venue authority.
    launcher, reconcile retained requests/results and independent facts, resolve
    pending/uncertain orders, then claim a fresh owner before restarting services.
    The supervisor's requests are in `<root>/requests/<account>/<log>.jsonl`: an
-   `attempt` with a `request` record but no `result` or `error` record has an
-   uncertain outcome. A `request` record names the payload's action, SHA-256 and
+   `attempt` with a `request` record but no `result`, `repeated_result` or `error`
+   record has an uncertain outcome. A `repeated_result` names by SHA-256 the
+   earlier `result` record of the same log with exactly those bytes. A `request`
+   record names the payload's action, SHA-256 and
    length; the owner service's retained requests, with their exact bytes, are the
    lines of `service-requests/<life>.jsonl` beside the journal. A line whose
    SHA-256 matches holds what was sent; no such line means the service never
