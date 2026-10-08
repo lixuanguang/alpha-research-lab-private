@@ -9,6 +9,7 @@ from __future__ import annotations
 
 # standard library imports
 import argparse
+import gzip
 import hashlib
 import os
 import shutil
@@ -925,9 +926,10 @@ class CapacityTrial:
         for definition in self.config.accounts:
             timings = Path(definition.socket_path).with_suffix(".request-timings.jsonl")
             if timings.is_file():
-                shutil.copyfile(
-                    timings, self.output / f"{definition.account_id}.request-timings.jsonl"
-                )
+                # Kept compressed: one row a request, about 600 MB an account-day as text.
+                copy = self.output / f"{definition.account_id}.request-timings.jsonl.gz"
+                with timings.open("rb") as source, gzip.open(copy, "wb", compresslevel=6) as target:
+                    shutil.copyfileobj(source, target)
         phases: dict[str, str] = {}
         for definition in self.config.accounts:
             try:
