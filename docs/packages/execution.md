@@ -249,8 +249,11 @@ The batch retains every original `AccountDecision` and its complete
 `PortfolioContext`. Its coordination time must be strictly later than each
 decision cutoff. A stable batch identity binds the original bytes and outcome;
 an exact retry cannot create another reservation, internal transfer or physical
-order. Each decision's own admission refuses only that decision, rolled back whole
-with its cancel requests, while the batch's other decisions commit together;
+order. The journal resolves that identity first: a retry equal to the saved batch,
+every decision and context included, returns the saved result without a write,
+and any difference rejects as reused content. Each decision's own admission
+refuses only that decision, rolled back whole with its cancel requests, while the
+batch's other decisions commit together;
 `PortfolioCommit.refused` lists each refusal with its reason. Decisions are admitted
 in batch order against the state staged so far, so when strategies contend for the
 same account or firm headroom, cash or holding capacity, the earlier one is
@@ -527,9 +530,16 @@ current wall time and compatible release, then uses the existing fresh independe
 reconciliation/quote and restart checks before incrementing the durable owner
 generation. The returned `PaperOwner` is supplied when reopening the journal.
 Admission and matching recheck its generation inside the economic transaction;
-new exposure also rechecks expiry/revocation and current input freshness. Older
-workers cannot post effects after a replacement claim. Repeated source identities
-retain the original economics and finite liquidity cursor.
+new exposure also rechecks expiry/revocation and current input freshness. An
+exact `admit` or `coordinate` retry, equal to the saved decision or batch, checks
+only the current owner, generation, retained journal and clock, then returns the
+original result with no write or economic effect. Ageing inputs and an expired or
+revoked grant therefore do not block it. A superseded or stale owner, restore
+quarantine or a regressed clock does; after a replacement claim, the current
+successor owner retrieves the original saved outcome. A new identity takes every
+admission check. Older workers cannot post effects after a replacement claim.
+Repeated source identities retain the original economics and finite liquidity
+cursor.
 
 Expiry/revocation prevents new exposure and restart, but the original current
 owner may continue processing existing obligations, including model matching,
@@ -579,9 +589,9 @@ Protective reduction samples current UTC inside the journal transaction. Quote,
 book and independent-state ages are measured at that admission instant; future
 inputs and account ordering still use the request's causal cutoff. An original
 identified result remains retryable after its timestamps age or exposure authority
-expires. Changed content under that identity rejects. A new reduction cannot use
-a nine-second-old request to admit an eighteen-second-old input under a ten-second
-freshness limit.
+expires or is revoked; saved decisions and batches behave the same. Changed content
+under that identity rejects. A new reduction cannot use a nine-second-old request
+to admit an eighteen-second-old input under a ten-second freshness limit.
 
 After shared-parent cancellation, automatic coordination and the explicit residual
 reissue command both require reconciliation covering the terminal physical outcome.

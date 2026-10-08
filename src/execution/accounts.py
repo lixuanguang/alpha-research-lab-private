@@ -737,16 +737,28 @@ class AccountJournal:
             self._admission.observe_quote(transaction, quote)
 
     def admit(self, request: AccountDecision) -> StepCommit:
-        """Atomically reserve child legs and checkpoint the resulting decision."""
+        """Atomically reserve child legs and checkpoint the resulting decision.
+
+        An exact retry needs only the current owner, generation, retained journal and
+        a non-regressed clock: it returns the saved result with no write, even after
+        its inputs aged or exposure authority ended. New content takes every check.
+        """
         request.__post_init__()
         with self._store.write() as transaction:
-            PaperAuthority.require_decision(transaction, request, self.paper_owner, now=self._now())
-            self._require_current_input(transaction, request)
+            PaperAuthority.require_owner(
+                transaction,
+                request.account_id,
+                self.paper_owner,
+                at=self._now(),
+                new_exposure=False,
+            )
             saved = transaction.find_decision(request.instance_id, request.decision.identity)
             if saved is not None:
                 if saved.request != request:
                     raise ValueError("decision identity reused with different content")
                 return saved.result
+            PaperAuthority.require_decision(transaction, request, self.paper_owner, now=self._now())
+            self._require_current_input(transaction, request)
             before = transaction.state
             try:
                 result = self._admission.admit(transaction, request)
@@ -759,11 +771,26 @@ class AccountJournal:
             return result
 
     def coordinate(self, batch: PortfolioBatch) -> PortfolioCommit:
-        """Admit gross risk, cross by policy, and create physical orders atomically."""
+        """Admit gross risk, cross by policy, and create physical orders atomically.
+
+        An exact retry of the whole batch, every decision and context included, needs
+        only the current owner of each named account: it returns the saved result with
+        no write, as `admit` does. New content takes every check.
+        """
         batch.__post_init__()
         if self.config.mode == "shadow" and batch.crossing == "internal_at_quote":
             raise ValueError("shadow mode cannot internally match orders")
         with self._store.write() as transaction:
+            now = self._now()
+            for account_id in sorted({item.request.account_id for item in batch.decisions}):
+                PaperAuthority.require_owner(
+                    transaction, account_id, self.paper_owner, at=now, new_exposure=False
+                )
+            saved = transaction.find_batch(batch.identity)
+            if saved is not None:
+                if saved.batch != batch:
+                    raise ValueError("portfolio batch identity reused with different content")
+                return saved.result
             for item in batch.decisions:
                 PaperAuthority.require_decision(
                     transaction, item.request, self.paper_owner, now=self._now()
