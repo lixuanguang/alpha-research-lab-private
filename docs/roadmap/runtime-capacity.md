@@ -99,28 +99,32 @@ measures; the budgets are unchanged. In this profile a "selected" book is one th
 decides a three-second grid instant; the per-book `market_selected` measurement now
 equals `market_eligible`, so selected economic books are the deciding books.
 
-**Step-3 development diagnostics (uncounted, 2026-10-08, not results).** One 300 s
+**Step-3 development diagnostics (uncounted, 2026-10-09, not results).** One 300 s
 interval of the sustained input, including one 10 s burst at 100 messages a second a
-source, on the development host:
-- Each matched book took about 25 ms at p50 and 85 ms at p99, almost all of it three
-  account requests (membership, quote, match). During the burst the shared observer
-  fell behind until books were stale and faulted all four accounts
-  (`public_input_invalid`), before and after that step's fixes. The day run meets the
-  burst every 300 s, so its receipt and burst budgets are at risk; a per-book path
-  change must be selected and measured before the day-run rehearsal is booked.
-- Account journals grew about 37 MB an account in 300 s (2.6 KB a trace), an
-  estimated 10.7 GB an account-day. `capacity_retention.py` now reports them per
-  account as their own class; no ceiling names them, so they are not graded.
-- At a synthetic day of history (2.2 million traces an account) the cold monitoring
-  and facts reads take 13–16 ms. A full inspection, the trace export and full
-  verification still read every trace and exceeded 300 s. Account backup and restore
-  verify the whole journal: at about 7,800 traces a restore already took 17.5 s of
-  its 30 s limit.
-- Retained account request files no longer grow with requests: one log per process
-  life replaced about 74,000 files an account. The bytes are unchanged: an estimated
-  81 GiB a day of supervisor request logs, which the retention check classes as
-  scratch (8 GiB ceiling), and about 37 GiB of service request logs beside the
-  journals. The retention ceilings are therefore at risk as well.
+source, on the development host; then a synthetic day of account history.
+- **Per-book path.** A matched book is one fenced account command that resolves the
+  market identity, matches and observes the ask in one transaction: about 2.8 ms of
+  service time and 4 ms round trip at p50, against three requests and 25 ms before.
+  Every source took the burst at 100 books a second without a backlog, and no
+  account faulted. Receipt to durable (p99 2.4 ms) and durable to BBO (p99 28 ms)
+  passed; selected book to checkpoint (at most 63 ms) needs 1,000 checkpoints, more
+  than 300 s gives, so it stays unmeasured.
+- **Account journals** grew about 39 MB an account in 300 s (2.6 KB a trace), an
+  estimated 11 GB an account-day. `capacity_retention.py` reports them per account as
+  their own class; no ceiling names them, so they are not graded.
+- **A day of history** (2.2 million traces an account). Monitoring, facts and the
+  full inspection (which now states the trace history's count and hash chain) take
+  10–13 ms; full verification 21 s and the trace export 7 s, in bounded memory.
+  Account backup (87 s) and restore (83 s) of the 10 GB journal still exceed the 30 s
+  installed-command limit: an owner decision. The existing D-b trace-commit target
+  (p99 at most 5 ms) passed on this host at 2.96 ms (`qualified: true`).
+- **Retained scratch bytes.** About 28 MB a 300 s interval (492 MB before step 3),
+  an estimated 7.2 GiB a day: 89 % of the 8 GiB scratch ceiling, so within it but
+  above the 80 % investigation threshold, with the cost attributed. Request logs keep
+  each request's bytes once (the client keeps their SHA-256 and length) and an exact
+  repeated result once; protection reads omit the ledger, which grows with every
+  fill; the trial's timing copies are compressed. The owner services' request logs,
+  about 14 MB an account an interval, stay beside the journals.
 
 ## Day run
 
