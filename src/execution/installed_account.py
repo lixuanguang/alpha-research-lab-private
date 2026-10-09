@@ -64,7 +64,9 @@ class InstalledPaperAccount:
     30 seconds for every other action. The signed launcher keeps its own bound (the
     signed service life plus 60 seconds, 180 seconds if undeclared), so the shorter
     of the two applies. A timeout ends only the wait: the launched command may still
-    complete, so its outcome is uncertain.
+    complete, so its outcome is uncertain. When the launcher's bound expires first, it
+    ends the account command, possibly part-way or after publication, and exits
+    non-zero: that ``RuntimeError`` is uncertain too, not a clean refusal.
     """
 
     _whole_journal_actions = frozenset({"backup", "restore"})
@@ -93,7 +95,8 @@ class InstalledPaperAccount:
         """Retain one exact command and return only a successful validated response.
 
         Raises:
-            RuntimeError: The signed runner rejected the command; no retry is made.
+            RuntimeError: The signed runner rejected the command or ended it at its own
+                bound (an uncertain outcome); no retry is made.
             subprocess.TimeoutExpired: Outcome is uncertain; inspect before recovery.
         """
         request.__post_init__()

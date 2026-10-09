@@ -115,8 +115,11 @@ source, on the development host; then a synthetic day of account history.
 - **A day of history** (2.2 million traces an account). Monitoring, facts and the
   full inspection (which now states the trace history's count and hash chain) take
   10–13 ms; full verification 21 s and the trace export 7 s, in bounded memory.
-  Account backup (87 s) and restore (83 s) of the 10 GB journal still exceed the 30 s
-  installed-command limit: an owner decision. The existing D-b trace-commit target
+  Account backup (87 s) and restore (83 s) of the 10 GB journal exceeded the 30 s the
+  installed account adapter waited. By owner decision the adapter now waits 300 s for
+  backup and restore only, within the signed launcher's own bound. Through the adapter
+  and launcher the same journal backed up in 87.0 s and restored in 83.1 s, verified
+  and quarantined. 300 s does not qualify a larger journal. The existing D-b trace-commit target
   (p99 at most 5 ms) passed on this host at 2.96 ms (`qualified: true`).
 - **Retained scratch bytes.** About 28 MB a 300 s interval (492 MB before step 3),
   an estimated 7.2 GiB a day: 89 % of the 8 GiB scratch ceiling, so within it but

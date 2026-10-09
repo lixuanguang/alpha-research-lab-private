@@ -257,8 +257,11 @@ the journey (3,000 s life) and day (90,000 s) configurations allow the full 300
 seconds. A day-scale journal (about 10 GB) took 83–92 s to back up or restore on
 the development host; 300 seconds does not qualify a larger journal. A timeout
 ends only the wait: the launched command may still complete, so the outcome is
-uncertain and the request is not retried. A completed backup publishes its
-directory, so check whether `backup_root` exists before choosing a new one.
+uncertain and the request is not retried. When the launcher's bound expires
+first, it ends the account command, possibly part-way or after publication, and the
+client reports a non-zero exit (`RuntimeError`): that outcome is uncertain too.
+After either, check whether `backup_root` (or `restore_root`) exists before choosing
+a new one.
 
 The deployment input digest is SHA-256 of
 `DomainCodec().encode_json((capture_config, requirements))`, where `requirements`

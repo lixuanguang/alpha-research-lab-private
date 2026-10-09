@@ -481,20 +481,22 @@ class TestAccountResponseProjection:
         config_path.write_bytes(codec.encode_json(config))
         journal = AccountJournal(state / "accounts.sqlite3", config)
         journal.accounts()
-        connection = journal._store._connection
-        assert connection is not None
-        result = AccountExecutionApplication().run(
-            config_path=config_path,
-            journal_path=state / "accounts.sqlite3",
-            request_payload=codec.encode_json(
-                AccountExecutionRequest(action="block", account_id="shared", reason="served")
-            ),
-            opened_journal=journal,
-        )
-        assert result.accounts[0].operator_block == "served"
-        assert journal._store._connection is connection
-        assert (state / "accounts.sqlite3-wal").exists()
-        journal.close()
+        try:
+            connection = journal._store._connection
+            assert connection is not None
+            result = AccountExecutionApplication().run(
+                config_path=config_path,
+                journal_path=state / "accounts.sqlite3",
+                request_payload=codec.encode_json(
+                    AccountExecutionRequest(action="block", account_id="shared", reason="served")
+                ),
+                opened_journal=journal,
+            )
+            assert result.accounts[0].operator_block == "served"
+            assert journal._store._connection is connection
+            assert (state / "accounts.sqlite3-wal").exists()
+        finally:
+            journal.close()
 
     @staticmethod
     def _forbidden_read() -> None:
