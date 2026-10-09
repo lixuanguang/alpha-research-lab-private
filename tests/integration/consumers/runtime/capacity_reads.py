@@ -16,7 +16,7 @@ import sqlite3
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from multiprocessing.connection import Connection
@@ -46,7 +46,7 @@ from market_data.books import (
     BookRegistry,
     CaptureReplay,
 )
-from market_data.contracts import BookObservation, BookQuote, RecordingRequest
+from market_data.contracts import BookObservation, BookQuote, CaptureRecord, RecordingRequest
 from market_data.storage import CaptureRecording
 from runtime import LiveBookDelivery, SharedBookDelivery
 from serialization import DomainCodec
@@ -309,47 +309,57 @@ class _RetainedBookIndex:
         }
 
     def replay_parity(self) -> dict[str, dict[str, object]]:
-        """Compare all available raw records and retained deliveries at one cursor."""
+        """Compare all available raw records and retained deliveries at one cursor.
+
+        Both sides stream: one decoded delivery and one raw record are held at a time,
+        so memory does not grow with the interval. As before, every line's format is
+        refused by its tag and the delivery count is checked before any comparison,
+        by a first pass that reads only each complete line's tag.
+        """
         findings: dict[str, dict[str, object]] = {}
         for source in self.sources.values():
             replay = CaptureReplay(source.request.config, book_factory=BookAdapters.create)
-            delivered: list[SharedBookDelivery] = []
+            delivered = 0
             with source.delivery_path.open("rb") as stream:
                 for line in stream:
                     if not line.endswith(b"\n"):
                         raise ValueError(f"{source.name} delivery has an incomplete line")
-                    delivered.append(SharedBookDelivery.decode(line, self.codec))
-            if len(delivered) != source.deliveries:
+                    tag = msgspec.json.decode(line, type=_DeliveryTag).schema_version
+                    if tag != _DELIVERY_TAG:
+                        raise ValueError("unsupported shared book delivery schema")
+                    delivered += 1
+            if delivered != source.deliveries:
                 raise ValueError(f"{source.name} delivery changed after final index poll")
-            raw_records = tuple(
+            raw_records = self._durable_records(
                 CaptureRecording(source.capture_root, source.request).records(completed=False)
             )
-            if raw_records and raw_records[-1].reason == "interrupted_persistence_unknown_tail":
-                raw_records = raw_records[:-1]
             matched = 0
-            for position, record in enumerate(raw_records):
-                if position >= len(delivered):
-                    break
-                saved = delivered[position].source
-                if record != saved.record:
-                    raise ValueError(f"{source.name} raw capture differs at {position}")
-                outcome = replay.apply(record)
-                projected = BookProjection.capture(position, record, outcome, replay)
-                if projected != saved.book:
-                    raise ValueError(f"{source.name} native book differs at {position}")
-                matched += 1
-            if matched != len(delivered):
+            with source.delivery_path.open("rb") as stream:
+                for position, line in enumerate(stream):
+                    record = next(raw_records, None)
+                    if record is None:
+                        break
+                    saved = SharedBookDelivery.decode(line, self.codec).source
+                    if record != saved.record:
+                        raise ValueError(f"{source.name} raw capture differs at {position}")
+                    outcome = replay.apply(record)
+                    projected = BookProjection.capture(position, record, outcome, replay)
+                    if projected != saved.book:
+                        raise ValueError(f"{source.name} native book differs at {position}")
+                    matched += 1
+            if matched != delivered:
                 raise ValueError(f"{source.name} delivery extends beyond verified raw cursor")
             remaining_kinds: dict[str, int] = {}
-            for record in raw_records[matched:]:
+            for record in raw_records:
                 remaining_kinds[record.kind] = remaining_kinds.get(record.kind, 0) + 1
+            undelivered = sum(remaining_kinds.values())
             findings[source.name] = {
                 "matched_deliveries": matched,
-                "available_durable_raw_records": len(raw_records),
-                "undelivered_durable_raw_records": len(raw_records) - matched,
+                "available_durable_raw_records": matched + undelivered,
+                "undelivered_durable_raw_records": undelivered,
                 "undelivered_raw_record_kinds": remaining_kinds,
                 "status": "pass_available_cursor_prefix"
-                if len(raw_records) == matched
+                if undelivered == 0
                 else "unmeasured_unattributed_delivery_tail",
                 "request_identity": source.request.identity,
                 "raw_capture_root": str(source.capture_root),
@@ -357,6 +367,27 @@ class _RetainedBookIndex:
                 "trace_identity": replay.summary()["trace_identity"],
             }
         return findings
+
+    @staticmethod
+    def _durable_records(records: Iterator[CaptureRecord]) -> Iterator[CaptureRecord]:
+        """Yield every record except a final one whose persistence is unknown."""
+        previous: CaptureRecord | None = None
+        for record in records:
+            if previous is not None:
+                yield previous
+            previous = record
+        if previous is not None and previous.reason != "interrupted_persistence_unknown_tail":
+            yield previous
+
+
+class _DeliveryTag(msgspec.Struct, frozen=True):
+    """Read only a retained delivery line's format tag."""
+
+    schema_version: object = None
+
+
+# ``SharedBookDelivery``'s retained tag; another tag would refuse every line here.
+_DELIVERY_TAG = "shared-compressed-book-delivery"
 
 
 class _DashboardReader:
