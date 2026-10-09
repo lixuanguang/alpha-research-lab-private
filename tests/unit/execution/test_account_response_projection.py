@@ -466,6 +466,36 @@ class TestAccountResponseProjection:
         assert result.accounts[0].operator_block == "one-shot"
         assert remaining == ["accounts.sqlite3"], remaining
 
+    def test_a_command_on_an_opened_journal_keeps_its_connection(self, tmp_path: Path) -> None:
+        """The owner service's opened journal keeps its one connection across commands.
+
+        Only a journal the command opened is closed with it; the caller's stays open,
+        with its WAL, for the next request.
+        """
+        fixture = _AccountFixture
+        config = fixture._config()
+        state = tmp_path / "state"
+        state.mkdir()
+        config_path = tmp_path / "config.json"
+        codec = DomainCodec()
+        config_path.write_bytes(codec.encode_json(config))
+        journal = AccountJournal(state / "accounts.sqlite3", config)
+        journal.accounts()
+        connection = journal._store._connection
+        assert connection is not None
+        result = AccountExecutionApplication().run(
+            config_path=config_path,
+            journal_path=state / "accounts.sqlite3",
+            request_payload=codec.encode_json(
+                AccountExecutionRequest(action="block", account_id="shared", reason="served")
+            ),
+            opened_journal=journal,
+        )
+        assert result.accounts[0].operator_block == "served"
+        assert journal._store._connection is connection
+        assert (state / "accounts.sqlite3-wal").exists()
+        journal.close()
+
     @staticmethod
     def _forbidden_read() -> None:
         """Fail if an operation-only result asks for a second state read."""
