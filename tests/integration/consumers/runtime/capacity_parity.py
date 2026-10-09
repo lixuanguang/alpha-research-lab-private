@@ -118,7 +118,7 @@ class _DeliveryStream:
                 if not line.endswith(b"\n"):
                     raise ValueError("retained capacity delivery stream is incomplete")
                 delivery = SharedBookDelivery.decode(line[:-1], self.codec)
-                if self.codec.encode_json(delivery) != line[:-1]:
+                if delivery.encode(self.codec) != line[:-1]:
                     raise ValueError("capacity delivery differs from canonical event bytes")
                 yield delivery
 

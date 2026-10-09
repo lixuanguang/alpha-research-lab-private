@@ -147,7 +147,7 @@ class TestCapacityParity:
                 matched=False,
             )
             (source_directory / f"{request.recording_id}-{account.account_id}.jsonl").write_bytes(
-                codec.encode_json(delivery) + b"\n"
+                delivery.encode(codec) + b"\n"
             )
 
         report = CapacityEconomicParity(root, trial).write(tmp_path / "comparison.json")
@@ -256,7 +256,7 @@ class TestCapacityParity:
                 matched=False,
             )
             (source_directory / f"{request.run_id}-{account.account_id}.jsonl").write_bytes(
-                codec.encode_json(delivery) + b"\n"
+                delivery.encode(codec) + b"\n"
             )
 
         report = CapacityEconomicParity(root, trial).write(tmp_path / "comparison.json")
@@ -300,7 +300,7 @@ class TestCapacityParity:
         assert list(_DeliveryStream(request, path))
         path.write_bytes(
             path.read_bytes().replace(
-                b'"shared-eligible-book-delivery"', b'"shared-candidate-delivery"'
+                b'"shared-compressed-book-delivery"', b'"shared-eligible-book-delivery"'
             )
         )
         with pytest.raises(ValueError, match="unsupported shared book delivery schema"):

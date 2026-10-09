@@ -7,6 +7,7 @@ import multiprocessing
 import os
 import threading
 import time
+from compression import zstd
 from datetime import UTC, datetime, timedelta
 from multiprocessing.connection import Connection
 from pathlib import Path
@@ -142,17 +143,15 @@ class TestCapacityFeatures:
                     outcome = replay.apply(record)
                     book = BookProjection.capture(position, record, outcome, replay)
                     output.write(
-                        codec.encode_json(
-                            SharedBookDelivery(
-                                source=LiveBookDelivery(
-                                    record=record,
-                                    book=book,
-                                    available_at=base + timedelta(milliseconds=position + 1),
-                                ),
-                                decisions=(),
-                                matched=False,
-                            )
-                        )
+                        SharedBookDelivery(
+                            source=LiveBookDelivery(
+                                record=record,
+                                book=book,
+                                available_at=base + timedelta(milliseconds=position + 1),
+                            ),
+                            decisions=(),
+                            matched=False,
+                        ).encode(codec)
                         + b"\n"
                     )
                     timings.write(
@@ -184,17 +183,15 @@ class TestCapacityFeatures:
         self._journals[source.name].append(record)
         with source.delivery_path.open("ab") as stream:
             stream.write(
-                codec.encode_json(
-                    SharedBookDelivery(
-                        source=LiveBookDelivery(
-                            record=record,
-                            book=row,
-                            available_at=datetime.now(UTC) - timedelta(microseconds=1),
-                        ),
-                        decisions=(),
-                        matched=False,
-                    )
-                )
+                SharedBookDelivery(
+                    source=LiveBookDelivery(
+                        record=record,
+                        book=row,
+                        available_at=datetime.now(UTC) - timedelta(microseconds=1),
+                    ),
+                    decisions=(),
+                    matched=False,
+                ).encode(codec)
                 + b"\n"
             )
 
@@ -391,10 +388,11 @@ class TestCapacityFeatures:
                 )
 
     @staticmethod
-    def _bids(delivery: dict[str, object]) -> list[list[object]]:
-        """Reach the encoded book's bid levels."""
-        book = cast(dict[str, object], cast(dict[str, object], delivery["source"])["book"])
-        return cast(list[list[object]], book["bids"])
+    def _row(delivery: dict[str, object]) -> dict[str, object]:
+        """Decompress a retained line's book row to its encoded fields."""
+        frame = cast(dict[str, object], delivery["source"])["book_zstd"]
+        compressed = msgspec.json.decode(msgspec.json.encode(frame), type=bytes)
+        return msgspec.json.decode(zstd.decompress(compressed), type=dict[str, object])
 
     @pytest.mark.parametrize("field", ("size", "order_count"))
     def test_corrupted_retained_depth_is_still_refused(self, tmp_path: Path, field: str) -> None:
@@ -405,10 +403,13 @@ class TestCapacityFeatures:
         decoded = [
             msgspec.json.decode(encoded, type=dict[str, object]) for _, encoded, _ in source.history
         ]
-        position = next(index for index, delivery in enumerate(decoded) if self._bids(delivery))
+        rows = [self._row(delivery) for delivery in decoded]
+        position = next(index for index, row in enumerate(rows) if row["bids"])
         quote, _, length = source.history[position]
-        level = cast(dict[str, object], self._bids(decoded[position])[0][1])
+        level = cast(dict[str, object], cast(list[list[object]], rows[position]["bids"])[0][1])
         level[field] = "0" if field == "size" else 0
+        retained_source = cast(dict[str, object], decoded[position]["source"])
+        retained_source["book_zstd"] = zstd.compress(msgspec.json.encode(rows[position]))
         source.history[position] = (quote, msgspec.json.encode(decoded[position]), length)
         with pytest.raises(ValueError, match="aggregate levels"):
             observer.prepare()

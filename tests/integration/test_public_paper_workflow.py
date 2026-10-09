@@ -129,7 +129,7 @@ class TestPublicPaperWorkflow:
             verified = (output / "replay-verification.json").read_bytes()
             deliveries.write_bytes(
                 original["run/deliveries.jsonl"].replace(
-                    b'"shared-eligible-book-delivery"', b'"shared-candidate-delivery"'
+                    b'"shared-compressed-book-delivery"', b'"shared-eligible-book-delivery"'
                 )
             )
             refused = subprocess.run(

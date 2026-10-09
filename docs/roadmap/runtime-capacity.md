@@ -128,6 +128,15 @@ source, on the development host; then a synthetic day of account history.
   repeated result once; protection reads omit the ledger, which grows with every
   fill; the trial's timing copies are compressed. The owner services' request logs,
   about 14 MB an account an interval, stay beside the journals.
+- **Shared delivery logs (found by the day-run rehearsal, 2026-10-09).** Every
+  eligible book was retained with its full reconstructed depth: about 32 KB a line
+  at OKX depth 400. Both OKX accounts reached the log's bound (four times the 1 GiB
+  rehearsal chain) after 81 minutes and faulted. The 300 s diagnostic stayed far below
+  it, and these canonical-class files were outside the scratch projection. Each line
+  now holds the book row as a checksummed zstd frame. On the rehearsal's books a line
+  averages 2,591 bytes at OKX and 1,060 at Bitfinex: an estimated 5.8 and 2.4 GiB a
+  source-day, within the counted chain's 16 GiB bound and the 120 GiB canonical
+  ceiling. The rehearsal is repeated before the counted run.
 
 ## Day run
 

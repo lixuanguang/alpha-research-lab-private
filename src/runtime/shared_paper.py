@@ -6,10 +6,11 @@ from __future__ import annotations
 import hashlib
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from compression import zstd
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal, Self
+from typing import ClassVar, Literal, Self
 
 # third party library imports
 import msgspec
@@ -91,12 +92,24 @@ class SharedBookDelivery(WireRecord, frozen=True):
     snapshot or update with a fresh two-sided touch; so a book that decides a
     source-fed instant always matches. A clock, heartbeat or control may decide
     without matching.
+
+    A retained line (``encode``) holds the book row as the checksummed zstd frame of
+    its exact JSON encoding, ``source.book_zstd``; every other field is the plain
+    encoding. An OKX line at depth 400 averaged about 2.6 KB instead of about 32 KB
+    on the day rehearsal's books, about 5.8 GiB a source-day, within the log's bound.
+    ``decode`` restores the row's exact bytes, requires them to be one JSON object,
+    and then applies the strict typed decode, so readers see the same delivery. The
+    compressed bytes are reproducible only by the same zstd library; a reader that
+    re-encodes to compare lines therefore compares within one installation.
     """
 
     source: LiveBookDelivery
     decisions: tuple[SharedDecisionGroup, ...]
     matched: bool
-    schema_version: Literal["shared-eligible-book-delivery"] = "shared-eligible-book-delivery"
+    schema_version: Literal["shared-compressed-book-delivery"] = "shared-compressed-book-delivery"
+
+    # A row larger than this is refused rather than decompressed without bound.
+    _MAXIMUM_ROW_BYTES: ClassVar[int] = 64 * 1024**2
 
     def __post_init__(self) -> None:
         """Reject unbound decision clocks or out-of-order coordination envelopes."""
@@ -104,12 +117,55 @@ class SharedBookDelivery(WireRecord, frozen=True):
         LiveBookDelivery.__post_init__(self.source)
         self._require_coordination()
 
+    def encode(self, codec: DomainCodec) -> bytes:
+        """Return this delivery's retained line, without its newline."""
+        return self.retained(
+            codec,
+            record=self.source.record,
+            row_payload=codec.encode_json(self.source.book),
+            available_at=self.source.available_at,
+            decisions=self.decisions,
+            matched=self.matched,
+        )
+
+    @staticmethod
+    def retained(
+        codec: DomainCodec,
+        *,
+        record: CaptureRecord,
+        row_payload: bytes,
+        available_at: datetime,
+        decisions: tuple[SharedDecisionGroup, ...],
+        matched: bool,
+    ) -> bytes:
+        """Encode one retained line around a book row's already encoded JSON bytes.
+
+        Raises:
+            ValueError: The row exceeds what ``decode`` restores, so it is never written.
+        """
+        if len(row_payload) > SharedBookDelivery._MAXIMUM_ROW_BYTES:
+            raise ValueError("shared book delivery row exceeds the retained row bound")
+        return codec.encode_json(
+            RetainedSharedBookDelivery(
+                source=RetainedLiveBookDelivery(
+                    record=record,
+                    book_zstd=zstd.compress(row_payload, options=_ROW_COMPRESSION),
+                    available_at=available_at,
+                ),
+                decisions=decisions,
+                matched=matched,
+                schema_version="shared-compressed-book-delivery",
+            )
+        )
+
     @classmethod
     def decode(cls, payload: bytes, codec: DomainCodec) -> Self:
         """Decode one retained delivery line, refusing another format by its tag first.
 
         The tag is read before any other field, so a line in an earlier layout is
         refused as unsupported rather than as whichever field first fails to decode.
+        The compressed row is restored to its exact bytes, within a bound, and the
+        whole delivery then passes the same strict typed decode as a plain one.
 
         Args:
             payload: One complete UTF-8 JSON delivery line, without its newline.
@@ -119,17 +175,47 @@ class SharedBookDelivery(WireRecord, frozen=True):
             The delivery, with every native, decision and coordination check applied.
 
         Raises:
-            ValueError: The line names another schema, or is malformed or inconsistent.
+            ValueError: The line names another schema, or is malformed, oversized or
+                inconsistent.
         """
         if msgspec.json.decode(payload, type=_RetainedDeliverySchema).schema_version != (
-            "shared-eligible-book-delivery"
+            "shared-compressed-book-delivery"
         ):
             raise ValueError("unsupported shared book delivery schema")
-        return codec.decode_json(payload, cls)
+        retained = msgspec.json.decode(payload, type=_CompressedDelivery, strict=True)
+        decompressor = zstd.ZstdDecompressor()
+        try:
+            row = decompressor.decompress(
+                retained.source.book_zstd, max_length=cls._MAXIMUM_ROW_BYTES
+            )
+        except zstd.ZstdError as error:
+            raise ValueError("shared book delivery row is not a valid zstd frame") from error
+        if not decompressor.eof or decompressor.unused_data:
+            raise ValueError("shared book delivery row is truncated, oversized or trailed")
+        # Raw bytes are spliced verbatim, so the row must be exactly one JSON object.
+        try:
+            single = msgspec.json.decode(row, type=msgspec.Raw)
+        except msgspec.DecodeError as error:
+            raise ValueError("shared book delivery row is not one JSON object") from error
+        if not row.startswith(b"{") or bytes(single) != row:
+            raise ValueError("shared book delivery row is not one JSON object")
+        plain = msgspec.json.encode(
+            _PlainDelivery(
+                source=_PlainSource(
+                    record=retained.source.record,
+                    book=msgspec.Raw(row),
+                    available_at=retained.source.available_at,
+                ),
+                decisions=retained.decisions,
+                matched=retained.matched,
+                schema_version=retained.schema_version,
+            )
+        )
+        return codec.decode_json(plain, cls)
 
     def _require_schema(self) -> None:
         """Refuse any other retained delivery format before validating its content."""
-        if self.schema_version != "shared-eligible-book-delivery":
+        if self.schema_version != "shared-compressed-book-delivery":
             raise ValueError("unsupported shared book delivery schema")
 
     def _require_coordination(self) -> None:
@@ -174,6 +260,13 @@ class ObservedSharedBookDelivery(SharedBookDelivery, frozen=True):
         self._require_coordination()
 
 
+# Level 3 with the frame's content checksum, so a damaged frame fails to decompress.
+_ROW_COMPRESSION: Mapping[int, int] = {
+    zstd.CompressionParameter.compression_level: 3,
+    zstd.CompressionParameter.checksum_flag: 1,
+}
+
+
 class _RetainedDeliverySchema(msgspec.Struct, frozen=True):
     """Read only a retained delivery line's format tag; other fields are not decoded."""
 
@@ -181,20 +274,54 @@ class _RetainedDeliverySchema(msgspec.Struct, frozen=True):
 
 
 class RetainedLiveBookDelivery(msgspec.Struct, frozen=True, kw_only=True):
-    """Encode ``LiveBookDelivery`` around row bytes the live source already encoded."""
+    """Encode ``LiveBookDelivery`` with its row as the zstd frame of its JSON bytes."""
 
     record: CaptureRecord
-    book: msgspec.Raw
+    book_zstd: bytes
     available_at: datetime
 
 
 class RetainedSharedBookDelivery(msgspec.Struct, frozen=True, kw_only=True):
-    """Encode ``SharedBookDelivery`` with the same fields; the sorted encoder fixes order."""
+    """Encode ``SharedBookDelivery``'s retained line; the sorted encoder fixes order."""
 
     source: RetainedLiveBookDelivery
     decisions: tuple[SharedDecisionGroup, ...]
     matched: bool
     schema_version: str
+
+
+class _CompressedSource(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    """Read a retained source with its untouched fields as raw JSON."""
+
+    record: msgspec.Raw
+    book_zstd: bytes
+    available_at: msgspec.Raw
+
+
+class _CompressedDelivery(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    """Read a retained line's fields; only the row is decompressed."""
+
+    source: _CompressedSource
+    decisions: msgspec.Raw
+    matched: msgspec.Raw
+    schema_version: msgspec.Raw
+
+
+class _PlainSource(msgspec.Struct, frozen=True):
+    """Rebuild a source's plain JSON around its restored row bytes."""
+
+    record: msgspec.Raw
+    book: msgspec.Raw
+    available_at: msgspec.Raw
+
+
+class _PlainDelivery(msgspec.Struct, frozen=True):
+    """Rebuild a delivery's plain JSON for the strict typed decode."""
+
+    source: _PlainSource
+    decisions: msgspec.Raw
+    matched: msgspec.Raw
+    schema_version: msgspec.Raw
 
 
 class _ProjectedRowObserver:
@@ -873,23 +1000,23 @@ class SharedPaperCaptureObserver:
     def _retain(self, delivery: SharedBookDelivery, row_payload: bytes) -> tuple[int, int]:
         """Persist bounded replay bytes before changing state; return their byte range.
 
-        The sorted encoder writes a nested row exactly as it writes the row alone,
-        so the envelope around the already encoded row equals the full encoding.
+        The row is compressed from the bytes the live source already encoded, which
+        equal the row's own encoding, so the line equals ``delivery.encode(codec)``.
         """
         if self.delivery_path is None:
             raise ValueError("live shared paper requires a retained delivery path")
         source = delivery.source
-        envelope = RetainedSharedBookDelivery(
-            source=RetainedLiveBookDelivery(
+        payload = (
+            SharedBookDelivery.retained(
+                self._codec,
                 record=source.record,
-                book=msgspec.Raw(row_payload),
+                row_payload=row_payload,
                 available_at=source.available_at,
-            ),
-            decisions=delivery.decisions,
-            matched=delivery.matched,
-            schema_version=delivery.schema_version,
+                decisions=delivery.decisions,
+                matched=delivery.matched,
+            )
+            + b"\n"
         )
-        payload = self._codec.encode_json(envelope) + b"\n"
         if self._retained_bytes + len(payload) > self._maximum_bytes:
             raise ValueError("shared paper delivery retention exceeded configured bound")
         with self.delivery_path.open("ab") as stream:
