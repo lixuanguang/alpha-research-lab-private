@@ -583,7 +583,7 @@ class TestServedSharedDecisions:
         setup._publish(store, bridge, tmp_path, definition, "stream", 3)
         observer.observe(*self._book(5, 5))
         retained = tuple(
-            DomainCodec().decode_json(line, SharedBookDelivery)
+            SharedBookDelivery.decode(line, DomainCodec())
             for line in (tmp_path / "live.jsonl").read_bytes().splitlines()
         )
         groups = [(index, group) for index, item in enumerate(retained) for group in item.decisions]
@@ -663,6 +663,14 @@ class TestServedSharedDecisions:
         assert parent.filled.value == 0
         observer.observe(*self._book(6, 6))
         assert journal.net_orders()[-1].order.status == "filled"
+        # The serving book matched before the decision, so only the next book fills it.
+        (fill,) = (
+            event.fill
+            for trace in tuple(journal.iter_paper_traces("paper"))
+            for event in trace.physical_events
+            if event.order_id == parent.identity and event.fill is not None
+        )
+        assert fill.filled_at == _AT + timedelta(seconds=6) > parent.decision_at
 
     def test_two_served_decisions_read_on_one_book_both_commit(self, tmp_path: Path) -> None:
         """Snapshots for 3 s and 3.5 s, both first read at book 5, coordinate in turn."""
@@ -690,7 +698,8 @@ class TestServedSharedDecisions:
     ) -> None:
         """Book 6 decides source instant 5 before its match and served instant 4 after it.
 
-        Book 7 crosses no instant, but the served order still awaits a book, so it matches.
+        Book 7 crosses no instant; like every eligible book it matches, filling the served
+        order that book 6 could not.
         """
         setup = TestServedFeatures()
         store, definition, _, bridge, served, _ = setup._setup(tmp_path)
@@ -741,23 +750,25 @@ class TestServedSharedDecisions:
                 asks=(),
             ),
         )
-        traces = len(journal.paper_traces("paper"))
+        traces = len(tuple(journal.iter_paper_traces("paper")))
         observer.observe(*self._book(6, 6))
         retained = tuple(
-            DomainCodec().decode_json(line, SharedBookDelivery)
+            SharedBookDelivery.decode(line, DomainCodec())
             for line in (tmp_path / "live.jsonl").read_bytes().splitlines()
         )
         (waited,) = retained[5].decisions
         assert waited.at == _AT + timedelta(seconds=3)
         assert waited.quote.at == _AT + timedelta(seconds=4)
         assert not retained[5].matched and retained[6].matched and not retained[6].decisions
-        assert len(journal.paper_traces("paper")) == traces + 1
+        assert len(tuple(journal.iter_paper_traces("paper"))) == traces + 1
         replay, recovered = self._observer(tmp_path / "replay.sqlite3", served, candidate)
         assert recovered.reconcile(self._opening())
         for delivery in retained:
             replay.deliver(delivery)
         assert recovered.checkpoint("served") == journal.checkpoint("served")
-        assert recovered.paper_traces("paper") == journal.paper_traces("paper")
+        assert tuple(recovered.iter_paper_traces("paper")) == tuple(
+            journal.iter_paper_traces("paper")
+        )
 
 
 class _Clock:

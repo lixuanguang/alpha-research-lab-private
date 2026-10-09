@@ -42,6 +42,7 @@ from execution import (
     AccountExecutionRequest,
     AccountExecutionResult,
     AccountPaperTrace,
+    AccountStatus,
     AccountView,
     ExecutionMonitoring,
     NetOrder,
@@ -501,6 +502,10 @@ class InspectedPaperAccount(SocketPaperAccount):
         """Return the account views from the same inspection."""
         return self._state.accounts
 
+    def account_statuses(self) -> tuple[AccountStatus, ...]:
+        """Return each inspected account's operating phase and blocks."""
+        return tuple(account.status() for account in self._state.accounts)
+
     def orders(self) -> tuple[TaggedOrder, ...]:
         """Return attributable orders from the same inspection."""
         return self._state.orders
@@ -521,13 +526,9 @@ class InspectedPaperAccount(SocketPaperAccount):
         """Return the inspected reduction outcomes."""
         return self._state.paper_reductions
 
-    def paper_traces(self, account_id: str | None = None) -> tuple[AccountPaperTrace, ...]:
-        """Keep trace reads within the inspected account scope."""
-        return tuple(
-            trace
-            for trace in self._state.paper_traces
-            if account_id is None or trace.account_id == account_id
-        )
+    def latest_paper_traces(self, account_id: str) -> tuple[AccountPaperTrace, ...]:
+        """Return the inspected account's newest trace of each bound instrument."""
+        return tuple(trace for trace in self._state.paper_traces if trace.account_id == account_id)
 
 
 class PaperServiceMonitor:

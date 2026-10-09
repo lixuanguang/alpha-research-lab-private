@@ -12,6 +12,7 @@ from typing import Literal
 # third party library imports
 import pytest
 from msgspec.structs import replace
+from paper_books import PaperBooks
 
 # project library imports
 from accounting import AccountLedger, AccountSnapshot
@@ -247,7 +248,7 @@ class TestAccountReduction:
             bid_quantity=cls._quantity("5"),
             ask_quantity=cls._quantity("5"),
         )
-        journal.match_public_market("shared", buy_market, cls._scenario())
+        PaperBooks.apply(journal, "shared", buy_market, cls._scenario())
         snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
         assert snapshot.cash == (cls._money("949.95"),)
         assert snapshot.positions == (cls._quantity("5"),)
@@ -353,11 +354,12 @@ class TestAccountReduction:
         """A recent request cannot carry old quote, book or account state into an order."""
         worker, clock = self._managed_funded(tmp_path / "managed-freshness.sqlite3")
         clock.at = self._at(market_second)
-        worker.match_public_market(
-            "shared", self._market("freshness-book", clock.at), self._scenario()
+        PaperBooks.apply(
+            worker, "shared", self._market("freshness-book", clock.at), self._scenario()
         )
         clock.at = self._at(quote_second)
-        quote = AccountQuote(price=self._price("10"), at=clock.at)
+        # At the book's clock the account already values the book's ask.
+        quote = AccountQuote(price=self._price("10.05"), at=clock.at)
         worker.observe(quote)
         before_orders = worker.orders()
         before_ledger = worker.accounts()[0].ledger
@@ -375,10 +377,10 @@ class TestAccountReduction:
         """The current owner can retrieve one original reservation without a second order."""
         worker, clock = self._managed_funded(tmp_path / "managed-retry.sqlite3")
         clock.at = self._at(14)
-        worker.match_public_market(
-            "shared", self._market("reduction-book", clock.at), self._scenario()
+        PaperBooks.apply(
+            worker, "shared", self._market("reduction-book", clock.at), self._scenario()
         )
-        quote = AccountQuote(price=self._price("10"), at=clock.at)
+        quote = AccountQuote(price=self._price("10.05"), at=clock.at)
         worker.observe(quote)
         request = self._request("durable-reduction", clock.at, quote)
         result = worker.reduce_paper(request)
@@ -416,8 +418,8 @@ class TestAccountReduction:
             )
         )
         assert (stale.status, stale.reason) == ("rejected", "account_reconciliation_stale")
-        journal.match_public_market(
-            "shared", self._market("pre-reduction", self._at(5)), self._scenario()
+        PaperBooks.apply(
+            journal, "shared", self._market("pre-reduction", self._at(5)), self._scenario()
         )
         before = AccountLedger(journal.accounts()[0].ledger).snapshot()
         assert journal.reconcile(
@@ -428,7 +430,7 @@ class TestAccountReduction:
                 open_orders=(),
             )
         )
-        quote = AccountQuote(price=self._price("10"), at=self._at(5))
+        quote = AccountQuote(price=self._price("10.05"), at=self._at(5))
         journal.observe(quote)
         request = self._request("reduce-alpha", self._at(6), quote, quantity="4")
         result = journal.reduce_paper(request)
@@ -443,7 +445,8 @@ class TestAccountReduction:
         with pytest.raises(ValueError, match="different content"):
             journal.reduce_paper(replace(request, quantity=self._quantity("3")))
 
-        journal.match_public_market(
+        PaperBooks.apply(
+            journal,
             "shared",
             self._market("partial-sale", self._at(7), bid_quantity="2"),
             self._scenario(),
@@ -469,10 +472,10 @@ class TestAccountReduction:
                 open_orders=(),
             )
         )
-        journal.match_public_market(
-            "shared", self._market("after-instance-stop", self._at(5)), self._scenario()
+        PaperBooks.apply(
+            journal, "shared", self._market("after-instance-stop", self._at(5)), self._scenario()
         )
-        quote = AccountQuote(price=self._price("10"), at=self._at(5))
+        quote = AccountQuote(price=self._price("10.05"), at=self._at(5))
         journal.observe(quote)
         result = journal.reduce_paper(self._request("stopped-alpha", self._at(6), quote))
         assert result.status == "accepted"
@@ -484,10 +487,10 @@ class TestAccountReduction:
     ) -> None:
         """A child reserved by a net parent counts against alpha despite shared cash."""
         journal = self._funded(tmp_path / "portfolio.sqlite3")
-        quote = AccountQuote(price=self._price("10"), at=self._at(4))
+        quote = AccountQuote(price=self._price("10.05"), at=self._at(4))
         journal.observe(quote)
-        journal.match_public_market(
-            "shared", self._market("pre-portfolio", self._at(4)), self._scenario()
+        PaperBooks.apply(
+            journal, "shared", self._market("pre-portfolio", self._at(4)), self._scenario()
         )
         portfolio = PortfolioDecision(
             request=AccountDecision(
@@ -579,12 +582,14 @@ class TestAccountReduction:
         assert journal.reduce_paper(self._request("disconnected", self._at(2), quote)).reason == (
             "paper_market_disconnected"
         )
-        journal.match_public_market(
-            "shared", self._market("connected", self._at(2)), self._scenario()
+        PaperBooks.apply(
+            journal, "shared", self._market("connected", self._at(2)), self._scenario()
         )
         assert journal.reduce_paper(self._request("stale-quote", self._at(20), quote)).reason == (
             "stale_quote"
         )
+        # The connected book's ask is now the account's valuation.
+        quote = AccountQuote(price=self._price("10.05"), at=self._at(2))
 
         pending = journal.admit(
             AccountDecision(

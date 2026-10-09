@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import asyncio
+import dataclasses
 import hashlib
 import time
 from datetime import UTC, datetime, timedelta
@@ -32,6 +33,7 @@ from configuration import (
     PaperDeployment,
     PaperExecutionScenario,
     PaperStrategyIdentity,
+    ReferenceCandidate,
 )
 from configuration.accounts import InstrumentFeeRate
 from execution import (
@@ -40,10 +42,13 @@ from execution import (
     AccountDecision,
     AccountJournal,
     AccountObservation,
+    AccountPaperTrace,
     AccountQuote,
     MarketTouch,
     OrderDecision,
     PaperMarket,
+    PaperMarketOutcome,
+    PaperReductionRequest,
     PortfolioContext,
 )
 from financial_units import (
@@ -81,6 +86,7 @@ from research.observations import (
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
     AuthoredCandidates,
+    ReferenceCandidates,
     SharedBookDelivery,
     SharedDecisionGroup,
     SharedDecisionRuntime,
@@ -145,6 +151,37 @@ class _RejectedControl:
             recovery_generation=0,
             reason="test refusal",
         )
+
+
+class _CountedJournal(AccountJournal):
+    """Record each account operation the observer sends while it applies books."""
+
+    def __init__(self, path: Path, config: AccountConfiguration) -> None:
+        """Open the journal with no recorded operations."""
+        super().__init__(path, config)
+        self.calls: list[str] = []
+
+    def apply_public_market(
+        self, account_id: str, market: PaperMarket, scenario: PaperExecutionScenario
+    ) -> PaperMarketOutcome:
+        """Record the per-book command, then apply it."""
+        self.calls.append("apply_public_market")
+        return super().apply_public_market(account_id, market, scenario)
+
+    def observe(self, quote: AccountQuote) -> None:
+        """Record a separate valuation request, then apply it."""
+        self.calls.append("observe")
+        super().observe(quote)
+
+    def valuation(self, instrument: Dimension) -> AccountQuote | None:
+        """Record a valuation read, then answer it."""
+        self.calls.append("valuation")
+        return super().valuation(instrument)
+
+    def paper_trace(self, account_id: str, market_identity: str) -> AccountPaperTrace | None:
+        """Record a trace lookup, then answer it."""
+        self.calls.append("paper_trace")
+        return super().paper_trace(account_id, market_identity)
 
 
 class TestSharedPublicPaper:
@@ -354,13 +391,21 @@ class TestSharedPublicPaper:
         measurements: RuntimeMeasurementJournal | None = None,
         index: BookAsOfIndex | None = None,
         request: RecordingRequest | None = None,
+        config: AccountConfiguration | None = None,
+        binding: SharedStrategyBinding | None = None,
+        journal: AccountJournal | None = None,
     ) -> tuple[SharedPaperCaptureObserver, AccountJournal]:
         """Construct the actual source, registry, account and decision owners.
 
-        Unless ``deciding``, the candidate only sets the matching grid and never decides.
+        Unless ``deciding``, the candidate only sets the grid and never decides. The
+        source reads exactly the candidate's inputs; ``journal`` reopens an existing
+        handle, such as a managed owner's, instead of opening ``config``.
         """
         request = cls._request() if request is None else request
-        source = LiveBookDecisionSource(request, (cls._requirement(),), history_capacity=20)
+        binding = cls._binding(cadence_us=cadence_us) if binding is None else binding
+        source = LiveBookDecisionSource(
+            request, binding.candidate.definition.inputs, history_capacity=20
+        )
         books = BookRegistry(
             BookRegistryConfiguration(
                 selections=(
@@ -376,8 +421,9 @@ class TestSharedPublicPaper:
                 history_capacity=20,
             )
         )
-        journal = AccountJournal(path, cls._config())
-        runtime = SharedDecisionRuntime(journal, (cls._binding(cadence_us=cadence_us),))
+        if journal is None:
+            journal = AccountJournal(path, cls._config() if config is None else config)
+        runtime = SharedDecisionRuntime(journal, (binding,))
         observer = SharedPaperCaptureObserver(
             source=source,
             books=books,
@@ -585,7 +631,7 @@ class TestSharedPublicPaper:
         index.close()
         codec = DomainCodec()
         lines = path.with_suffix(".jsonl").read_bytes().splitlines()
-        deliveries = [codec.decode_json(line, SharedBookDelivery) for line in lines]
+        deliveries = [SharedBookDelivery.decode(line, codec) for line in lines]
         assert [item.source.record for item in deliveries] == list(records)
         assert [item.source.book.position for item in deliveries] == list(range(len(records)))
         assert index.covered_bytes() == path.with_suffix(".jsonl").stat().st_size
@@ -618,7 +664,7 @@ class TestSharedPublicPaper:
         codec = DomainCodec()
         lines = public.splitlines()
         assert len(lines) == len(records)
-        decoded = [codec.decode_json(line, SharedBookDelivery) for line in lines]
+        decoded = [SharedBookDelivery.decode(line, codec) for line in lines]
         assert any(item.source.book.bids for item in decoded)
         assert [codec.encode_json(item) for item in decoded] == lines
         # The retention envelopes must keep exactly the retained schemas' fields.
@@ -668,14 +714,15 @@ class TestSharedPublicPaper:
             ),
         )
 
-    def test_grid_retains_every_book_but_decides_and_matches_on_crossing_books(
+    def test_grid_decides_on_crossing_books_and_every_eligible_book_matches(
         self, tmp_path: Path
     ) -> None:
-        """Books between instants advance source state only; a crossing book decides, then matches.
+        """Every eligible book matches; only a crossing book decides, before its match.
 
         With a three-second grid at -0.5 s, 2.5 s, ..., the book at 1 s crosses the first
         instant (nothing to decide yet) and the book at 3 s crosses 2.5 s: the candidate
-        decides from the 2 s market, then the 3 s book matches its order.
+        decides from the 2 s market, then the 3 s book matches its order. The 2 s and
+        4 s books decide nothing but still match, each leaving one trace.
         """
         path = tmp_path / "sampled.sqlite3"
         times = tuple(self.at + timedelta(seconds=seconds) for seconds in range(5))
@@ -701,18 +748,19 @@ class TestSharedPublicPaper:
                 first_effects = (
                     journal.accounts(),
                     journal.orders(),
-                    journal.paper_traces("paper"),
+                    tuple(journal.iter_paper_traces("paper")),
                     journal.checkpoint("alpha"),
                 )
                 assert first_effects[3] is None
                 assert len(first_effects[2]) == 1
             if index == 2:
-                assert (
-                    journal.accounts(),
-                    journal.orders(),
-                    journal.paper_traces("paper"),
-                    journal.checkpoint("alpha"),
-                ) == first_effects
+                assert (journal.accounts(), journal.orders(), journal.checkpoint("alpha")) == (
+                    first_effects[0],
+                    first_effects[1],
+                    first_effects[3],
+                )
+                assert tuple(journal.iter_paper_traces("paper"))[:1] == first_effects[2]
+                assert len(tuple(journal.iter_paper_traces("paper"))) == 2
                 assert observer.source.latest_book is not None
                 assert observer.source.latest_book.position == index
                 assert observer.last_market is not None
@@ -730,10 +778,11 @@ class TestSharedPublicPaper:
         assert tuple(item["market_selected"] for item in measured) == (
             False,
             True,
-            False,
             True,
-            False,
+            True,
+            True,
         )
+        assert all(item["market_selected"] == item["market_eligible"] for item in measured)
         selected_rows = tuple(item for item in measured if item["policy_selected"] is True)
         assert tuple(item["position"] for item in selected_rows) == (3,)
         assert all(item["checkpoint_acknowledged"] is True for item in selected_rows)
@@ -748,15 +797,16 @@ class TestSharedPublicPaper:
             started, finished = cast(int, item["book_started_ns"]), cast(int, item["finished_ns"])
             assert started <= phases["retained_ns"] <= finished
             if item["policy_selected"]:
-                assert phases["retained_ns"] <= phases["evaluated_ns"] <= phases["observed_ns"]
+                assert phases["retained_ns"] <= phases["evaluated_ns"] <= phases["matched_ns"]
             else:
                 assert "evaluated_ns" not in phases
+            # One account command observes and matches each matched book.
+            assert "observed_ns" not in phases
             if item["market_selected"]:
-                assert phases["retained_ns"] <= phases["observed_ns"] <= phases["matched_ns"]
-                assert phases["matched_ns"] <= finished
+                assert phases["retained_ns"] <= phases["matched_ns"] <= finished
         codec = DomainCodec()
         retained_bytes = path.with_suffix(".jsonl").read_bytes().splitlines()
-        retained = tuple(codec.decode_json(line, SharedBookDelivery) for line in retained_bytes)
+        retained = tuple(SharedBookDelivery.decode(line, codec) for line in retained_bytes)
         assert len(retained) == len(deliveries)
         for payload, delivery in zip(retained_bytes, retained, strict=True):
             observed_source = ObservedLiveBookDelivery(
@@ -800,8 +850,8 @@ class TestSharedPublicPaper:
                 assert selected == (offset, len(payload) + 1)
             offset += len(payload) + 1
         assert BookAsOfIndex(as_of.path).covered_bytes() == offset
-        assert tuple(item.matched for item in retained) == (False, True, False, True, False)
-        assert len(journal.paper_traces("paper")) == 2
+        assert tuple(item.matched for item in retained) == (False, True, True, True, True)
+        assert len(tuple(journal.iter_paper_traces("paper"))) == 4
         assert AccountLedger(journal.accounts()[0].ledger).snapshot().positions == (
             self._quantity("1"),
         )
@@ -814,7 +864,9 @@ class TestSharedPublicPaper:
             replay.deliver(delivery)
         assert recovered.accounts() == journal.accounts()
         assert recovered.orders() == journal.orders()
-        assert recovered.paper_traces("paper") == journal.paper_traces("paper")
+        assert tuple(recovered.iter_paper_traces("paper")) == tuple(
+            journal.iter_paper_traces("paper")
+        )
         assert recovered.paper_report_facts("paper") == journal.paper_report_facts("paper")
         assert recovered.checkpoint("alpha") == journal.checkpoint("alpha")
         unmatched = replace(retained[3], decisions=(), matched=False)
@@ -824,7 +876,7 @@ class TestSharedPublicPaper:
         assert opened.reconcile(self._opening())
         for delivery in retained[:3]:
             fresh.deliver(delivery)
-        with pytest.raises(ValueError, match="replayed decision grid"):
+        with pytest.raises(ValueError, match="replayed book eligibility"):
             fresh.deliver(unmatched)
 
     @classmethod
@@ -843,7 +895,7 @@ class TestSharedPublicPaper:
     def test_fresh_non_market_deliveries_decide_and_the_next_book_matches(
         self, tmp_path: Path, kind: str
     ) -> None:
-        """Time advances on any fresh delivery; only the next eligible book matches.
+        """Time advances on any fresh delivery; only eligible books match.
 
         On a three-second grid at -0.5 s, a clock or heartbeat at 3 s crosses 2.5 s and
         decides from the 2 s market without matching. The book at 4 s, between instants,
@@ -872,19 +924,19 @@ class TestSharedPublicPaper:
             observer.observe(delivery.source.record, delivery.source.book)
             if index == 3:
                 assert journal.checkpoint("alpha") is not None
-                assert len(journal.paper_traces("paper")) == 1
+                assert len(tuple(journal.iter_paper_traces("paper"))) == 2
         codec = DomainCodec()
         retained = tuple(
-            codec.decode_json(line, SharedBookDelivery)
+            SharedBookDelivery.decode(line, codec)
             for line in (tmp_path / "timed.jsonl").read_bytes().splitlines()
         )
-        assert tuple(item.matched for item in retained) == (False, True, False, False, False, True)
+        assert tuple(item.matched for item in retained) == (False, True, True, False, False, True)
         (group,) = retained[3].decisions
         assert group.at == self.at + timedelta(milliseconds=2500)
         assert group.quote.at == times[2]
         assert group.coordinated_at == group.at + timedelta(microseconds=1)
         assert not retained[4].decisions and not retained[5].decisions
-        assert len(journal.paper_traces("paper")) == 2
+        assert len(tuple(journal.iter_paper_traces("paper"))) == 3
         assert AccountLedger(journal.accounts()[0].ledger).snapshot().positions == (
             self._quantity("1"),
         )
@@ -896,7 +948,9 @@ class TestSharedPublicPaper:
         for delivery in retained:
             replay.deliver(delivery)
         assert recovered.orders() == journal.orders()
-        assert recovered.paper_traces("paper") == journal.paper_traces("paper")
+        assert tuple(recovered.iter_paper_traces("paper")) == tuple(
+            journal.iter_paper_traces("paper")
+        )
         assert recovered.checkpoint("alpha") == journal.checkpoint("alpha")
         fresh, opened = self._observer(
             tmp_path / "unmatched.sqlite3", cadence_us=3_000_000, deciding=True
@@ -904,7 +958,7 @@ class TestSharedPublicPaper:
         assert opened.reconcile(self._opening())
         for delivery in retained[:5]:
             fresh.deliver(delivery)
-        with pytest.raises(ValueError, match="replayed decision grid"):
+        with pytest.raises(ValueError, match="replayed book eligibility"):
             fresh.deliver(replace(retained[5], matched=False))
 
     def test_a_stale_book_decides_nothing_on_a_clock(self, tmp_path: Path) -> None:
@@ -932,10 +986,800 @@ class TestSharedPublicPaper:
         for delivery in deliveries:
             observer.observe(delivery.source.record, delivery.source.book)
         retained = (tmp_path / "stale.jsonl").read_bytes().splitlines()
-        last = DomainCodec().decode_json(retained[-1], SharedBookDelivery)
+        last = SharedBookDelivery.decode(retained[-1], DomainCodec())
         assert not last.decisions and not last.matched
         assert journal.checkpoint("alpha") is None
         assert journal.accounts()[0].operator_block == "public_input_invalid"
+
+    @classmethod
+    def _priced(
+        cls,
+        position: int,
+        microseconds: int,
+        *,
+        ask: str = "100",
+        ask_size: str = "4",
+        bid: str = "99",
+    ) -> SharedBookDelivery:
+        """Author one eligible two-sided book available ``microseconds`` after ``at``."""
+        delivery = cls._delivery(
+            position,
+            seconds=microseconds / 1_000_000,
+            kind="frame",
+            outcome="snapshot" if position == 1 else "update",
+            status="degraded",
+            reason="visible_depth_only",
+            market=True,
+        )
+        assert delivery.source.available_at == cls.at + timedelta(microseconds=microseconds)
+        book = replace(
+            delivery.source.book,
+            bids=((Decimal(bid), Level(size=Decimal("4"), order_count=1)),),
+            asks=((Decimal(ask), Level(size=Decimal(ask_size), order_count=1)),),
+        )
+        return replace(delivery, source=replace(delivery.source, book=book))
+
+    @classmethod
+    def _session(cls) -> SharedBookDelivery:
+        """Author the session boundary that opens every authored recording."""
+        return cls._delivery(
+            0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
+        )
+
+    def _matching(
+        self,
+        path: Path,
+        deliveries: tuple[SharedBookDelivery, ...],
+        *,
+        scenario: PaperExecutionScenario,
+        deciding: bool = True,
+        config: AccountConfiguration | None = None,
+        binding: SharedStrategyBinding | None = None,
+    ) -> tuple[SharedPaperCaptureObserver, AccountJournal]:
+        """Open a retaining observer on the three-second grid, timed to ``deliveries``."""
+        observer, journal = self._observer(
+            path,
+            scenario=scenario,
+            clock=_SequenceClock(tuple(item.source.available_at for item in deliveries)),
+            cadence_us=3_000_000,
+            retain=True,
+            deciding=deciding,
+            config=config,
+            binding=binding,
+        )
+        assert journal.reconcile(self._opening())
+        return observer, journal
+
+    @staticmethod
+    def _observe(observer: SharedPaperCaptureObserver, *deliveries: SharedBookDelivery) -> None:
+        """Feed authored deliveries through the live public entry, in order."""
+        for delivery in deliveries:
+            observer.observe(delivery.source.record, delivery.source.book)
+
+    @staticmethod
+    def _retained(path: Path) -> tuple[SharedBookDelivery, ...]:
+        """Decode an observer's retained delivery log through its owning reader."""
+        codec = DomainCodec()
+        return tuple(
+            SharedBookDelivery.decode(line, codec) for line in path.read_bytes().splitlines()
+        )
+
+    @staticmethod
+    def _fills(journal: AccountJournal) -> tuple[tuple[datetime, Decimal], ...]:
+        """Return each modeled physical fill's market time and signed quantity, in order."""
+        return tuple(
+            (event.fill.filled_at, event.fill.quantity.value)
+            for trace in tuple(journal.iter_paper_traces("paper"))
+            for event in trace.physical_events
+            if event.fill is not None
+        )
+
+    @staticmethod
+    def _require_causal(journal: AccountJournal, scenario: PaperExecutionScenario) -> None:
+        """Require every fill to be on its trace's book, after its order's entry delay.
+
+        A coordinated physical order is dated at its batch's coordination, so a fill
+        after its decision date is also after the coordination.
+        """
+        entry = timedelta(microseconds=scenario.entry_delay_us)
+        for trace in tuple(journal.iter_paper_traces("paper")):
+            for event in (*trace.physical_events, *trace.child_fill_events):
+                if event.fill is None:
+                    continue
+                assert event.fill.filled_at == event.at == trace.market.at
+                assert event.fill.filled_at >= event.fill.decision_at + entry
+                assert event.fill.filled_at > event.fill.decision_at
+
+    def _direct(
+        self,
+        journal: AccountJournal,
+        identity: str,
+        at: datetime,
+        quote: AccountQuote,
+        *,
+        limit: str,
+        quantity: str = "1",
+        instance: str = "alpha",
+        time_in_force: Literal["gtc", "post-only"] = "gtc",
+    ) -> None:
+        """Admit one out-of-stream resting buy, outside any decision batch.
+
+        The quote is observed first; a matched book at its clock already observed it.
+        """
+        journal.observe(quote)
+        result = journal.admit(
+            AccountDecision(
+                account_id="paper",
+                instance_id=instance,
+                decision=OrderDecision(
+                    identity=identity,
+                    at=at,
+                    intent=OrderIntent(
+                        side="buy",
+                        quantity=self._quantity(quantity),
+                        limit=self._price(limit),
+                        time_in_force=time_in_force,
+                    ),
+                ),
+                quote=quote,
+                maximum_fee=self._money("1"),
+            )
+        )
+        assert result.status == "committed", result.reason
+
+    @pytest.mark.parametrize(
+        ("books_us", "filled_us"),
+        (
+            ((2_501_000, 3_000_000, 4_000_000), 3_000_000),
+            ((2_501_000, 2_501_001, 3_000_000), 2_501_001),
+            ((2_501_001, 3_000_000), 2_501_001),
+        ),
+    )
+    def test_a_decision_fills_on_the_first_book_after_its_entry_delay(
+        self, tmp_path: Path, books_us: tuple[int, ...], filled_us: int
+    ) -> None:
+        """The journey's delays (entry 1 ms, cancel 0): the first eligible book fills.
+
+        The book after 2.5 s decides the instant from the 2 s market. The batch
+        coordinates at 2.500001 s and dates the physical IOC buy then, so the order
+        becomes eligible at 2.500001 + 0.001 = 2.501001 s. A deciding book at
+        2.501000 s offers it nothing; the next book, the 3 s book or a book at exactly
+        2.501001 s, fills one unit at the 100 ask. A deciding book already at
+        2.501001 s fills it itself. Grid-selected matching skipped every book between
+        the deciding book and the next crossing, so the 3 s fill never happened.
+        """
+        scenario = replace(self._scenario(), cancel_delay_us=0)
+        deliveries: tuple[SharedBookDelivery, ...] = (
+            self._session(),
+            *(
+                self._priced(position, at_us)
+                for position, at_us in enumerate((1_000_000, 2_000_000, *books_us), start=1)
+            ),
+        )
+        observer, journal = self._matching(
+            tmp_path / "entry.sqlite3", deliveries, scenario=scenario
+        )
+        self._observe(observer, *deliveries)
+
+        retained = self._retained(tmp_path / "entry.jsonl")
+        (group,) = retained[3].decisions
+        assert group.coordinated_at == self.at + timedelta(milliseconds=2500, microseconds=1)
+        (parent,) = journal.net_orders()
+        assert parent.order.decision_at == group.coordinated_at
+        assert parent.order.status == "filled"
+        filled_at = self.at + timedelta(microseconds=filled_us)
+        assert self._fills(journal) == ((filled_at, Decimal(1)),)
+        snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
+        assert (snapshot.positions, snapshot.cash) == (
+            (self._quantity("1"),),
+            (self._money("900"),),
+        )
+        self._require_causal(journal, scenario)
+        assert tuple(item.matched for item in retained) == (False, *(True,) * len(retained[1:]))
+        assert len(tuple(journal.iter_paper_traces("paper"))) == len(retained) - 1
+
+    def test_a_long_entry_delay_fills_on_the_first_eligible_later_book(
+        self, tmp_path: Path
+    ) -> None:
+        """Entry 600 ms: the 3 s book decides 2.5 s, and the 4 s book fills it.
+
+        The order dated 2.500001 s is eligible from 3.100001 s, after the deciding
+        book; the 4 s book is the first book after that and crosses no instant.
+        """
+        scenario = replace(self._scenario(), entry_delay_us=600_000, cancel_delay_us=0)
+        deliveries: tuple[SharedBookDelivery, ...] = (
+            self._session(),
+            *(self._priced(position, position * 1_000_000) for position in range(1, 6)),
+        )
+        observer, journal = self._matching(
+            tmp_path / "delay.sqlite3", deliveries, scenario=scenario
+        )
+        self._observe(observer, *deliveries)
+        assert self._retained(tmp_path / "delay.jsonl")[3].decisions
+        assert self._fills(journal) == ((self.at + timedelta(seconds=4), Decimal(1)),)
+        assert AccountLedger(journal.accounts()[0].ledger).snapshot().positions == (
+            self._quantity("1"),
+        )
+        self._require_causal(journal, scenario)
+
+    @pytest.mark.parametrize("time_in_force", ("gtc", "post-only"))
+    def test_a_resting_order_fills_when_the_ask_reaches_its_limit(
+        self, tmp_path: Path, time_in_force: Literal["gtc", "post-only"]
+    ) -> None:
+        """A direct resting buy at 100 rests under a 101 ask and fills at the 4 s book.
+
+        A post-only buy is accepted at the first eligible book because it does not cross
+        the 101 ask there, and then fills like a ``gtc`` buy.
+
+        The candidate only sets the grid, so nothing cancels the order. The 3 s book
+        crosses 2.5 s with the ask still 101; the ask reaches 100 at 4 s, between
+        instants and before the 5.5 s instant, and the order fills one unit at 100.
+        """
+        scenario = replace(self._scenario(), cancel_delay_us=0)
+        deliveries: tuple[SharedBookDelivery, ...] = (
+            self._session(),
+            self._priced(1, 1_000_000, ask="101"),
+            self._priced(2, 2_000_000, ask="101"),
+            self._priced(3, 3_000_000, ask="101"),
+            self._priced(4, 4_000_000),
+            self._priced(5, 5_000_000),
+        )
+        observer, journal = self._matching(
+            tmp_path / "resting.sqlite3", deliveries, scenario=scenario, deciding=False
+        )
+        self._observe(observer, *deliveries[:3])
+        quote = AccountQuote(price=self._price("101"), at=self.at + timedelta(seconds=2))
+        self._direct(
+            journal,
+            "resting",
+            self.at + timedelta(seconds=2, microseconds=1),
+            quote,
+            limit="100",
+            time_in_force=time_in_force,
+        )
+        self._observe(observer, *deliveries[3:])
+        assert self._fills(journal) == ((self.at + timedelta(seconds=4), Decimal(1)),)
+        snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
+        assert (snapshot.positions, snapshot.cash) == (
+            (self._quantity("1"),),
+            (self._money("900"),),
+        )
+        assert journal.orders()[0].order.status == "filled"
+        self._require_causal(journal, scenario)
+
+    def test_a_partial_fill_continues_on_the_next_book(self, tmp_path: Path) -> None:
+        """A resting buy of 3 fills 2 at the 3 s book and the last unit at the 4 s book.
+
+        With ``take_fraction`` 1/2, a book offers min(displayed x 1/2, peak x 1/2 -
+        consumed) at an unchanged touch price. The 1 s and 2 s books show 4 at 100, so
+        the 3 s book (4 at 100) offers min(2, 2 - 0) = 2. The 4 s book shows 6 at 100:
+        the peak becomes 6 and it offers min(3, 3 - 2) = 1, the order's remainder.
+        Cash falls by 3 x 100.
+        """
+        scenario = replace(self._scenario(), cancel_delay_us=0, take_fraction=Decimal("0.5"))
+        deliveries: tuple[SharedBookDelivery, ...] = (
+            self._session(),
+            self._priced(1, 1_000_000),
+            self._priced(2, 2_000_000),
+            self._priced(3, 3_000_000),
+            self._priced(4, 4_000_000, ask_size="6"),
+            self._priced(5, 5_000_000, ask_size="6"),
+        )
+        observer, journal = self._matching(
+            tmp_path / "partial.sqlite3", deliveries, scenario=scenario, deciding=False
+        )
+        self._observe(observer, *deliveries[:3])
+        quote = AccountQuote(price=self._price("100"), at=self.at + timedelta(seconds=2))
+        self._direct(
+            journal,
+            "partial",
+            self.at + timedelta(seconds=2, microseconds=1),
+            quote,
+            limit="100",
+            quantity="3",
+        )
+        self._observe(observer, *deliveries[3:])
+        assert self._fills(journal) == (
+            (self.at + timedelta(seconds=3), Decimal(2)),
+            (self.at + timedelta(seconds=4), Decimal(1)),
+        )
+        snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
+        assert (snapshot.positions, snapshot.cash) == (
+            (self._quantity("3"),),
+            (self._money("700"),),
+        )
+        self._require_causal(journal, scenario)
+
+    @classmethod
+    def _reference(cls) -> SharedStrategyBinding:
+        """Bind alpha to the installed fixed-clip reference formula on the 3 s grid.
+
+        Its first decision bids 200 bps through the ask; each later one rests a ``gtc``
+        buy one tick below the bid.
+        """
+        candidate = ReferenceCandidates(venue="okx", freshness_us=5_000_000, clock="receipt").load(
+            ReferenceCandidate(
+                formula="fixed_clip",
+                cadence_us=3_000_000,
+                starts_at=cls.at - timedelta(milliseconds=500),
+            ),
+            instance="alpha",
+            entity=str(cls.dimension.instrument_id),
+            quantity=cls._quantity("1"),
+            lot=cls._quantity("1"),
+            currency=cls.currency,
+            tick=cls._price("0.01"),
+            source_identity="public-paper-source",
+        )
+        return dataclasses.replace(cls._binding(cadence_us=3_000_000), candidate=candidate)
+
+    @pytest.mark.parametrize(
+        ("cancel_delay_us", "books_us"),
+        ((0, (8_501_000, 9_000_000)), (2_000, (8_501_000, 8_502_000, 9_000_000))),
+    )
+    def test_a_decision_replaces_its_resting_order_after_the_cancel_delay(
+        self, tmp_path: Path, cancel_delay_us: int, books_us: tuple[int, ...]
+    ) -> None:
+        """The 8.5 s decision replaces the 5.5 s resting bid; the replacement then fills.
+
+        The fixed clip's 2.5 s decision buys through the 100 ask and fills at the 3 s
+        book. Its 5.5 s decision rests a ``gtc`` buy at 98.99, one tick below the 99
+        bid, which a 100 ask never fills. The 8.5 s decision requests cancellation of
+        that order at its date, 8.500000 s, effective at the first book at or after
+        8.500000 s plus the cancel delay. It rests the replacement at 98.99, dated
+        8.500001 s and so eligible from 8.501001 s. With cancel 0 the deciding
+        8.501000 s book ends the old order and is too early for the replacement, which
+        the 9 s book accepts. With cancel 2 ms the old order survives the deciding book
+        and ends at the 8.502000 s book, which accepts the replacement. The ask falls to
+        98.99 at 9 s, a book that crosses no instant, and fills the replacement there.
+        """
+        scenario = replace(self._scenario(), cancel_delay_us=cancel_delay_us)
+        times = (*(second * 1_000_000 for second in range(1, 9)), *books_us[:-1])
+        deliveries: tuple[SharedBookDelivery, ...] = (
+            self._session(),
+            *(self._priced(position, at_us) for position, at_us in enumerate(times, start=1)),
+            self._priced(len(times) + 1, books_us[-1], ask="98.99", bid="98.98"),
+        )
+        observer, journal = self._matching(
+            tmp_path / "replace.sqlite3", deliveries, scenario=scenario, binding=self._reference()
+        )
+        self._observe(observer, *deliveries)
+
+        opening, resting, replacement = (item.order for item in journal.net_orders())
+        assert opening.intent.limit == self._price("102")
+        assert resting.intent.limit == replacement.intent.limit == self._price("98.99")
+        assert resting.decision_at == self.at + timedelta(milliseconds=5500, microseconds=1)
+        assert replacement.decision_at == self.at + timedelta(milliseconds=8500, microseconds=1)
+        events = {
+            (event.order_id, event.kind): event.at
+            for trace in tuple(journal.iter_paper_traces("paper"))
+            for event in trace.physical_events
+        }
+        assert (resting.status, resting.filled.value) == ("cancelled", Decimal(0))
+        ended = books_us[0] if cancel_delay_us == 0 else books_us[1]
+        assert events[resting.identity, "cancelled_on_request"] == self.at + timedelta(
+            microseconds=ended
+        )
+        assert events[replacement.identity, "accepted"] == self.at + timedelta(
+            microseconds=books_us[1]
+        )
+        assert replacement.status == "filled"
+        assert self._fills(journal) == (
+            (self.at + timedelta(seconds=3), Decimal(1)),
+            (self.at + timedelta(seconds=9), Decimal(1)),
+        )
+        snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
+        assert (snapshot.positions, snapshot.cash) == (
+            (self._quantity("2"),),
+            (self._money("801.01"),),
+        )
+        self._require_causal(journal, scenario)
+
+    def test_direct_orders_and_protective_reductions_match_at_the_next_book(
+        self, tmp_path: Path
+    ) -> None:
+        """Out-of-stream orders meet the next eligible book, wherever the grid is.
+
+        A direct ``gtc`` buy admitted after the 2 s book fills at the 2.4 s book, and a
+        protective IOC sale admitted after the 2.6 s book sells at the 2.7 s bid of 99.
+        Neither book crosses or decides an instant.
+        """
+        scenario = replace(self._scenario(), cancel_delay_us=0)
+        deliveries: tuple[SharedBookDelivery, ...] = (
+            self._session(),
+            *(
+                self._priced(position, at_us)
+                for position, at_us in enumerate(
+                    (1_000_000, 2_000_000, 2_400_000, 2_600_000, 2_700_000), start=1
+                )
+            ),
+        )
+        observer, journal = self._matching(
+            tmp_path / "direct.sqlite3", deliveries, scenario=scenario, deciding=False
+        )
+        self._observe(observer, *deliveries[:3])
+        quote = AccountQuote(price=self._price("100"), at=self.at + timedelta(seconds=2))
+        self._direct(
+            journal, "direct", self.at + timedelta(seconds=2, microseconds=1), quote, limit="100"
+        )
+        self._observe(observer, *deliveries[3:5])
+        bought = self.at + timedelta(milliseconds=2400)
+        assert self._fills(journal) == ((bought, Decimal(1)),)
+        known = self.at + timedelta(milliseconds=2600)
+        journal.observe(AccountQuote(price=self._price("100"), at=known))
+        assert journal.reconcile(
+            AccountObservation(
+                identity="after-buy",
+                at=known,
+                snapshot=AccountLedger(journal.accounts()[0].ledger).snapshot(),
+                open_orders=(),
+            )
+        )
+        reduction = journal.reduce_paper(
+            PaperReductionRequest(
+                identity="protect",
+                account_id="paper",
+                instance_id="alpha",
+                quantity=self._quantity("1"),
+                quote=AccountQuote(price=self._price("100"), at=known),
+                limit=self._price("98"),
+                maximum_fee=self._money("1"),
+                at=known + timedelta(microseconds=1),
+            )
+        )
+        assert (reduction.status, reduction.reason) == ("accepted", "reserved")
+        self._observe(observer, deliveries[5])
+        sold = self.at + timedelta(milliseconds=2700)
+        assert self._fills(journal) == ((bought, Decimal(1)), (sold, Decimal(-1)))
+        snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
+        assert (snapshot.positions, snapshot.cash) == ((), (self._money("999"),))
+        self._require_causal(journal, scenario)
+        assert all(not item.decisions for item in self._retained(tmp_path / "direct.jsonl"))
+
+    def test_selection_and_replay_depend_only_on_the_retained_stream(self, tmp_path: Path) -> None:
+        """One retained stream matches the same books in every destination journal.
+
+        Every eligible priced book matches, and only those. Replay recomputes each
+        retained flag and refuses a difference, so a successful replay into a fresh
+        journal, into the live journal and into a journal holding another order proves
+        identical flags. Fresh replay reproduces the live journal; replay into the live
+        journal is an exact retry; a shadow journal keeps the flags and marks with no
+        trace or fill.
+        """
+        scenario = replace(self._scenario(), cancel_delay_us=0)
+        deliveries: tuple[SharedBookDelivery, ...] = (
+            self._session(),
+            self._priced(1, 1_000_000),
+            self._priced(2, 2_000_000),
+            self._idle("clock", 3, 2.4),
+            self._priced(4, 2_501_000),
+            self._unpriceable(5, seconds=3),
+            self._priced(6, 3_500_000),
+            self._priced(7, 4_000_000, ask="101"),
+        )
+        observer, journal = self._matching(tmp_path / "live.sqlite3", deliveries, scenario=scenario)
+        self._observe(observer, *deliveries)
+        retained = self._retained(tmp_path / "live.jsonl")
+        eligible = (False, True, True, False, True, False, True, True)
+        assert tuple(item.matched for item in retained) == eligible
+        assert len(tuple(journal.iter_paper_traces("paper"))) == sum(eligible)
+        assert self._fills(journal) == (
+            (self.at + timedelta(seconds=3, milliseconds=500), Decimal(1)),
+        )
+        live = (
+            journal.accounts(),
+            journal.orders(),
+            journal.net_orders(),
+            tuple(journal.iter_paper_traces("paper")),
+            journal.paper_report_facts("paper"),
+            journal.checkpoint("alpha"),
+        )
+
+        replay, fresh = self._observer(
+            tmp_path / "fresh.sqlite3", scenario=scenario, cadence_us=3_000_000, deciding=True
+        )
+        assert fresh.reconcile(self._opening())
+        for delivery in retained:
+            replay.deliver(delivery)
+        assert (
+            fresh.accounts(),
+            fresh.orders(),
+            fresh.net_orders(),
+            tuple(fresh.iter_paper_traces("paper")),
+            fresh.paper_report_facts("paper"),
+            fresh.checkpoint("alpha"),
+        ) == live
+
+        retry, reopened = self._observer(
+            tmp_path / "live.sqlite3", scenario=scenario, cadence_us=3_000_000, deciding=True
+        )
+        for delivery in retained:
+            retry.deliver(delivery)
+        assert (
+            reopened.accounts(),
+            reopened.orders(),
+            reopened.net_orders(),
+            tuple(reopened.iter_paper_traces("paper")),
+            reopened.paper_report_facts("paper"),
+            reopened.checkpoint("alpha"),
+        ) == live
+
+        config = self._config()
+        instances: tuple[InstanceLimit, ...] = (
+            *config.budgets.instances,
+            replace(config.budgets.instances[0], instance_id="beta"),
+        )
+        other, differing = self._observer(
+            tmp_path / "other.sqlite3",
+            scenario=scenario,
+            cadence_us=3_000_000,
+            deciding=True,
+            config=replace(
+                config,
+                budgets=replace(config.budgets, instances=instances),
+            ),
+        )
+        assert differing.reconcile(self._opening())
+        quote = AccountQuote(price=self._price("100"), at=self.at)
+        self._direct(
+            differing,
+            "beta",
+            self.at + timedelta(microseconds=1),
+            quote,
+            limit="99",
+            instance="beta",
+        )
+        for delivery in retained:
+            other.deliver(delivery)
+        assert len(tuple(differing.iter_paper_traces("paper"))) == sum(eligible)
+        assert differing.orders() != journal.orders()
+
+        shadow_config = replace(self._config(), mode="shadow")
+        shadow, shadowed = self._matching(
+            tmp_path / "shadow.sqlite3", deliveries, scenario=scenario, config=shadow_config
+        )
+        self._observe(shadow, *deliveries)
+        shadow_retained = self._retained(tmp_path / "shadow.jsonl")
+        assert tuple(item.matched for item in shadow_retained) == eligible
+        assert tuple(shadowed.iter_paper_traces("paper")) == () and self._fills(shadowed) == ()
+        assert shadow.last_market == observer.last_market
+        assert shadowed.valuation(self.dimension) == journal.valuation(self.dimension)
+        shadow_before = (shadowed.accounts(), shadowed.orders(), shadowed.checkpoint("alpha"))
+        fresh_shadow, replayed_shadow = self._observer(
+            tmp_path / "shadow-fresh.sqlite3",
+            scenario=scenario,
+            cadence_us=3_000_000,
+            deciding=True,
+            config=shadow_config,
+        )
+        assert replayed_shadow.reconcile(self._opening())
+        for delivery in shadow_retained:
+            fresh_shadow.deliver(delivery)
+        assert (
+            replayed_shadow.accounts(),
+            replayed_shadow.orders(),
+            replayed_shadow.checkpoint("alpha"),
+        ) == shadow_before
+        assert replayed_shadow.valuation(self.dimension) == shadowed.valuation(self.dimension)
+        assert tuple(replayed_shadow.iter_paper_traces("paper")) == ()
+        shadow_retry, shadow_reopened = self._observer(
+            tmp_path / "shadow.sqlite3",
+            scenario=scenario,
+            cadence_us=3_000_000,
+            deciding=True,
+            config=shadow_config,
+        )
+        for delivery in shadow_retained:
+            shadow_retry.deliver(delivery)
+        assert (
+            shadow_reopened.accounts(),
+            shadow_reopened.orders(),
+            shadow_reopened.checkpoint("alpha"),
+        ) == shadow_before
+        assert tuple(shadow_reopened.iter_paper_traces("paper")) == ()
+
+    @pytest.mark.parametrize("mode", ("paper", "shadow"))
+    def test_each_matched_book_is_one_account_command(
+        self, tmp_path: Path, mode: Literal["paper", "shadow"]
+    ) -> None:
+        """A live matched book sends one fenced command and nothing else.
+
+        Replay into the same journal sends the same command again in paper, which the
+        account resolves to the saved trace; shadow keeps no trace, so it first reads
+        the valuation and skips each book older than it.
+        """
+        deliveries: tuple[SharedBookDelivery, ...] = (
+            self._session(),
+            *(self._priced(position, position * 1_000_000) for position in range(1, 5)),
+        )
+        path = tmp_path / f"{mode}.sqlite3"
+        journal = _CountedJournal(path, replace(self._config(), mode=mode))
+        observer, _ = self._observer(
+            path,
+            clock=_SequenceClock(tuple(item.source.available_at for item in deliveries)),
+            cadence_us=3_000_000,
+            retain=True,
+            journal=journal,
+        )
+        assert journal.reconcile(self._opening())
+        journal.calls.clear()
+        self._observe(observer, *deliveries)
+        assert journal.calls == ["apply_public_market"] * 4
+        assert len(tuple(journal.iter_paper_traces("paper"))) == (4 if mode == "paper" else 0)
+
+        journal.calls.clear()
+        replay, _ = self._observer(path, cadence_us=3_000_000, journal=journal)
+        for delivery in self._retained(path.with_suffix(".jsonl")):
+            replay.deliver(delivery)
+        assert journal.calls == (
+            ["apply_public_market"] * 4
+            if mode == "paper"
+            else ["valuation"] * 3 + ["valuation", "apply_public_market"]
+        )
+        assert len(tuple(journal.iter_paper_traces("paper"))) == (4 if mode == "paper" else 0)
+
+    def test_replay_into_a_managed_live_journal_is_an_exact_retry(self, tmp_path: Path) -> None:
+        """A managed owner's live journal replays its own stream without any write.
+
+        The live run matches every eligible book under the current owner at 4.5 s. The
+        replay runs at 60 s, after the inputs aged past the 5 s quote limit and the
+        grant expired at 20 s; every book and batch is then an exact retry.
+        """
+        scenario = replace(self._scenario(), cancel_delay_us=0)
+        deliveries: tuple[SharedBookDelivery, ...] = (
+            self._session(),
+            *(
+                self._priced(position, at_us)
+                for position, at_us in enumerate(
+                    (1_000_000, 2_000_000, 2_501_000, 3_000_000, 4_000_000), start=1
+                )
+            ),
+        )
+        path = tmp_path / "managed.sqlite3"
+        self._observer(path, scenario=scenario)
+        config = self._config()
+        clock = _SequenceClock((self.at - timedelta(seconds=1),))
+        admin = AccountJournal(path, config, clock=clock)
+        deployment = PaperDeployment(
+            account_id="paper",
+            configuration_sha256=hashlib.sha256(DomainCodec().encode_json(config)).hexdigest(),
+            releases=("a" * 64,),
+            strategies=(
+                PaperStrategyIdentity(
+                    instance_id="alpha",
+                    policy_identity="test",
+                    candidate_identity="test",
+                    model_identity="rule-only",
+                    feature_identity="test",
+                ),
+            ),
+            input_identity="test",
+            scenario=scenario,
+            state_identity="paper-account-state",
+        )
+        admin.install_paper(deployment)
+        admin.authorize_paper(
+            PaperAuthorization(
+                identity="replay-test",
+                deployment_sha256=deployment.identity,
+                valid_from=self.at - timedelta(seconds=1),
+                expires_at=self.at + timedelta(seconds=20),
+                quantities=(self._quantity("10"),),
+                maximum_order_notional=self._money("1000"),
+                maximum_orders=10,
+            )
+        )
+        observed = self.at - timedelta(microseconds=1)
+        admin.observe(AccountQuote(price=self._price("100"), at=observed))
+        assert admin.reconcile(replace(self._opening(), at=observed))
+        clock.times = (self.at,)
+        owner = admin.claim_paper(
+            "paper",
+            "replay-worker",
+            "a" * 64,
+            AccountControl(
+                identity="replay-claim",
+                account_id="paper",
+                kind="restart",
+                at=self.at,
+                expected_control_identity=f"paper-deployment:{deployment.identity}",
+            ),
+        )
+        worker = AccountJournal(
+            path,
+            config,
+            paper_owner=owner,
+            clock=_SequenceClock((self.at + timedelta(milliseconds=4500),)),
+        )
+        observer, _ = self._observer(
+            path,
+            scenario=scenario,
+            clock=_SequenceClock(tuple(item.source.available_at for item in deliveries)),
+            cadence_us=3_000_000,
+            retain=True,
+            deciding=True,
+            journal=worker,
+        )
+        self._observe(observer, *deliveries)
+        assert self._fills(worker) == ((self.at + timedelta(seconds=3), Decimal(1)),)
+        assert len(tuple(worker.iter_paper_traces("paper"))) == len(deliveries) - 1
+        live = (
+            worker.accounts(),
+            worker.controls(),
+            worker.orders(),
+            worker.net_orders(),
+            tuple(worker.iter_paper_traces("paper")),
+            worker.valuation(self.dimension),
+            worker.checkpoint("alpha"),
+        )
+
+        retry_journal = AccountJournal(
+            path,
+            config,
+            paper_owner=owner,
+            clock=_SequenceClock((self.at + timedelta(seconds=60),)),
+        )
+        retry, _ = self._observer(
+            path, scenario=scenario, cadence_us=3_000_000, deciding=True, journal=retry_journal
+        )
+        for delivery in self._retained(path.with_suffix(".jsonl")):
+            retry.deliver(delivery)
+        assert (
+            retry_journal.accounts(),
+            retry_journal.controls(),
+            retry_journal.orders(),
+            retry_journal.net_orders(),
+            tuple(retry_journal.iter_paper_traces("paper")),
+            retry_journal.valuation(self.dimension),
+            retry_journal.checkpoint("alpha"),
+        ) == live
+
+    def test_previous_delivery_formats_are_refused_by_tag_before_any_effect(
+        self, tmp_path: Path
+    ) -> None:
+        """A log in the replaced or an earlier format is refused at its first line.
+
+        The reader checks the tag before any other field, so an earlier layout whose
+        decision groups no longer decode is still refused as an unsupported schema.
+        Replay refuses such a delivery before the source or the journal changes.
+        """
+        scenario = replace(self._scenario(), cancel_delay_us=0)
+        deliveries: tuple[SharedBookDelivery, ...] = (
+            self._session(),
+            self._priced(1, 1_000_000),
+            self._priced(2, 2_000_000),
+            self._priced(3, 3_000_000),
+        )
+        observer, _ = self._matching(tmp_path / "live.sqlite3", deliveries, scenario=scenario)
+        self._observe(observer, *deliveries)
+        lines = (tmp_path / "live.jsonl").read_bytes().splitlines()
+        assert all(b'"schema_version":"shared-eligible-book-delivery"' in line for line in lines)
+        replaced = lines[0].replace(b"shared-eligible-book-delivery", b"shared-candidate-delivery")
+        earlier = msgspec.json.decode(lines[3], type=dict[str, object])
+        groups = cast(list[dict[str, object]], earlier["decisions"])
+        assert groups
+        for group in groups:
+            del group["touch"]
+        earlier["schema_version"] = "shared-book-delivery"
+        layout = msgspec.json.encode(earlier)
+        codec = DomainCodec()
+        with pytest.raises(ValueError, match="touch"):
+            codec.decode_json(layout, SharedBookDelivery)
+        for line in (replaced, layout, b'{"schema_version":"shared-book-delivery"}'):
+            with pytest.raises(ValueError, match="unsupported shared book delivery schema"):
+                SharedBookDelivery.decode(line, codec)
+
+        replay, fresh = self._observer(
+            tmp_path / "fresh.sqlite3", scenario=scenario, cadence_us=3_000_000, deciding=True
+        )
+        assert fresh.reconcile(self._opening())
+        before = (fresh.accounts(), fresh.orders(), tuple(fresh.iter_paper_traces("paper")))
+        forged = SharedBookDelivery.decode(lines[0], codec)
+        force_setattr(forged, "schema_version", "shared-candidate-delivery")
+        with pytest.raises(ValueError, match="unsupported shared book delivery schema"):
+            replay.deliver(forged)
+        assert replay.source.latest_book is None and replay.last_market is None
+        assert (fresh.accounts(), fresh.orders(), tuple(fresh.iter_paper_traces("paper"))) == before
 
     def test_mixed_grids_read_shared_sources_in_instant_order(self, tmp_path: Path) -> None:
         """Two instants crossed by one book decide in instant order, not binding order.
@@ -1021,7 +1865,7 @@ class TestSharedPublicPaper:
             observer.observe(delivery.source.record, delivery.source.book)
         assert observer.trades_delivered == 3
         retained = tuple(
-            DomainCodec().decode_json(line, SharedBookDelivery)
+            SharedBookDelivery.decode(line, DomainCodec())
             for line in (tmp_path / "trades.jsonl").read_bytes().splitlines()
         )
         (group,) = retained[3].decisions
@@ -1146,7 +1990,7 @@ class TestSharedPublicPaper:
         for delivery in (
             session,
             first,
-            replace(second, matched=False),
+            second,
             self._delivery(
                 3,
                 seconds=3,
@@ -1169,13 +2013,8 @@ class TestSharedPublicPaper:
         codec = DomainCodec()
         encoded = codec.encode_json(delivery)
         assert b'"matched":false' in encoded
-        assert b'"schema_version":"shared-candidate-delivery"' in encoded
-        assert codec.decode_json(encoded, SharedBookDelivery) == delivery
-        with pytest.raises(msgspec.ValidationError):
-            codec.decode_json(
-                encoded.replace(b"shared-candidate-delivery", b"shared-book-delivery"),
-                SharedBookDelivery,
-            )
+        assert b'"schema_version":"shared-eligible-book-delivery"' in encoded
+        assert SharedBookDelivery.decode(encoded, codec) == delivery
         observer, journal = self._observer(tmp_path / "groups.sqlite3", deciding=True)
         assert journal.reconcile(self._opening())
         session, first, second, *_ = self._markets()
@@ -1308,7 +2147,7 @@ class TestSharedPublicPaper:
             "public-input-fault:"
             + hashlib.sha256(DomainCodec().encode_json(first.source)).hexdigest()
         )
-        observer._apply(first, None, timed=False, crossed=False, replayed=False)
+        observer._apply(first, None, timed=False, replayed=False)
         assert worker.controls() == controls
         assert worker.accounts()[0].phase == "faulted"
 
@@ -1619,7 +2458,7 @@ class TestSharedPublicPaper:
         before_control = (
             journal.accounts(),
             journal.orders(),
-            journal.paper_traces("paper"),
+            tuple(journal.iter_paper_traces("paper")),
             journal.checkpoint("alpha"),
         )
         observer.deliver(
@@ -1636,7 +2475,7 @@ class TestSharedPublicPaper:
         assert (
             journal.accounts(),
             journal.orders(),
-            journal.paper_traces("paper"),
+            tuple(journal.iter_paper_traces("paper")),
             journal.checkpoint("alpha"),
         ) == before_control
         observer.deliver(
@@ -1899,7 +2738,7 @@ class TestSharedPublicPaper:
         journal.observe(other_order.quote)
         admitted = journal.admit(other_order)
         assert admitted.status == "committed", admitted.reason
-        trace = journal.match_public_market(
+        outcome = journal.apply_public_market(
             "paper",
             PaperMarket(
                 identity="paper-market",
@@ -1911,7 +2750,8 @@ class TestSharedPublicPaper:
             ),
             scenario,
         )
-        assert trace.account_id == "paper"
+        trace = journal.paper_trace("paper", outcome.market_identity)
+        assert trace is not None and trace.account_id == "paper"
         assert {item.account_id for item in journal.orders()} == {"paper-other"}
         ledgers_before = {view.ledger.account_id: view.ledger for view in journal.accounts()}
         assert set(ledgers_before) == set(account_ids)
@@ -1928,7 +2768,7 @@ class TestSharedPublicPaper:
             observed_at=self.at + timedelta(seconds=2),
             report=None,
             decisions=(),
-            prior_trace_ids=frozenset(),
+            prior_traces=0,
             summary={},
             processing_ns=None,
             delivered_count=0,

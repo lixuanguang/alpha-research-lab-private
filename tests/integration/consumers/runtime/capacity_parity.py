@@ -104,7 +104,7 @@ class _DeliveryStream:
             first = stream.readline()
         if not first.endswith(b"\n"):
             raise ValueError("retained capacity delivery stream is incomplete")
-        self.start = self.codec.decode_json(first[:-1], SharedBookDelivery).source.available_at
+        self.start = SharedBookDelivery.decode(first[:-1], self.codec).source.available_at
 
     @staticmethod
     def order(stream: _DeliveryStream) -> datetime:
@@ -117,7 +117,7 @@ class _DeliveryStream:
             for line in stream:
                 if not line.endswith(b"\n"):
                     raise ValueError("retained capacity delivery stream is incomplete")
-                delivery = self.codec.decode_json(line[:-1], SharedBookDelivery)
+                delivery = SharedBookDelivery.decode(line[:-1], self.codec)
                 if self.codec.encode_json(delivery) != line[:-1]:
                     raise ValueError("capacity delivery differs from canonical event bytes")
                 yield delivery
@@ -132,7 +132,7 @@ class CapacityEconomicParity:
         "net_orders",
         "paper_fills",
         "paper_costs",
-        "paper_traces",
+        "paper_trace_history",
         "checkpoints",
     )
 
@@ -410,7 +410,8 @@ class CapacityEconomicParity:
             "net_orders": journal.net_orders(),
             "paper_fills": fills,
             "paper_costs": costs,
-            "paper_traces": journal.paper_traces(),
+            # Equal count and hash chain: every trace's bytes, in commit order.
+            "paper_trace_history": journal.paper_trace_history(),
             "checkpoints": {
                 instance.instance_id: journal.checkpoint(instance.instance_id)
                 for instance in self.service.instances
@@ -430,7 +431,7 @@ class CapacityEconomicParity:
             "net_orders": original.net_orders,
             "paper_fills": original.paper_fills,
             "paper_costs": original.paper_costs,
-            "paper_traces": original.paper_traces,
+            "paper_trace_history": original.paper_trace_history,
             "checkpoints": self._signed_checkpoints(account, original),
         }
 
@@ -611,7 +612,7 @@ class CapacityRecoveryEconomicParity(CapacityEconomicParity):
             if request.action not in (
                 "control",
                 "quote",
-                "paper_market",
+                "public_market",
                 "reconcile",
                 "claim_paper",
                 "restart_instance",
@@ -624,8 +625,8 @@ class CapacityRecoveryEconomicParity(CapacityEconomicParity):
             if any(result != results[0] for result in results):
                 raise ValueError("retained recovery operator receipts disagree")
             operations.append((path, request, results[0]))
-        # The public market and valuation quote intentionally share one clock.
-        # The original driver applies the valuation first, then matches.
+        # A valuation quote and a public market at one clock keep the driver's
+        # order: the quote first.
         operations.sort(key=self._operation_order)
         if not operations or sum(item[1].action == "claim_paper" for item in operations) != 1:
             raise ValueError("recovery requires one completed replacement request per account")
@@ -636,7 +637,7 @@ class CapacityRecoveryEconomicParity(CapacityEconomicParity):
         cls, item: tuple[Path, AccountExecutionRequest, AccountExecutionResult]
     ) -> tuple[datetime, int, str]:
         """Preserve shared-clock valuation-before-matching order from the driver."""
-        priorities = {"quote": 0, "paper_market": 1}
+        priorities = {"quote": 0, "public_market": 1}
         return cls._request_at(item[1]), priorities.get(item[1].action, 2), item[0].name
 
     @staticmethod
@@ -663,15 +664,15 @@ class CapacityRecoveryEconomicParity(CapacityEconomicParity):
         elif request.action == "quote" and request.quote is not None:
             journal.observe(request.quote)
         elif (
-            request.action == "paper_market"
+            request.action == "public_market"
             and request.account_id is not None
             and request.market is not None
             and request.scenario is not None
         ):
-            actual_trace = journal.match_public_market(
+            outcome = journal.apply_public_market(
                 request.account_id, request.market, request.scenario
             )
-            if actual_trace != signed.matched_market:
+            if outcome != signed.public_market:
                 raise ValueError("independent recovery settlement trace differs")
         elif request.action == "reconcile" and request.observation is not None:
             if signed.reconciled is not True or not journal.reconcile(request.observation):

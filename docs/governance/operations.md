@@ -187,6 +187,17 @@ uv run --frozen alpha-governance-artifacts run \
    for reissue, while `cancelled` or `reconcile_cancelled` ends them. A parent whose
    outcome is `unknown` can only end them; a `venue_test` account accepts no
    `cancelled_on_request`.
+   An account cancel does not withdraw strategy intent. This is the interim
+   reading while plan decision D1 is deferred. The cancel requests cancellation of
+   the physical orders only. Each strategy child that a `cancelled_on_request`
+   parent keeps stays a reserved residual. Once the account is running, with no
+   fault or operator block, and reconciled at or after that parent's outcome,
+   `reissue_pending` or the account's next coordination sends it again under the
+   usual admission checks. A child whose decision is older than
+   `max_residual_age_us` is retired instead of sent. A child whose quote is stale,
+   whose limit drifted beyond the price bound, or that is a buy over a ceiling
+   stays a visible residual. To withdraw intent, also stop the instances with
+   `stop_instance`.
    These actions never imply liquidation. Managed paper reduction uses the
    separate `reduce_paper` request described below.
 4. **Recover:** replay missing identified fills, fees, transfers and order facts,
@@ -283,12 +294,33 @@ uv run --frozen alpha-governance-artifacts run \
    records an operational stop. Diagnostic failure does not retry execution.
 5. To **block new exposure**, send `control/stop`. To **request cancellation**,
    separately send `control/cancel`. Requested/acknowledged cancellation retains
-   commitments until the paper matcher produces its terminal outcome. Expiry
+   commitments until the paper matcher produces its terminal outcome. An account
+   cancel does not withdraw strategy intent (D1 deferred; see
+   [local paper operations](#local-paper-operations), step 3); stop the instances to
+   withdraw it. Expiry
    and revocation also leave existing obligations and reservations intact.
 6. To **request position reduction**, send `reduce_paper` with instance, quantity,
-   a fresh observed quote, explicit sell limit and maximum fee. Accepted means
-   an IOC sell reservation. Only subsequent eligible public liquidity can create
-   fills. Stale/disconnected input, unknown outcomes, unreconciled state or
+   a fresh observed quote, explicit sell limit and maximum fee. While a shared
+   observer is live it observes every eligible book, so take the quote from the
+   account's `valuation` projection (`inspect` with only `query_instrument`) and
+   send it unchanged. Never send a `quote` of your own then: one stamped after a
+   book's availability but applied before that book's own observation makes the
+   observer's observation regress, which faults the account and stops its matching.
+   The account saves each reduction's outcome under its request `identity`, and
+   resending that identity returns the saved outcome:
+   - **Definitive rejection.** After a response with a saved `unobserved_quote`
+     rejection (the next book replaced the valuation first), read the `valuation`
+     projection again and submit a new request: a new `identity`, the fresh quote,
+     and an `at` no earlier than that quote and still current. The same identity
+     with the new quote is refused as reused with different content.
+   - **Uncertain outcome** (timeout or lost response). First read the `reductions`
+     projection for the original identity. If it holds a result, act on that result.
+     If not, you may resend the original payload unchanged; it returns the saved
+     outcome if one was committed meanwhile. If that resend is refused as
+     `paper_reduction_stale_or_future`, submit a new request as above.
+
+   Accepted means an IOC sell reservation. Only subsequent eligible public liquidity
+   can create fills. Stale/disconnected input, unknown outcomes, unreconciled state or
    insufficient owned inventory produce explicit refusal; budget ceilings never
    refuse a reduction. Partial/unfilled quantities are reported without claiming
    liquidation. Other strategies' inventory is never used to satisfy the request.
@@ -462,10 +494,10 @@ background system daemon or grant private venue authority.
    candidate before signing: a reference formula, or a packaged candidate from the
    paper-services release (see the next section). Its cadence is bounded by source
    freshness and capture idle time, and the deployment binds the candidate's
-   identity. Every native book is retained/validated; only the
-   book that crosses a decision instant matches, after the due candidates decide.
-   Books between instants update monitoring marks, while source faults remain
-   immediate.
+   identity. Every native book is retained/validated; the due candidates decide on
+   the first delivery after their instant, and every eligible book matches open
+   orders under the scenario's entry and cancel delays. Books between instants
+   update monitoring marks and can fill; source faults remain immediate.
 2. Start each target through `alpha-governance-artifacts run ... -- account
    --request SERVE.json`, with action `serve_paper`, the claimed owner, absolute
    socket path and `service_seconds` no greater than 120. Start the supervisor from
@@ -511,6 +543,18 @@ background system daemon or grant private venue authority.
    replayed. Stop the supervisor, inspect the latest journal through the signed
    launcher, reconcile retained requests/results and independent facts, resolve
    pending/uncertain orders, then claim a fresh owner before restarting services.
+   The supervisor's requests are in `<root>/requests/<account>/<log>.jsonl`: an
+   `attempt` with a `request` record but no `result`, `repeated_result` or `error`
+   record has an uncertain outcome. A `repeated_result` is the SHA-256 of the exact
+   bytes of an earlier `result` record's value in the same log; one that names no
+   such record (possible after a power loss, since results are not synced one by
+   one) is uncertain too. A `request` record names the payload's action, SHA-256 and
+   length; the owner service's retained requests, with their exact bytes, are the
+   lines of `service-requests/<life>.jsonl` beside the journal. A line whose
+   SHA-256 matches holds what was sent; no such line means the service never
+   retained, and so never applied, that payload. For a book, look up its market
+   identity's trace (`market_trace`); a full inspection states the trace history's
+   count and chain, and `traces` pages or `export_traces` read the history itself.
 6. An account/delivery persistence failure stops affected admission; storage that
    cannot record a fault cannot prove a clean stop. Terminate the producer, retain
    the failure, restore writable storage, inspect current state and reconcile.

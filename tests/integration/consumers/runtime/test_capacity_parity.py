@@ -12,7 +12,11 @@ from uuid import uuid4
 # third party library imports
 import pytest
 from capacity_inputs import CapacityWorkload
-from capacity_parity import CapacityEconomicParity, CapacityRecoveryEconomicParity
+from capacity_parity import (
+    CapacityEconomicParity,
+    CapacityRecoveryEconomicParity,
+    _DeliveryStream,
+)
 from msgspec.structs import replace
 
 # project library imports
@@ -109,7 +113,7 @@ class TestCapacityParity:
                 accounts=signed.accounts(),
                 orders=signed.orders(),
                 net_orders=signed.net_orders(),
-                paper_traces=signed.paper_traces(),
+                paper_trace_history=signed.paper_trace_history(),
                 journal_path=str(signed_path),
             )
             (trial / f"final-{account.account_id}.json").write_bytes(codec.encode_json(final))
@@ -208,7 +212,7 @@ class TestCapacityParity:
                 accounts=signed.accounts(),
                 orders=signed.orders(),
                 net_orders=signed.net_orders(),
-                paper_traces=signed.paper_traces(),
+                paper_trace_history=signed.paper_trace_history(),
                 journal_path=str(signed_path),
             )
             (trial / f"final-{account.account_id}.json").write_bytes(codec.encode_json(final))
@@ -282,6 +286,25 @@ class TestCapacityParity:
             assert comparison[field]["signed"] == signed[field]
             assert comparison[field]["replay"] == replay[field]
             assert comparison[field]["signed_sha256"] != comparison[field]["replay_sha256"]
+
+    def test_delivery_stream_refuses_a_replaced_format_at_its_first_line(
+        self, tmp_path: Path
+    ) -> None:
+        """Parity reads a log's first availability only from the current delivery format."""
+        at = datetime(2026, 9, 28, tzinfo=UTC)
+        times = (at + timedelta(seconds=1), at + timedelta(seconds=4))
+        live, request = self._observer(tmp_path, "live", clock=_SequenceClock(times))
+        for position, available_at in enumerate(times):
+            live.observe(*self._book(position, available_at))
+        path = tmp_path / "live" / "deliveries.jsonl"
+        assert list(_DeliveryStream(request, path))
+        path.write_bytes(
+            path.read_bytes().replace(
+                b'"shared-eligible-book-delivery"', b'"shared-candidate-delivery"'
+            )
+        )
+        with pytest.raises(ValueError, match="unsupported shared book delivery schema"):
+            _DeliveryStream(request, path)
 
     @staticmethod
     def _observer(
@@ -376,7 +399,7 @@ class TestCapacityParity:
             live.observe(*self._book(position, available_at))
         codec = DomainCodec()
         lines = (tmp_path / "live" / "deliveries.jsonl").read_bytes().splitlines()
-        first, second = (codec.decode_json(line, SharedBookDelivery) for line in lines)
+        first, second = (SharedBookDelivery.decode(line, codec) for line in lines)
         assert (first.matched, first.decisions) == (True, ())
         (group,) = second.decisions
         assert group.at == at + timedelta(seconds=3)

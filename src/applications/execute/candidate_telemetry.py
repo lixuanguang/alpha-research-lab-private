@@ -219,7 +219,7 @@ class CandidateTelemetry:
             complete = payload[: payload.rfind(b"\n") + 1]
             self._offsets[path] = offset + len(complete)
             for line in complete.splitlines():
-                delivery = self._codec.decode_json(line, SharedBookDelivery)
+                delivery = SharedBookDelivery.decode(line, self._codec)
                 for group in delivery.decisions:
                     for item in group.inputs:
                         exporter = self.exporters.get(item.instance_id)

@@ -11,6 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -31,6 +32,7 @@ from execution import (
     InstalledPaperAccount,
     PaperMarket,
     PaperOwner,
+    SocketPaperAccount,
 )
 from financial_units import Price
 from serialization import DomainCodec
@@ -319,10 +321,14 @@ class CapacityRecovery:
         cutoff_at = datetime.now(UTC)
         try:
             # New requests still name the original directory. Freeze its removed
-            # namespace before restoration, including exact in-flight file bytes.
-            frozen_names = tuple(sorted(retained.glob("*.json")))
+            # namespace before restoration, including exact in-flight log bytes.
+            frozen_names = tuple(sorted(retained.glob("*.jsonl")))
             path.write_text(marker)
-            frozen = tuple(self._freeze_retained_request(item, cutoff_ns) for item in frozen_names)
+            frozen = tuple(
+                request
+                for item in frozen_names
+                for request in self._freeze_retained_requests(item, cutoff_ns)
+            )
             self.trial.record(
                 "request_retention_obstructed",
                 {
@@ -352,8 +358,9 @@ class CapacityRecovery:
             retained.rename(path)
         after = client.execute(AccountExecutionRequest(action="inspect"))
         after_checkpoint = client.checkpoint(instance_id)
+        appended = self._appended_traces(client, before, after)
         passed, witness = self._request_retention_proof(
-            account_id, before, after, before_checkpoint, after_checkpoint, frozen
+            account_id, before, after, before_checkpoint, after_checkpoint, appended, frozen
         )
         witness.update(
             account=account_id,
@@ -387,7 +394,7 @@ class CapacityRecovery:
                 "worker_pid": worker_pid,
                 "response_seconds": elapsed,
                 "economics_unchanged": True,
-                "concurrent_trace_appends": len(after.paper_traces) - len(before.paper_traces),
+                "concurrent_trace_appends": len(appended),
                 "trace_appends_attributed_to_frozen_requests": True,
                 "obstruction_restored": True,
             },
@@ -395,21 +402,50 @@ class CapacityRecovery:
         return elapsed
 
     @staticmethod
-    def _freeze_retained_request(path: Path, cutoff_ns: int) -> _RetainedRequest:
-        """Reject attribution from a file changed after the removed directory's cutoff."""
+    def _freeze_retained_requests(path: Path, cutoff_ns: int) -> tuple[_RetainedRequest, ...]:
+        """Freeze one service-life request log, one request per complete line.
+
+        Attribution is refused for every line of a log changed after the removed
+        directory's cutoff, and for an incomplete final line.
+        """
         before = path.stat()
-        payload = path.read_bytes()
+        content = path.read_bytes()
         after = path.stat()
-        return _RetainedRequest(
-            name=path.name,
-            payload=payload,
-            modified_ns=after.st_mtime_ns,
-            stable_before_cutoff=(
-                before.st_mtime_ns == after.st_mtime_ns <= cutoff_ns
-                and before.st_size == after.st_size == len(payload)
-                and before.st_ino == after.st_ino
-            ),
+        stable = (
+            before.st_mtime_ns == after.st_mtime_ns <= cutoff_ns
+            and before.st_size == after.st_size == len(content)
+            and before.st_ino == after.st_ino
         )
+        lines: list[bytes] = content.split(b"\n")
+        # A whole log ends with a newline; anything after the last one is torn.
+        complete = len(lines) - 1
+        if not lines[-1]:
+            lines.pop()
+        return tuple(
+            _RetainedRequest(
+                name=f"{path.name}:{number}",
+                payload=payload,
+                modified_ns=after.st_mtime_ns,
+                stable_before_cutoff=stable and number <= complete,
+            )
+            for number, payload in enumerate(lines, start=1)
+        )
+
+    @staticmethod
+    def _appended_traces(
+        client: SocketPaperAccount, before: AccountExecutionResult, after: AccountExecutionResult
+    ) -> tuple[AccountPaperTrace, ...]:
+        """Read the traces committed between two inspections, in bounded pages.
+
+        The service's journal holds one account, so the history's positions after
+        the first inspection's count are exactly the appended traces.
+        """
+        if before.paper_trace_history is None or after.paper_trace_history is None:
+            raise ValueError("request-retention inspection lacks its trace history")
+        start, end = before.paper_trace_history.count, after.paper_trace_history.count
+        if end <= start:
+            return ()
+        return tuple(islice(client.iter_paper_traces(after=start - 1), end - start))
 
     @staticmethod
     def _request_retention_fields(result: AccountExecutionResult) -> dict[str, object]:
@@ -429,9 +465,15 @@ class CapacityRecovery:
         after: AccountExecutionResult,
         before_checkpoint: bytes | None,
         after_checkpoint: bytes | None,
+        appends: tuple[AccountPaperTrace, ...],
         frozen: tuple[_RetainedRequest, ...],
     ) -> tuple[bool, dict[str, object]]:
-        """Attribute only benign trace appends to requests frozen at the rename boundary."""
+        """Attribute only benign trace appends to requests frozen at the rename boundary.
+
+        The appended traces' exact bytes must extend the first inspection's trace
+        chain to the second's, so the earlier history is unchanged and nothing else
+        was appended; the journal's unique key already refuses a repeated identity.
+        """
         left, right = self._request_retention_fields(before), self._request_retention_fields(after)
         comparisons = {
             name: {
@@ -477,11 +519,8 @@ class CapacityRecovery:
                 evidence.update(valid=True, action=request.action)
                 decoded.append((item, request))
             requests.append(evidence)
-        prefix_equal = after.paper_traces[: len(before.paper_traces)] == before.paper_traces
-        appends = after.paper_traces[len(before.paper_traces) :]
-        prior_ids = {trace.input_sha256 for trace in before.paper_traces}
-        append_ids = {trace.input_sha256 for trace in appends}
-        unique_appends = len(append_ids) == len(appends) and not prior_ids.intersection(append_ids)
+        prefix_equal = self._history_extended(before, after, appends)
+        unique_appends = len({trace.input_sha256 for trace in appends}) == len(appends)
         attribution = tuple(
             self._retained_trace_proof(account_id, trace, decoded) for trace in appends
         )
@@ -499,11 +538,26 @@ class CapacityRecovery:
             "comparisons": comparisons,
             "trace_prefix_equal": prefix_equal,
             "trace_append_identities_unique": unique_appends,
-            "before_traces": before.paper_traces,
-            "after_traces": after.paper_traces,
+            "before_trace_history": before.paper_trace_history,
+            "after_trace_history": after.paper_trace_history,
             "appended_traces": attribution,
             "frozen_requests": tuple(requests),
         }
+
+    def _history_extended(
+        self,
+        before: AccountExecutionResult,
+        after: AccountExecutionResult,
+        appends: tuple[AccountPaperTrace, ...],
+    ) -> bool:
+        """Report whether the appended traces' bytes chain the first history into the second."""
+        first, second = before.paper_trace_history, after.paper_trace_history
+        if first is None or second is None or second.count != first.count + len(appends):
+            return False
+        chain = bytes.fromhex(first.sha256)
+        for trace in appends:
+            chain = hashlib.sha256(chain + self.codec.encode_json(trace)).digest()
+        return (chain.hex() if second.count else "") == second.sha256
 
     def _retained_trace_proof(
         self,
@@ -519,7 +573,7 @@ class CapacityRecovery:
                 "modified_ns": item.modified_ns,
             }
             for item, request in decoded
-            if request.action == "paper_market"
+            if request.action == "public_market"
             and item.stable_before_cutoff
             and request.account_id == trace.account_id == account_id
             and request.paper_owner is not None
@@ -653,18 +707,19 @@ class CapacityRecovery:
         workload = self.trial.workload.venue_workload(venue)
         for scenario in deployment.scenarios:
             at = datetime.now(UTC)
+            # The book's ask becomes the valuation, so it keeps the 100 reference:
+            # a higher ask would put the retained 98 sell limits outside the
+            # unchanged 5% risk band. Every order's cancel has taken effect, so
+            # nothing fills on it.
             market = PaperMarket(
                 identity=uuid4().hex,
                 at=at,
                 bid=workload.price("99", scenario.adverse.per),
-                ask=workload.price("104", scenario.adverse.per),
+                ask=workload.price("100", scenario.adverse.per),
                 bid_quantity=workload.quantity("4", scenario.adverse.per),
                 ask_quantity=workload.quantity("4", scenario.adverse.per),
             )
-            # Keep the original 100 reference: a 104 quote makes the
-            # retained 98 sell limits exceed the unchanged 5% risk band.
-            admin.observe(AccountQuote(price=workload.price("100", scenario.adverse.per), at=at))
-            admin.match_public_market(name, market, scenario)
+            admin.apply_public_market(name, market, scenario)
         settled = admin.execute(AccountExecutionRequest(action="inspect"))
         with (self.trial.output / f"recovery-settled-{name}.json").open("xb") as stream:
             stream.write(self.codec.encode_json(settled))

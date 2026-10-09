@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime
 from fractions import Fraction
-from typing import Literal
+from typing import ClassVar, Literal
 
 # project library imports
 from accounting import AccountSnapshot, AccountState, Fill
@@ -32,6 +32,43 @@ class AccountQuote(WireRecord, frozen=True):
         self._require_utc(self.at, field_name="quote availability")
         if self.price.value <= 0:
             raise ValueError("account quote must be positive")
+
+
+class HistoryDigest(WireRecord, frozen=True):
+    """Bind one history table's row count to a hash chain over its item bytes.
+
+    The chain starts empty, and each row extends it with SHA-256 of the previous
+    digest's bytes followed by the row's exact stored bytes. Rows are only appended,
+    so a longer history extends a shorter one exactly when its chain continues it.
+    """
+
+    count: int
+    sha256: str
+
+    def __post_init__(self) -> None:
+        """Require an empty chain for no rows and a sha256 digest otherwise."""
+        HistoryDigest.require_shape(self.count, self.sha256, "invalid account history digest")
+
+    def extend(self, item: bytes) -> HistoryDigest:
+        """Chain one more item's exact bytes after the current rows."""
+        digest = hashlib.sha256(bytes.fromhex(self.sha256) + item).hexdigest()
+        return HistoryDigest(count=self.count + 1, sha256=digest)
+
+    @staticmethod
+    def require_shape(count: object, sha256: object, message: str) -> None:
+        """Require a row count, with no digest for no rows and lowercase hex sha256 otherwise."""
+        if (
+            type(count) is not int
+            or count < 0
+            or type(sha256) is not str
+            or (sha256 == "") != (count == 0)
+            or (count and (len(sha256) != 64 or sha256 != sha256.lower()))
+        ):
+            raise ValueError(message)
+        try:
+            bytes.fromhex(sha256)
+        except ValueError:
+            raise ValueError(message) from None
 
 
 class AccountPaperBinding(WireRecord, frozen=True):
@@ -128,6 +165,91 @@ class AccountPaperTrace(WireRecord, frozen=True):
             self.rejected_event.__post_init__()
             if self.rejected_event.at != self.market.at:
                 raise ValueError("paper rejection availability differs from source market")
+
+    @property
+    def filled(self) -> bool:
+        """Whether this committed trace posted a modeled physical or child fill."""
+        return self.status == "committed" and (
+            bool(self.child_fill_events)
+            or any(event.fill is not None for event in self.physical_events)
+        )
+
+
+class PaperTracePage(WireRecord, frozen=True):
+    """Return a bounded run of committed traces after a history position.
+
+    Positions are the journal-wide commit sequence, from zero, and ``after`` is -1
+    to start. ``traces`` follow ``after`` in commit order, optionally within one
+    account: at most ``maximum`` of them and, beyond the first, at most
+    ``maximum_bytes`` of stored trace bytes, so a page stays well inside a socket
+    response. A page that stopped at either bound names the position of its last
+    trace in ``next_after`` to continue from; a page without one ends the history at
+    its snapshot. ``history`` is that snapshot's whole journal trace history, every
+    account's, so a reader can verify that the pages it joined are the history.
+    """
+
+    maximum: ClassVar[int] = 256
+    maximum_bytes: ClassVar[int] = 524_288
+
+    after: int
+    traces: tuple[AccountPaperTrace, ...]
+    next_after: int | None
+    history: HistoryDigest
+
+    def __post_init__(self) -> None:
+        """Bound the page and keep its cursor inside the history it names."""
+        self.history.__post_init__()
+        if (
+            type(self.after) is not int
+            or not -1 <= self.after < self.history.count
+            or type(self.traces) is not tuple
+            or len(self.traces) > self.maximum
+            or (len(self.traces) == self.maximum and self.next_after is None)
+            or (
+                self.next_after is not None
+                and (
+                    type(self.next_after) is not int
+                    or not self.traces
+                    or not self.after < self.next_after < self.history.count
+                )
+            )
+        ):
+            raise ValueError("invalid paper trace page")
+        for trace in self.traces:
+            if type(trace) is not AccountPaperTrace:
+                raise TypeError("paper trace page requires AccountPaperTrace")
+            trace.__post_init__()
+
+
+class PaperMarketOutcome(WireRecord, frozen=True):
+    """Name what one eligible public book did to an account, without its trace.
+
+    In paper mode ``trace_sha256`` is the SHA-256 of the committed trace's exact
+    journal bytes, the same for the first application and every exact retry. Shadow
+    mode retains no trace and only observes the book's ask as valuation, so it has
+    none. A book whose modeled effect was refused is not an outcome: the command
+    commits its failure trace and raises.
+    """
+
+    account_id: str
+    market_identity: str
+    trace_sha256: str | None
+
+    def __post_init__(self) -> None:
+        """Require identities and, when present, a lowercase SHA-256 digest."""
+        if (
+            type(self.account_id) is not str
+            or not self.account_id
+            or type(self.market_identity) is not str
+            or not self.market_identity
+        ):
+            raise ValueError("paper market outcome requires account and market identities")
+        if self.trace_sha256 is not None and (
+            type(self.trace_sha256) is not str
+            or len(self.trace_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in self.trace_sha256)
+        ):
+            raise ValueError("paper market outcome requires a SHA-256 trace digest")
 
 
 class AccountPaperFill(WireRecord, frozen=True):
@@ -723,10 +845,14 @@ class AccountControlResult(WireRecord, frozen=True):
             raise ValueError("invalid account control result")
 
 
-class AccountView(WireRecord, frozen=True):
-    """Expose authoritative local balances and independent admission blocks."""
+class AccountStatus(WireRecord, frozen=True, omit_defaults=True):
+    """Expose one account's operating phase and blocks without its ledger.
 
-    ledger: AccountState
+    Protection reads poll this every period. An ``AccountView`` also carries the
+    ledger, whose postings grow with every fill and fee.
+    """
+
+    account_id: str
     reconciled_at: datetime | None = None
     fault: str | None = None
     operator_block: str | None = None
@@ -736,10 +862,9 @@ class AccountView(WireRecord, frozen=True):
     control_cutoff_at: datetime | None = None
 
     def __post_init__(self) -> None:
-        """Require a typed ledger and separately attributable blocking state."""
-        if type(self.ledger) is not AccountState:
-            raise TypeError("account view requires AccountState")
-        self.ledger.__post_init__()
+        """Require an account and separately attributable blocking state."""
+        if type(self.account_id) is not str or not self.account_id:
+            raise ValueError("account status requires an account")
         if self.reconciled_at is not None:
             self._require_utc(self.reconciled_at, field_name="reconciled at")
         for reason in (self.fault, self.operator_block):
@@ -763,3 +888,36 @@ class AccountView(WireRecord, frozen=True):
             raise ValueError("invalid account operating phase")
         if self.control_cutoff_at is not None:
             self._require_utc(self.control_cutoff_at, field_name="account control cutoff")
+
+
+class AccountView(WireRecord, frozen=True):
+    """Expose authoritative local balances and independent admission blocks."""
+
+    ledger: AccountState
+    reconciled_at: datetime | None = None
+    fault: str | None = None
+    operator_block: str | None = None
+    phase: AccountPhase = "running"
+    recovery_generation: int = 0
+    active_control_identity: str | None = None
+    control_cutoff_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        """Require a typed ledger and separately attributable blocking state."""
+        if type(self.ledger) is not AccountState:
+            raise TypeError("account view requires AccountState")
+        self.ledger.__post_init__()
+        self.status()
+
+    def status(self) -> AccountStatus:
+        """Return this account's operating phase and blocks, validated, without the ledger."""
+        return AccountStatus(
+            account_id=self.ledger.account_id,
+            reconciled_at=self.reconciled_at,
+            fault=self.fault,
+            operator_block=self.operator_block,
+            phase=self.phase,
+            recovery_generation=self.recovery_generation,
+            active_control_identity=self.active_control_identity,
+            control_cutoff_at=self.control_cutoff_at,
+        )

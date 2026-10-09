@@ -243,3 +243,33 @@ class TestDayRetention:
             "features_telemetry"
         )
         assert DayRetention._class(Path("observations.jsonl")) == "scratch"
+
+    def test_sibling_account_journals_are_reported_separately_and_ungraded(
+        self, tmp_path: Path
+    ) -> None:
+        """Account state beside the day is its own class; the day's classes exclude it."""
+        day = tmp_path / "candidate" / "day"
+        (day / "reads").mkdir(parents=True)
+        (day / "summary.json").write_bytes(b"{}")
+        (day / "reads" / "samples.jsonl").write_bytes(b"x" * 10_000)
+        for account, size in (("okx-shared", 20_000), ("bitfinex-isolated", 30_000)):
+            state = tmp_path / "candidate" / f"target-{account}" / "state"
+            (state / "service-requests").mkdir(parents=True)
+            (state / "accounts.sqlite3").write_bytes(b"j" * size)
+            (state / "service-requests" / "life.jsonl").write_bytes(b"{}\n")
+        (tmp_path / "candidate" / "target-okx-shared" / "release.json").write_bytes(b"{}")
+        retention = DayRetention(day, 72)
+        journals = retention.account_journals()
+        accounts = cast(dict[str, dict[str, int]], journals["accounts"])
+        assert set(accounts) == {"okx-shared", "bitfinex-isolated"}
+        assert {name: item["files"] for name, item in accounts.items()} == {
+            "okx-shared": 2,
+            "bitfinex-isolated": 2,
+        }
+        assert all(item["occupied_bytes"] > 0 for item in accounts.values())
+        assert journals["occupied_bytes"] == sum(
+            item["occupied_bytes"] for item in accounts.values()
+        )
+        assert journals["status"] == "reported_ungraded"
+        occupied = cast(dict[str, int], retention.occupied()["occupied_bytes"])
+        assert sum(occupied.values()) < 20_000

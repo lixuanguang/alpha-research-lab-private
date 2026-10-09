@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import base64
+import hashlib
 import sqlite3
 from contextlib import closing
 from datetime import timedelta
@@ -12,10 +13,18 @@ from typing import cast
 
 # third party library imports
 import pytest
+from paper_books import PaperBooks
 from test_account_paper_matching import TestAccountPaperMatching as _Matching
 
 # project library imports
-from execution import AccountJournal, AccountQuote, StepCommit
+from execution import (
+    AccountJournal,
+    AccountPaperTrace,
+    AccountQuote,
+    HistoryDigest,
+    PaperTracePage,
+    StepCommit,
+)
 from execution.account_state import AccountStateStore, FirmHead, FirmState, SavedDecision
 from execution.records import ORDER_EVENT_KINDS
 from serialization import DomainCodec
@@ -41,23 +50,21 @@ class AccountHistoryFixture:
             _Matching._market(f"book-{index}", at + timedelta(seconds=1 + index), ask_quantity="2")
             for index in range(3)
         )
-        traces = tuple(
-            journal.match_public_market("shared", market, scenario) for market in markets
-        )
-        assert journal.match_public_market("shared", markets[0], scenario) == traces[0]
+        traces = tuple(PaperBooks.apply(journal, "shared", market, scenario) for market in markets)
+        assert PaperBooks.apply(journal, "shared", markets[0], scenario) == traces[0]
         reopened = AccountJournal(path, _Matching._config())
         return {
             "traces": traces,
-            "reopened_traces": reopened.paper_traces(),
-            "account_traces": reopened.paper_traces("shared"),
+            "reopened_traces": tuple(reopened.iter_paper_traces()),
+            "account_traces": tuple(reopened.iter_paper_traces("shared")),
             "checkpoints": tuple(
                 reopened.checkpoint(instance) for instance in ("alpha", "beta", "absent")
             ),
             "batch": reopened.portfolio_batch("shared-batch"),
             "absent_batch": reopened.portfolio_batch("absent"),
-            "membership": (
-                reopened.paper_market_seen("shared", "book-0"),
-                reopened.paper_market_seen("shared", "absent"),
+            "market_traces": (
+                reopened.paper_trace("shared", "book-0"),
+                reopened.paper_trace("shared", "absent"),
             ),
         }
 
@@ -95,7 +102,8 @@ class TestAccountHistory:
         assert result["reopened_traces"] == result["account_traces"] == result["traces"]
         assert result["checkpoints"] == (b"alpha-decision", b"beta-decision", None)
         assert result["batch"] is not None and result["absent_batch"] is None
-        assert result["membership"] == (True, False)
+        traces = cast(tuple[AccountPaperTrace, ...], result["traces"])
+        assert result["market_traces"] == (traces[0], None)
         assert len(AccountJournal.verify(path, _Matching._config())) == 1
 
     def test_commit_writes_head_and_rows_and_open_decodes_only_head(self, tmp_path: Path) -> None:
@@ -251,3 +259,99 @@ class TestAccountHistory:
             AccountStateStore(path, config, codec)
         with pytest.raises(ValueError):
             AccountJournal.verify(path, config)
+
+
+class TestBoundedTraceReads:
+    """Read and export the growing trace history in bounded pages, checked by its chain."""
+
+    @staticmethod
+    def _chain(payloads: list[bytes]) -> str:
+        """Compute the head's trace chain independently from exact trace bytes."""
+        digest = b""
+        for payload in payloads:
+            digest = hashlib.sha256(digest + payload).digest()
+        return digest.hex() if payloads else ""
+
+    def test_pages_join_into_exactly_the_history_their_chain_names(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pages of two follow positions to the end; their bytes extend the head's chain."""
+        path = tmp_path / "pages.sqlite3"
+        result = AccountHistoryFixture.operate(path)
+        traces = cast(tuple[AccountPaperTrace, ...], result["traces"])
+        journal = AccountJournal(path, _Matching._config())
+        codec = DomainCodec()
+        history = journal.paper_trace_history()
+        assert history == HistoryDigest(
+            count=3, sha256=self._chain([codec.encode_json(trace) for trace in traces])
+        )
+        monkeypatch.setattr(PaperTracePage, "maximum", 2)
+        first = journal.paper_trace_page("shared")
+        assert (first.after, first.traces, first.next_after) == (-1, traces[:2], 1)
+        second = journal.paper_trace_page("shared", after=1)
+        assert (second.traces, second.next_after, second.history) == (traces[2:], None, history)
+        assert tuple(journal.iter_paper_traces("shared")) == traces
+        assert tuple(journal.iter_paper_traces(after=0)) == traces[1:]
+        assert journal.paper_trace_page(after=2).traces == ()
+        assert journal.latest_paper_traces("shared") == (traces[-1],)
+        for after in (-2, 3):
+            with pytest.raises(ValueError, match="outside the committed history"):
+                journal.paper_trace_page(after=after)
+        with pytest.raises(ValueError, match="unknown account"):
+            journal.paper_trace_page("absent")
+        with pytest.raises(ValueError, match="invalid paper trace page"):
+            PaperTracePage(after=-1, traces=traces[:2], next_after=None, history=history)
+
+    def test_pages_also_stop_at_their_byte_bound_and_continue(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A page holds its first trace whatever its size, then stops before the byte bound."""
+        path = tmp_path / "byte-pages.sqlite3"
+        result = AccountHistoryFixture.operate(path)
+        traces = cast(tuple[AccountPaperTrace, ...], result["traces"])
+        journal = AccountJournal(path, _Matching._config())
+        sizes = [len(DomainCodec().encode_json(trace)) for trace in traces]
+        monkeypatch.setattr(PaperTracePage, "maximum_bytes", sizes[0] + sizes[1] - 1)
+        first = journal.paper_trace_page("shared")
+        assert (first.traces, first.next_after) == (traces[:1], 0)
+        assert tuple(journal.iter_paper_traces("shared")) == traces
+        monkeypatch.setattr(PaperTracePage, "maximum_bytes", 1)
+        assert journal.paper_trace_page("shared", after=1).traces == traces[2:]
+        assert tuple(journal.iter_paper_traces("shared")) == traces
+
+    def test_export_is_the_codec_encoding_and_refuses_a_changed_history(
+        self, tmp_path: Path
+    ) -> None:
+        """The streamed document equals the encoded tuple; altered history leaves no file."""
+        path = tmp_path / "export.sqlite3"
+        AccountHistoryFixture.operate(path)
+        journal = AccountJournal(path, _Matching._config())
+        destination = tmp_path / "execution-traces.json"
+        assert journal.export_paper_traces(destination, "shared") == 3
+        assert destination.read_bytes() == DomainCodec().encode_json(
+            tuple(journal.iter_paper_traces("shared"))
+        )
+        with pytest.raises(ValueError, match="absent absolute destination"):
+            journal.export_paper_traces(destination, "shared")
+        AccountHistoryFixture.execute(
+            path,
+            "UPDATE paper_traces SET payload=CAST(replace(CAST(payload AS TEXT), "
+            "'\"matched\"', '\"matcheD\"') AS BLOB) WHERE seq=1",
+        )
+        altered = tmp_path / "altered.json"
+        with pytest.raises(ValueError, match="history differs"):
+            AccountJournal(path, _Matching._config()).export_paper_traces(altered, "shared")
+        assert not altered.exists() and not tuple(tmp_path.glob(".altered.json.*"))
+        with pytest.raises(ValueError, match="history differs"):
+            AccountJournal.verify(path, _Matching._config())
+
+    def test_verification_refuses_bytes_whose_fill_flag_differs_from_its_column(
+        self, tmp_path: Path
+    ) -> None:
+        """A key column must equal what the row's own bytes say, the fill flag included."""
+        path = tmp_path / "flag.sqlite3"
+        AccountHistoryFixture.operate(path)
+        AccountJournal.verify(path, _Matching._config())
+        AccountHistoryFixture.execute(path, "UPDATE paper_traces SET filled=1-filled WHERE seq=0")
+        with pytest.raises(ValueError, match="history differs"):
+            AccountJournal.verify(path, _Matching._config())

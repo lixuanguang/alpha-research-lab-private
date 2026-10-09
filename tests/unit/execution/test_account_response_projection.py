@@ -3,25 +3,29 @@
 from __future__ import annotations
 
 # standard library imports
+import gc
 from datetime import timedelta
 from pathlib import Path
 
 # third party library imports
 import pytest
 from msgspec.structs import replace
+from paper_books import PaperBooks
 from test_account_journal import TestAccountJournal as _AccountFixture
 from test_account_paper_matching import TestAccountPaperMatching as _MatchingFixture
 
 # project library imports
+from accounting import AccountPosting
 from applications.execute import AccountExecutionApplication
 from configuration import AccountConfiguration, OpeningAccount
 from execution import (
+    AccountControl,
     AccountExecutionRequest,
     AccountExecutionResult,
     AccountJournal,
     AccountQuote,
     InstalledPaperAccount,
-    PaperOwner,
+    PaperTracePage,
 )
 from risk import AccountLimit
 from serialization import DomainCodec
@@ -55,10 +59,12 @@ class _ProjectedAccount(InstalledPaperAccount):
         return self.journal.result_snapshot(request)
 
 
-class TestAccountMarketMembership:
-    """Keep the small membership response fresh, exact and account scoped."""
+class TestAccountMarketTrace:
+    """Keep the one-market trace response fresh, exact and account scoped."""
 
-    def test_membership_observes_other_writer_and_scopes_same_market(self, tmp_path: Path) -> None:
+    def test_market_trace_observes_other_writer_and_scopes_same_market(
+        self, tmp_path: Path
+    ) -> None:
         """A warm reader sees durable traces without borrowing another account's history."""
         fixture = _MatchingFixture
         initial = fixture._config()
@@ -79,7 +85,7 @@ class TestAccountMarketMembership:
                 accounts=account_limits,
             ),
         )
-        path = tmp_path / "membership.sqlite3"
+        path = tmp_path / "market-trace.sqlite3"
         writer = AccountJournal(path, config)
         reader = AccountJournal(path, config)
         account = _ProjectedAccount(config, reader)
@@ -99,100 +105,221 @@ class TestAccountMarketMembership:
                 "separate-opening", fixture.opening_at, replace(opening, account_id="separate")
             )
         )
-        assert reader.paper_market_seen("shared", market.identity) is False
-        assert account.paper_market_seen("shared", market.identity) is False
+        assert reader.paper_trace("shared", market.identity) is None
+        assert account.paper_trace("shared", market.identity) is None
 
-        trace = writer.match_public_market("shared", market, scenario)
+        trace = PaperBooks.apply(writer, "shared", market, scenario)
         assert trace.status == "committed"
-        assert reader.paper_market_seen("shared", market.identity) is True
-        assert account.paper_market_seen("shared", market.identity) is True
+        assert reader.paper_trace("shared", market.identity) == trace
+        assert account.paper_trace("shared", market.identity) == trace
         request = account.seen_requests[-1]
         assert request == AccountExecutionRequest(
             action="inspect",
             account_id="shared",
             query_market=market.identity,
-            projection="market_membership",
+            projection="market_trace",
         )
         result = reader.result_snapshot(request)
-        assert result == AccountExecutionResult(accounts=(), orders=(), market_seen=True)
+        assert result == AccountExecutionResult(accounts=(), orders=(), paper_traces=(trace,))
         assert (
             DomainCodec().decode_json(DomainCodec().encode_json(result), AccountExecutionResult)
             == result
         )
-        assert account.paper_market_seen("separate", market.identity) is False
-        assert reader.paper_market_seen("shared", "seen-book-suffix") is False
+        assert account.paper_trace("separate", market.identity) is None
+        assert reader.paper_trace("shared", "seen-book-suffix") is None
         with pytest.raises(ValueError, match="unknown account"):
-            account.paper_market_seen("absent", market.identity)
+            account.paper_trace("absent", market.identity)
 
         writer.bind_paper_scenario("separate", scenario)
-        writer.match_public_market("separate", market, scenario)
-        assert account.paper_market_seen("separate", market.identity) is True
+        separate = PaperBooks.apply(writer, "separate", market, scenario)
+        assert account.paper_trace("separate", market.identity) == separate != trace
         reopened = AccountJournal(path, config)
-        assert reopened.paper_market_seen("shared", market.identity) is True
-        assert reopened.paper_market_seen("separate", market.identity) is True
+        assert reopened.paper_trace("shared", market.identity) == trace
+        assert reopened.paper_trace("separate", market.identity) == separate
 
     @pytest.mark.parametrize(
         ("payload", "message"),
         (
             (
-                b'{"action":"inspect","projection":"market_membership","query_market":"book"}',
-                "market membership requires account and market identities",
+                b'{"action":"inspect","projection":"market_trace","query_market":"book"}',
+                "market trace requires account and market identities",
             ),
             (
-                b'{"action":"inspect","projection":"market_membership","account_id":"shared"}',
-                "market membership requires account and market identities",
+                b'{"action":"inspect","projection":"market_trace","account_id":"shared"}',
+                "market trace requires account and market identities",
             ),
             (
-                b'{"action":"inspect","projection":"market_membership",'
+                b'{"action":"inspect","projection":"market_trace",'
                 b'"account_id":"shared","query_market":""}',
-                "market membership requires account and market identities",
+                "market trace requires account and market identities",
             ),
             (
-                b'{"action":"inspect","projection":"market_membership",'
+                b'{"action":"inspect","projection":"market_trace",'
                 b'"account_id":"shared","query_market":false}',
                 "Expected",
             ),
             (
                 b'{"action":"inspect","account_id":"shared","query_market":"book"}',
-                "market query requires the membership projection",
+                "market query requires the market trace projection",
+            ),
+            (
+                b'{"action":"inspect","projection":"market_trace",'
+                b'"account_id":"shared","query_market":"book","query_instance":"alpha"}',
+                "market trace requires only an account and market query",
+            ),
+            (
+                b'{"action":"quote","projection":"market_trace",'
+                b'"account_id":"shared","query_market":"book"}',
+                "account state projection requires inspection",
             ),
             (
                 b'{"action":"inspect","projection":"market_membership",'
-                b'"account_id":"shared","query_market":"book","query_instance":"alpha"}',
-                "market membership requires only an account and market query",
+                b'"account_id":"shared","query_market":"book"}',
+                "Invalid enum value 'market_membership'",
+            ),
+        ),
+    )
+    def test_market_trace_rejects_malformed_or_ambiguous_queries(
+        self, payload: bytes, message: str
+    ) -> None:
+        """The installed boundary requires one explicit account and exact market identity.
+
+        The replaced membership projection is refused as an unknown projection.
+        """
+        with pytest.raises(ValueError, match=message):
+            DomainCodec().decode_json(payload, AccountExecutionRequest)
+
+
+class TestInstalledTraceReads:
+    """Read the trace history through the installed boundary in bounded responses."""
+
+    def test_installed_reads_page_the_history_and_state_its_chain(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Installed pages, newest traces and history equal the journal's own reads."""
+        fixture = _MatchingFixture
+        scenario = fixture._scenario()
+        journal = fixture._ready(tmp_path / "installed-traces.sqlite3", scenario)
+        start = fixture.opening_at + timedelta(seconds=1)
+        traces = tuple(
+            PaperBooks.apply(
+                journal,
+                "shared",
+                fixture._market(f"installed-book-{index}", start + timedelta(seconds=index)),
+                scenario,
+            )
+            for index in range(3)
+        )
+        monkeypatch.setattr(PaperTracePage, "maximum", 2)
+        account = _ProjectedAccount(fixture._config(), journal)
+        assert tuple(account.iter_paper_traces("shared")) == traces
+        assert [(item.projection, item.query_after) for item in account.seen_requests] == [
+            ("traces", -1),
+            ("traces", 1),
+        ]
+        assert account.latest_paper_traces("shared") == (traces[-1],)
+        assert account.paper_trace_history() == journal.paper_trace_history()
+        full = journal.result_snapshot(AccountExecutionRequest(action="inspect"))
+        assert full.paper_traces == () and full.paper_trace_history == account.paper_trace_history()
+        with pytest.raises(ValueError, match="lacks the requested trace page"):
+            _MisplacedPages(fixture._config(), journal).paper_trace_page("shared", after=0)
+
+    @pytest.mark.parametrize(
+        ("payload", "message"),
+        (
+            (
+                b'{"action":"inspect","projection":"traces","query_after":-2}',
+                "trace page position must be -1 or a history position",
             ),
             (
-                b'{"action":"quote","projection":"market_membership",'
-                b'"account_id":"shared","query_market":"book"}',
+                b'{"action":"inspect","projection":"facts","query_after":3}',
+                "trace position requires the traces projection",
+            ),
+            (
+                b'{"action":"export_traces","projection":"operation"}',
+                "trace export requires exactly an absolute export path",
+            ),
+            (
+                b'{"action":"export_traces","export_path":"relative.json"}',
+                "trace export requires exactly an absolute export path",
+            ),
+            (
+                b'{"action":"inspect","export_path":"/tmp/traces.json"}',
+                "trace export requires exactly an absolute export path",
+            ),
+            (
+                b'{"action":"public_market","projection":"trace_history"}',
                 "account state projection requires inspection",
             ),
         ),
     )
-    def test_membership_rejects_malformed_or_ambiguous_queries(
+    def test_trace_requests_reject_ambiguous_positions_and_paths(
         self, payload: bytes, message: str
     ) -> None:
-        """The installed boundary requires one explicit account and exact market identity."""
+        """A page names one position; an export names one absolute destination."""
         with pytest.raises(ValueError, match=message):
             DomainCodec().decode_json(payload, AccountExecutionRequest)
 
-    def test_membership_request_rejects_another_owners_account(self) -> None:
-        """An explicit owner cannot query a different configured account."""
-        owner = PaperOwner(
-            account_id="separate",
-            deployment_sha256="a" * 64,
-            authorization_id="bounded-session",
-            release_identity="b" * 64,
-            owner_id="current-worker",
-            generation=1,
+
+class _MisplacedPages(_ProjectedAccount):
+    """Answer every trace page request with the history's first page."""
+
+    def execute(self, request: AccountExecutionRequest) -> AccountExecutionResult:
+        """Replace the requested position with the start of the history."""
+        return super().execute(replace(request, query_after=-1))
+
+
+class TestAccountValuation:
+    """Expose one instrument's latest valuation quote without other account state."""
+
+    def test_valuation_reads_the_latest_quote_through_the_installed_boundary(
+        self, tmp_path: Path
+    ) -> None:
+        """A reader sees another writer's newest quote; an unvalued instrument has none."""
+        fixture = _MatchingFixture
+        config = fixture._config()
+        path = tmp_path / "valuation.sqlite3"
+        writer = AccountJournal(path, config)
+        account = _ProjectedAccount(config, AccountJournal(path, config))
+        assert account.valuation(fixture.dimension) is None
+        first = AccountQuote(price=fixture._price("10"), at=fixture.opening_at)
+        later = AccountQuote(
+            price=fixture._price("11"), at=fixture.opening_at + timedelta(seconds=1)
         )
-        with pytest.raises(ValueError, match="market membership account differs from its owner"):
-            AccountExecutionRequest(
-                action="inspect",
-                projection="market_membership",
-                account_id="shared",
-                query_market="book",
-                paper_owner=owner,
-            )
+        writer.observe(first)
+        writer.observe(later)
+        assert writer.valuation(fixture.dimension) == later
+        assert account.valuation(fixture.dimension) == later
+        request = account.seen_requests[-1]
+        assert request == AccountExecutionRequest(
+            action="inspect", query_instrument=fixture.dimension, projection="valuation"
+        )
+        result = account.journal.result_snapshot(request)
+        assert result == AccountExecutionResult(accounts=(), orders=(), valuation=later)
+        codec = DomainCodec()
+        assert codec.decode_json(codec.encode_json(result), AccountExecutionResult) == result
+        assert codec.decode_json(codec.encode_json(request), AccountExecutionRequest) == request
+
+    @pytest.mark.parametrize(
+        ("changes", "message"),
+        (
+            ({"query_instrument": None}, "requires only an instrument query"),
+            ({"account_id": "shared"}, "requires only an instrument query"),
+            ({"query_instance": "alpha"}, "requires only an instrument query"),
+            ({"projection": "accounts"}, "instrument query requires the valuation projection"),
+        ),
+    )
+    def test_valuation_rejects_missing_or_ambiguous_queries(
+        self, changes: dict[str, object], message: str
+    ) -> None:
+        """The request names exactly one instrument and nothing else."""
+        request = AccountExecutionRequest(
+            action="inspect",
+            query_instrument=_MatchingFixture.dimension,
+            projection="valuation",
+        )
+        with pytest.raises(ValueError, match=message):
+            replace(request, **changes)
 
 
 class TestAccountResponseProjection:
@@ -218,18 +345,24 @@ class TestAccountResponseProjection:
         account = _ProjectedAccount(config, journal)
 
         assert account.accounts() == full.accounts
+        assert account.account_statuses() == tuple(view.status() for view in full.accounts)
         assert account.orders() == full.orders
         assert account.net_orders() == full.net_orders
         assert account.paper_restore_quarantined() == full.paper_restore_quarantined
         assert account.paper_activations() == full.paper_activations
         assert account.paper_reductions() == full.paper_reductions
-        assert account.paper_traces("shared") == full.paper_traces
+        assert full.paper_traces == ()
+        assert full.paper_trace_history == journal.paper_trace_history()
+        assert tuple(account.iter_paper_traces("shared")) == tuple(
+            journal.iter_paper_traces("shared")
+        )
         assert account.paper_report_facts("shared") == (full.paper_fills, full.paper_costs)
         assert account.portfolio_residuals("shared") == full.residuals
         assert account.checkpoint("alpha") == b"candidate-state"
         assert account.portfolio_batch("absent") is None
         assert tuple(request.projection for request in account.seen_requests) == (
             "accounts",
+            "statuses",
             "orders",
             "net_orders",
             "quarantine",
@@ -254,6 +387,116 @@ class TestAccountResponseProjection:
         account.observe(quote)
         assert account.seen_requests[-1].projection == "operation"
         assert account.seen_requests[-1].action == "quote"
+
+    def test_status_projection_does_not_grow_with_the_ledger(self, tmp_path: Path) -> None:
+        """Protection reads name each account's phase and blocks, never its postings.
+
+        Twenty transfers add twenty postings (and, unreconciled, fault the account):
+        the accounts projection's encoded result grows by their bytes, while the
+        status projection's names the fault and no posting, and stays under 300 bytes.
+        A stopped account's status names its phase and control.
+        """
+        fixture = _AccountFixture
+        config = fixture._config()
+        journal = AccountJournal(tmp_path / "account.sqlite3", config)
+        assert journal.reconcile(
+            fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())
+        )
+        codec = DomainCodec()
+        statuses = AccountExecutionRequest(action="inspect", projection="statuses")
+        accounts = AccountExecutionRequest(action="inspect", projection="accounts")
+        accounts_before = len(codec.encode_json(journal.result_snapshot(accounts)))
+        for index in range(20):
+            at = fixture.opening_at + timedelta(seconds=index + 1)
+            journal.post(
+                AccountPosting(
+                    identity=f"transfer-{index}",
+                    account_id="shared",
+                    kind="transfer",
+                    event_at=at,
+                    known_at=at,
+                    cash=fixture._money("-1"),
+                )
+            )
+        assert len(journal.accounts()[0].ledger.postings) >= 20
+        assert len(codec.encode_json(journal.result_snapshot(accounts))) > accounts_before + 4000
+        encoded = codec.encode_json(journal.result_snapshot(statuses))
+        assert b"postings" not in encoded and len(encoded) < 300
+        (status,) = journal.result_snapshot(statuses).account_statuses
+        assert (status.account_id, status.fault) == ("shared", "posting_reconciliation")
+        assert journal.account_statuses() == (journal.accounts()[0].status(),) == (status,)
+        stop_at = fixture.opening_at + timedelta(seconds=30)
+        journal.control(
+            AccountControl(
+                identity="stop", account_id="shared", kind="stop", at=stop_at, reason="test"
+            )
+        )
+        (stopped,) = journal.result_snapshot(statuses).account_statuses
+        assert (stopped.phase, stopped.active_control_identity) == ("stopped", "stop")
+
+    def test_a_one_shot_command_closes_the_journal_it_opened(self, tmp_path: Path) -> None:
+        """No SQLite side file outlives a one-shot command, whenever GC runs.
+
+        An installer inventories the state directory right after the command, so the
+        command's own connection must close with it: only the journal file remains.
+        """
+        fixture = _AccountFixture
+        config = fixture._config()
+        state = tmp_path / "state"
+        state.mkdir()
+        config_path = tmp_path / "config.json"
+        request_path = tmp_path / "block.json"
+        codec = DomainCodec()
+        config_path.write_bytes(codec.encode_json(config))
+        request_path.write_bytes(
+            codec.encode_json(
+                AccountExecutionRequest(action="block", account_id="shared", reason="one-shot")
+            )
+        )
+        gc.disable()
+        try:
+            result = AccountExecutionApplication().run(
+                config_path=config_path,
+                journal_path=state / "accounts.sqlite3",
+                request_path=request_path,
+            )
+            remaining = sorted(path.name for path in state.iterdir())
+        finally:
+            gc.enable()
+        assert result.accounts[0].operator_block == "one-shot"
+        assert remaining == ["accounts.sqlite3"], remaining
+
+    def test_a_command_on_an_opened_journal_keeps_its_connection(self, tmp_path: Path) -> None:
+        """The owner service's opened journal keeps its one connection across commands.
+
+        Only a journal the command opened is closed with it; the caller's stays open,
+        with its WAL, for the next request.
+        """
+        fixture = _AccountFixture
+        config = fixture._config()
+        state = tmp_path / "state"
+        state.mkdir()
+        config_path = tmp_path / "config.json"
+        codec = DomainCodec()
+        config_path.write_bytes(codec.encode_json(config))
+        journal = AccountJournal(state / "accounts.sqlite3", config)
+        journal.accounts()
+        try:
+            connection = journal._store._connection
+            assert connection is not None
+            result = AccountExecutionApplication().run(
+                config_path=config_path,
+                journal_path=state / "accounts.sqlite3",
+                request_payload=codec.encode_json(
+                    AccountExecutionRequest(action="block", account_id="shared", reason="served")
+                ),
+                opened_journal=journal,
+            )
+            assert result.accounts[0].operator_block == "served"
+            assert journal._store._connection is connection
+            assert (state / "accounts.sqlite3-wal").exists()
+        finally:
+            journal.close()
 
     @staticmethod
     def _forbidden_read() -> None:

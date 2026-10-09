@@ -996,6 +996,44 @@ class TestPaperServiceCandidates:
         )
         assert labels == ["packaged-1", "packaged-late-1"]
 
+    def test_candidate_telemetry_refuses_a_replaced_delivery_format(self, tmp_path: Path) -> None:
+        """A delivery log in another format is a visible telemetry failure, exporting nothing."""
+        definition = self._publish(tmp_path, runtime=True)
+        packaged = PackagedCandidate(
+            definition_sha256=definition.identity, extension=self.extension, starts_at=_ORIGIN
+        )
+        configuration = self._configuration(packaged)
+        owner = PaperOwner(
+            account_id="shared",
+            deployment_sha256="a" * 64,
+            authorization_id="authorization",
+            release_identity="b" * 64,
+            owner_id="owner",
+            generation=1,
+        )
+        run = tmp_path / "runs" / "run"
+        run.mkdir(parents=True)
+        (run / "book-shared.jsonl").write_bytes(b'{"schema_version":"shared-candidate-delivery"}\n')
+        root = tmp_path / "monitoring"
+        telemetry = CandidateTelemetry(
+            configuration,
+            (owner,),
+            candidates=tmp_path / "candidates",
+            runs=tmp_path / "runs",
+            root=root,
+            started_at=_ORIGIN,
+        )
+        state = AccountExecutionResult(accounts=(), orders=())
+        telemetry.sample(
+            InspectedPaperAccount(configuration.accounts[0].configuration, owner, state),
+            state,
+            (),
+            observed_at=_ORIGIN + timedelta(seconds=1),
+        )
+        assert telemetry.failures == 1 and telemetry.last_error is not None
+        assert "unsupported shared book delivery schema" in telemetry.last_error
+        assert not (root / "telemetry.sqlite3").exists()
+
     def test_feature_publisher_lag_is_bounded(self) -> None:
         """The publisher's lag is a whole number of seconds from 1 to 300."""
         assert PaperFeaturePublisher(max_lag_seconds=300).max_lag_seconds == 300

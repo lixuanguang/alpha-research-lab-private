@@ -2,7 +2,13 @@
 
 # project library imports
 from execution.account_commands import AccountExecutionRequest, AccountExecutionResult
-from execution.account_records import NativeFill, PhysicalAccountObservation
+from execution.account_records import (
+    HistoryDigest,
+    NativeFill,
+    PaperMarketOutcome,
+    PaperTracePage,
+    PhysicalAccountObservation,
+)
 from execution.account_recovery import AccountRecoveryReceipt
 from execution.account_reduction import PaperReductionRequest, PaperReductionResult
 from execution.accounts import (
@@ -17,6 +23,7 @@ from execution.accounts import (
     AccountPaperTrace,
     AccountPhase,
     AccountQuote,
+    AccountStatus,
     AccountView,
     DecisionOutcome,
     NetAllocation,
@@ -28,7 +35,7 @@ from execution.accounts import (
     PortfolioResidual,
     TaggedOrder,
 )
-from execution.installed_account import InstalledPaperAccount, SocketPaperAccount
+from execution.installed_account import InstalledPaperAccount, SentRequest, SocketPaperAccount
 from execution.journal import PaperOrderJournal
 from execution.lifecycle import SpotOrderLifecycle
 from execution.monitoring import ExecutionMonitoring
@@ -84,6 +91,7 @@ __all__ = [
     "AccountQuote",
     "AccountRecoveryReceipt",
     "AccountReservations",
+    "AccountStatus",
     "AccountView",
     "BitfinexSpotAdapter",
     "DecisionOutcome",
@@ -91,6 +99,7 @@ __all__ = [
     "EventKind",
     "ExecutionMonitoring",
     "GatewayView",
+    "HistoryDigest",
     "InstalledPaperAccount",
     "JournalEvent",
     "MarketTouch",
@@ -106,6 +115,7 @@ __all__ = [
     "PaperActivation",
     "PaperLiquidityState",
     "PaperMarket",
+    "PaperMarketOutcome",
     "PaperMatchEvaluator",
     "PaperMatchProjection",
     "PaperMatcher",
@@ -115,6 +125,7 @@ __all__ = [
     "PaperReductionRequest",
     "PaperReductionResult",
     "PaperTouchLiquidity",
+    "PaperTracePage",
     "PhysicalAccountObservation",
     "PortfolioBatch",
     "PortfolioCommit",
@@ -122,6 +133,7 @@ __all__ = [
     "PortfolioDecision",
     "PortfolioResidual",
     "PrivateVenueSession",
+    "SentRequest",
     "SocketPaperAccount",
     "SpotOrderLifecycle",
     "StepCommit",

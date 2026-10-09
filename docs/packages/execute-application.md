@@ -171,7 +171,8 @@ files are bounded to one MiB. Use `DomainCodec` for exact financial wire values.
 An opening account must reconcile before its first admission. Refresh market
 observations separately from decisions. Reusing an admitted decision ID returns
 its original result and checkpoint; replacing its bytes fails. Every result
-reports `submission_attempted=false`. Normalized fill/account facts remain
+reports `submission_attempted=false`; the encoding omits that default, and a result
+naming any other value is refused. Normalized fill/account facts remain
 modeled local input; no success is a physical venue observation. A contradiction
 returns a nonzero CLI exit and retains the account block. The maintained
 [shared-account consumer](../../tests/integration/consumers/runtime/shared_account.py)
@@ -194,7 +195,8 @@ parents), plus `stopped_instances`, retained `failed_net_events` and unroutable
 `residuals` with their owner, quantity and physical-grid reason. Use the
 parent identity when supplying normalized physical events;
 strategy child identities remain accounting and risk lineage. Inspection and
-all mutations report `submission_attempted=false`. Failed physical facts remain
+all mutations report `submission_attempted=false` (omitted from the encoding as
+the default). Failed physical facts remain
 durable and block new risk. See the [portfolio journal contract](execution.md#portfolio-coordination-and-recovery)
 for compatibility, costs, residuals and the stop/reconciliation sequence.
 
@@ -315,6 +317,9 @@ verifies config, state and bytes before publishing the new workspace. The result
 names the restored `journal_path`; it does not select that workspace for an
 installed service. Restored accounts stay stopped until missing facts are
 replayed and fresh independent reconciliation permits an explicit restart.
+Through `InstalledPaperAccount`, backup and restore are awaited up to 300 seconds
+and other actions 30, within the signed launcher's own bound; see the
+[signed account consumer](paper-application.md#signed-account-consumer).
 
 The [operating runbook](../governance/operations.md#local-paper-operations)
 owns startup, incident, restoration and signed rollback procedures. The
@@ -335,9 +340,10 @@ and `account-journal` state. `AccountExecutionRequest` and
 | `authorize_paper` | `authorization` | Explicit bounded grant; still stopped |
 | `claim_paper` | `account_id`, `owner_id`, `control` (`restart`) | Fresh reconciliation and a new fenced `claimed_owner` |
 | `revoke_paper` | `account_id`, `authorization_id`, `at` | New exposure/restart forbidden; protective actions retained |
-| `paper_market` | `account_id`, `scenario`, `market`, `paper_owner` | Exact modeled events from finite eligible public liquidity |
+| `public_market` | `account_id`, `scenario`, `market`, `paper_owner` | One eligible book observed and matched in one transaction; a `PaperMarketOutcome` naming the committed trace's bytes, or the saved outcome of an exact retry |
 | `reduce_paper` | `reduction`, optional `paper_owner` | Accepted reservation or rejection; never a liquidation claim |
-| `inspect` | optional `account_id`, `query_instance`, `query_batch` | Deployment/grants, quarantine, traces, reductions, checkpoint or prior batch |
+| `export_traces` | `export_path`, optional `account_id` | The account's traces published as one JSON array, checked against the trace history's chain; the count written |
+| `inspect` | optional `account_id`, `query_instance`, `query_batch`, `query_market`, `query_after` | Deployment/grants, quarantine, one market's trace, a bounded trace page, the trace history, reductions, checkpoint or prior batch |
 
 Existing `control/stop` and `control/cancel` remain distinct. Admission,
 coordination, matching and economic mutation requests carry `paper_owner`.
@@ -418,9 +424,23 @@ alpha-governance-artifacts run --target /absolute/target --policy /protected/pol
 ```
 
 The service keeps the installation fence, fixes configuration/journal/release, and
-serializes the existing typed requests. `SocketPaperAccount` retains requests and
-responses. Owner-generation checks remain inside economic transactions. Service
-startup does not claim, renew or widen authority. Its heartbeat file beside the
+serializes the existing typed requests. It retains each request's exact bytes as one
+fsynced line of `service-requests/<life>.jsonl` beside the journal, one append-only
+log per service life, before the account applies it; a request that cannot be
+retained is refused unapplied. `SocketPaperAccount` keeps one append-only log per
+client, `<requests>/<log>.jsonl`: each command's `request` record, with a fresh
+`attempt` identity, is fsynced before it is sent and names the exact payload as a
+`SentRequest` (action, SHA-256 and byte length); the service's retained line holds
+those bytes, so they are kept once. Its `result` or `error` record follows the
+response. A result whose exact bytes the log already holds, among its latest 64
+distinct results, is recorded as `repeated_result`, their SHA-256, which names
+that earlier `result` record's value; a repeated read is kept once. An attempt
+with none of these records, or whose `repeated_result` names no earlier result in
+the log, has an uncertain outcome; inspect the journal before any new request. A payload the service never retained had no effect.
+Retained file counts therefore grow with service lives, not with requests.
+Owner-generation checks remain inside economic transactions. Service startup
+reads only the durable activation, never the trace history, and does not claim,
+renew or widen authority. Its heartbeat file beside the
 socket exposes actual process PID, liveness and request progress separately.
 `service_seconds` may not exceed the signed account configuration's
 `service_life_seconds`. When that field is absent, the cap is 120 seconds, and the
@@ -433,15 +453,26 @@ Services require explicit recovery between invocations. A paper supervisor's
 
 Account requests default to a complete response. Internal `PaperAccount` helpers
 select a typed `projection` for their requested read or operation receipt, so a
-checkpoint lookup does not transfer unrelated order and accounting history.
-Explicit operator inspection remains complete. An operator reads every saved
+checkpoint lookup does not transfer unrelated order and accounting history. The
+`statuses` projection returns each account's `AccountStatus`: its phase, blocks,
+reconciliation time and active control, without the ledger, whose postings grow
+with every fill and fee. The paper supervisor's per-period protection read uses it.
+Explicit operator inspection remains complete for state; the paper trace history,
+which grows with every eligible book, is stated by its count and hash chain
+(`paper_trace_history`) and read through the `traces` projection in pages of at
+most 256 traces and 512 KiB after a `query_after` position, through `market_trace` one market at a
+time, or whole by `export_traces`. Requests and results encode only fields that
+differ from their defaults. An operator reads every saved
 decision's outcome with the `decisions` projection (optionally narrowed by
 `account_id`): one compact `DecisionOutcome` per decision, in commit order, with
 its instance, decision identity and time, `committed` or `rejected` status, reason,
 and the quote legs admission dropped with their reasons. A rejected batch's
 decisions carry the batch's refusal reason. The service reuses its opened
 journal handle after checking the exact configuration, path and owner; each
-query and economic transaction still reads current SQLite state. Neither response
+query and economic transaction still reads current SQLite state. A one-shot
+command closes the journal it opened when it ends, so its own connection and WAL
+do not outlive it; another open connection, such as a running owner service's,
+keeps the side files. Neither response
 projection nor handle reuse changes admission checks. The store may reuse a fully
 validated immutable decode only when freshly read configuration and payload bytes
 match exactly. Changed payloads are decoded and validated before use; committed
@@ -468,12 +499,12 @@ fields, and a trades feed fault faults the source's accounts like a book fault.
 candidate and prints its candidate, policy, model and feature identities, and the
 pinned feature stream of a candidate served from the feature store. Native records
 remain retained and validated in order. At each candidate grid instant the due
-candidates decide from the latest eligible market at or before it, and the book
-that crossed the instant matches orders. Books between instants update the
-monitoring mark without matching orders, posting paper fills or advancing
+candidates decide from the latest eligible market at or before it. Every eligible
+book matches the account's open orders under the scenario's entry and cancel delays;
+books between instants update the monitoring mark and can fill, but never advance
 candidate checkpoints. Source invalidation still faults immediately. Retained
-`SharedBookDelivery` records hold each decided instant and whether the book
-matched, for exact replay. This models selected paper opportunities and does not
+`SharedBookDelivery` records hold each decided instant and whether the book matched,
+for exact replay. This models paper execution on every eligible book and does not
 qualify feed throughput or runtime capacity.
 
 The supervisor consumes at most one durable frame per source per pass. When the

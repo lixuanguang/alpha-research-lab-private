@@ -14,7 +14,6 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
-from itertools import islice
 from pathlib import Path
 from typing import Literal, NamedTuple
 
@@ -45,14 +44,18 @@ from execution.account_records import AccountPaperFill as AccountPaperFill
 from execution.account_records import AccountPaperTrace as AccountPaperTrace
 from execution.account_records import AccountPhase as AccountPhase
 from execution.account_records import AccountQuote as AccountQuote
+from execution.account_records import AccountStatus as AccountStatus
 from execution.account_records import AccountView as AccountView
 from execution.account_records import DecisionOutcome as DecisionOutcome
+from execution.account_records import HistoryDigest as HistoryDigest
 from execution.account_records import NativeFeeAllocation as NativeFeeAllocation
 from execution.account_records import NativeFill as NativeFill
 from execution.account_records import NetAllocation as NetAllocation
 from execution.account_records import NetFeeAllocation as NetFeeAllocation
 from execution.account_records import NetFeeCorrection as NetFeeCorrection
 from execution.account_records import NetOrder as NetOrder
+from execution.account_records import PaperMarketOutcome as PaperMarketOutcome
+from execution.account_records import PaperTracePage as PaperTracePage
 from execution.account_records import PhysicalAccountObservation as PhysicalAccountObservation
 from execution.account_records import PortfolioBatch as PortfolioBatch
 from execution.account_records import PortfolioCommit as PortfolioCommit
@@ -68,6 +71,7 @@ from execution.account_state import (
     AccountStateStore,
     AccountTransaction,
     DispatchLease,
+    FirmState,
     SavedDecision,
     _AccountSnapshot,
     _SavedNativeFill,
@@ -75,9 +79,9 @@ from execution.account_state import (
 from execution.paper import PaperMarket
 from execution.paper_authority import PaperActivation, PaperAuthority, PaperOwner
 from execution.records import OrderEvent, OrderState, StepCommit
-from financial_units import DecimalGrid, Money, Quantity
+from financial_units import DecimalGrid, Dimension, Money, Quantity
 from portfolio import ProRataAllocator
-from serialization import DomainCodec
+from serialization import DomainCodec, DurableDirectory
 
 
 class DispatchPermit(NamedTuple):
@@ -144,6 +148,14 @@ class AccountJournal:
             owner=paper_owner,
             clock=self._now,
         )
+
+    def close(self) -> None:
+        """Close the journal's SQLite connection now; a later call opens another.
+
+        The journal otherwise keeps one connection for its life, closed when it is
+        collected. Close a briefly opened journal before moving its files.
+        """
+        self._store.close()
 
     def _now(self) -> datetime:
         """Read current UTC at every economic boundary, independently of event time."""
@@ -348,11 +360,15 @@ class AccountJournal:
         """Read account state, reconciliation cutoff and independent block reasons."""
         return self._store.read().accounts
 
+    def account_statuses(self) -> tuple[AccountStatus, ...]:
+        """Read each account's operating phase and blocks without its ledger."""
+        return tuple(account.status() for account in self._store.read().accounts)
+
     def result_snapshot(self, request: AccountExecutionRequest) -> AccountExecutionResult:
         """Project a typed response, reading state only for requested inspection fields."""
-        request.__post_init__()
         if request.projection == "operation":
             return AccountExecutionResult(accounts=(), orders=())
+        request.__post_init__()
         with self._store.snapshot() as snapshot:
             return self._project(request, snapshot)
 
@@ -361,17 +377,20 @@ class AccountJournal:
     ) -> AccountExecutionResult:
         """Project one inspection from a single consistent snapshot."""
         state = snapshot.state
-        if request.projection == "market_membership":
-            if request.account_id is None or request.query_market is None:
-                raise ValueError("market membership requires account and market identities")
-            if request.paper_owner is not None and request.paper_owner != self.paper_owner:
-                raise ValueError("paper_owner_stale_or_absent")
+        if request.projection == "valuation":
+            if request.query_instrument is None:
+                raise ValueError("valuation projection requires only an instrument query")
             return AccountExecutionResult(
                 accounts=(),
                 orders=(),
-                market_seen=self._paper.market_seen(
-                    request.account_id, request.query_market, snapshot=snapshot
-                ),
+                valuation=self._valuation(state, request.query_instrument),
+            )
+        if request.projection == "market_trace":
+            if request.account_id is None or request.query_market is None:
+                raise ValueError("market trace requires account and market identities")
+            trace = self._paper.trace(request.account_id, request.query_market, snapshot=snapshot)
+            return AccountExecutionResult(
+                accounts=(), orders=(), paper_traces=() if trace is None else (trace,)
             )
         selected_accounts = (
             tuple(
@@ -408,6 +427,12 @@ class AccountJournal:
             )
         if request.projection == "accounts":
             return AccountExecutionResult(accounts=state.accounts, orders=())
+        if request.projection == "statuses":
+            return AccountExecutionResult(
+                accounts=(),
+                orders=(),
+                account_statuses=tuple(account.status() for account in selected_accounts),
+            )
         if request.projection == "orders":
             return AccountExecutionResult(accounts=(), orders=state.orders)
         if request.projection == "net_orders":
@@ -446,12 +471,17 @@ class AccountJournal:
                 orders=(),
                 paper_restore_quarantined=state.paper_restore_quarantine,
             )
-        if request.projection == "traces":
+        if request.projection == "trace_history":
             return AccountExecutionResult(
-                accounts=(),
-                orders=(),
-                paper_traces=tuple(snapshot.iter_traces(request.account_id)),
+                accounts=(), orders=(), paper_trace_history=snapshot.trace_history
             )
+        if request.projection == "traces":
+            page = self._trace_page(
+                snapshot,
+                request.account_id,
+                -1 if request.query_after is None else request.query_after,
+            )
+            return AccountExecutionResult(accounts=(), orders=(), paper_trace_page=page)
         if request.projection == "facts":
             report_facts = tuple(
                 self._paper.report_facts(account.ledger.account_id, snapshot=snapshot)
@@ -531,14 +561,18 @@ class AccountJournal:
             journal_path=str(self.path),
             paper_activations=state.paper_activations,
             paper_restore_quarantined=state.paper_restore_quarantine,
-            # Monitoring needs only the newest trace clock, not the growing history.
+            # The trace history only grows, so inspection states its length and chain;
+            # monitoring needs only each instrument's newest trace clock.
             paper_traces=(
-                tuple(islice(snapshot.iter_traces(request.account_id, newest_first=True), 1))
+                tuple(
+                    trace
+                    for account in selected_accounts
+                    for trace in self._latest_traces(snapshot, account.ledger.account_id)
+                )
                 if request.projection == "monitoring"
-                else tuple(snapshot.iter_traces(request.account_id))
-                if request.action == "inspect"
                 else ()
             ),
+            paper_trace_history=snapshot.trace_history if request.action == "inspect" else None,
             paper_reductions=tuple(
                 item for item in state.paper_reductions if item.request.account_id in selected_ids
             ),
@@ -641,19 +675,136 @@ class AccountJournal:
         """Pin one declared venue/instrument profile before paper order admission."""
         self._paper.bind(account_id, scenario)
 
-    def match_public_market(
+    def apply_public_market(
         self, account_id: str, market: PaperMarket, scenario: PaperExecutionScenario
-    ) -> AccountPaperTrace:
-        """Atomically match one public quote through direct or net account orders."""
-        return self._paper.match(account_id, market, scenario)
+    ) -> PaperMarketOutcome:
+        """Observe one eligible book and match it in paper mode, in one fenced transaction.
 
-    def paper_traces(self, account_id: str | None = None) -> tuple[AccountPaperTrace, ...]:
-        """Read exact public inputs, scenarios and attributable modeled effects."""
-        return self._paper.traces(account_id)
+        An exact retry returns the saved outcome without any write; see
+        ``AccountPaperMatching.apply``.
+        """
+        return self._paper.apply(account_id, market, scenario)
 
-    def paper_market_seen(self, account_id: str, market_identity: str) -> bool:
-        """Read fresh account membership and recheck the bound managed owner generation."""
-        return self._paper.market_seen(account_id, market_identity)
+    def paper_trace_page(self, account_id: str | None = None, *, after: int = -1) -> PaperTracePage:
+        """Read one bounded page of committed traces after a position; see ``PaperTracePage``.
+
+        Args:
+            account_id: One account's traces, or every account's when ``None``.
+            after: The journal-wide position to read after; -1 reads from the start.
+
+        Raises:
+            ValueError: The account is unknown or the position is outside the history.
+        """
+        with self._store.snapshot() as snapshot:
+            return self._trace_page(snapshot, account_id, after)
+
+    def iter_paper_traces(
+        self, account_id: str | None = None, *, after: int = -1
+    ) -> Iterator[AccountPaperTrace]:
+        """Yield committed traces after a position in commit order, one bounded page at a time.
+
+        History is only appended, so pages read from successive snapshots join into
+        an exact prefix of the latest history; memory stays bounded by one page.
+        """
+        while True:
+            page = self.paper_trace_page(account_id, after=after)
+            yield from page.traces
+            if page.next_after is None:
+                return
+            after = page.next_after
+
+    def latest_paper_traces(self, account_id: str) -> tuple[AccountPaperTrace, ...]:
+        """Read the newest committed trace of each instrument bound to the account."""
+        with self._store.snapshot() as snapshot:
+            return self._latest_traces(snapshot, account_id)
+
+    def paper_trace_history(self) -> HistoryDigest:
+        """Read the committed trace history's count and hash chain."""
+        with self._store.snapshot() as snapshot:
+            return snapshot.trace_history
+
+    def export_paper_traces(self, destination: Path, account_id: str | None = None) -> int:
+        """Durably publish committed traces as one JSON array, checked against the head.
+
+        The file holds exactly the codec's encoding of the tuple of those traces, built
+        from their stored bytes in bounded memory while every row of the history is
+        checked against the head's hash chain; see ``_HistoryTables.export_traces``.
+        It is written beside ``destination``, synchronized and renamed into place, so
+        a failure leaves no partial file.
+
+        Returns:
+            The number of traces written.
+
+        Raises:
+            ValueError: The account is unknown, the destination exists, or the stored
+                history differs from the head.
+        """
+        if not destination.is_absolute() or destination.exists():
+            raise ValueError("paper trace export requires an absent absolute destination")
+        staging = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with self._store.snapshot() as snapshot:
+                self._require_account(snapshot, account_id)
+                with staging.open("xb") as stream:
+                    written = snapshot.export_traces(account_id, stream)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            os.rename(staging, destination)
+        finally:
+            staging.unlink(missing_ok=True)
+        DurableDirectory.sync(destination.parent)
+        return written
+
+    def _trace_page(
+        self, snapshot: _AccountSnapshot, account_id: str | None, after: int
+    ) -> PaperTracePage:
+        """Read one bounded page of committed traces from one snapshot."""
+        self._require_account(snapshot, account_id)
+        history = snapshot.trace_history
+        if type(after) is not int or not -1 <= after < history.count:
+            raise ValueError("paper trace position is outside the committed history")
+        rows, more = snapshot.trace_page(
+            account_id, after, PaperTracePage.maximum, PaperTracePage.maximum_bytes
+        )
+        return PaperTracePage(
+            after=after,
+            traces=tuple(trace for _, trace in rows),
+            next_after=rows[-1][0] if more else None,
+            history=history,
+        )
+
+    def _latest_traces(
+        self, snapshot: _AccountSnapshot, account_id: str
+    ) -> tuple[AccountPaperTrace, ...]:
+        """Read the newest committed trace of each instrument bound to the account."""
+        self._require_account(snapshot, account_id)
+        latest = (
+            snapshot.latest_trace(account_id, binding.scenario.instrument_id)
+            for binding in snapshot.state.paper_bindings
+            if binding.account_id == account_id
+        )
+        return tuple(trace for trace in latest if trace is not None)
+
+    @staticmethod
+    def _require_account(snapshot: _AccountSnapshot, account_id: str | None) -> None:
+        """Refuse an account the journal does not hold; ``None`` names every account."""
+        if account_id is not None and account_id not in {
+            account.ledger.account_id for account in snapshot.state.accounts
+        }:
+            raise ValueError("unknown account")
+
+    def paper_trace(self, account_id: str, market_identity: str) -> AccountPaperTrace | None:
+        """Read the account's trace of one market identity, if it applied that market."""
+        return self._paper.trace(account_id, market_identity)
+
+    def valuation(self, instrument: Dimension) -> AccountQuote | None:
+        """Read the latest observed valuation quote of one instrument, if any."""
+        return self._valuation(self._store.read(), instrument)
+
+    @staticmethod
+    def _valuation(state: FirmState, instrument: Dimension) -> AccountQuote | None:
+        """Select the one retained valuation quote of an instrument."""
+        return next((quote for quote in state.quotes if quote.price.per == instrument), None)
 
     def paper_report_facts(
         self, account_id: str

@@ -7,7 +7,7 @@ import hashlib
 import subprocess
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -31,6 +31,7 @@ from execution import (
     AccountPaperCost,
     AccountPaperFill,
     AccountPaperTrace,
+    HistoryDigest,
     InstalledPaperAccount,
     NetAllocation,
     NetOrder,
@@ -63,6 +64,7 @@ class _RetentionClient:
     ) -> None:
         """Choose whether the exact request exists before obstruction or only after restore."""
         self.before, self.after = before, after
+        self.appended: tuple[AccountPaperTrace, ...] = ()
         self.requests, self.payload, self.late = requests, payload, late
         self.final_checkpoint = final_checkpoint
         self.inspections = self.checkpoints = 0
@@ -74,8 +76,15 @@ class _RetentionClient:
         if self.inspections == 1:
             return self.before
         if self.late:
-            (self.requests / "market.json").write_bytes(self.payload)
+            (self.requests / "life.jsonl").write_bytes(self.payload + b"\n")
         return self.after
+
+    def iter_paper_traces(
+        self, account_id: str | None = None, *, after: int = -1
+    ) -> Iterator[AccountPaperTrace]:
+        """Page the second inspection's history after a position; only its traces exist."""
+        assert account_id is None and after == -1
+        return iter(self.appended)
 
     def checkpoint(self, instance_id: str) -> bytes:
         """Admit a legitimate market in the inspect/checkpoint gap before the rename."""
@@ -83,7 +92,7 @@ class _RetentionClient:
         self.checkpoints += 1
         if self.checkpoints == 1:
             if not self.late:
-                (self.requests / "market.json").write_bytes(self.payload)
+                (self.requests / "life.jsonl").write_bytes(self.payload + b"\n")
             return b"old"
         return self.final_checkpoint
 
@@ -216,6 +225,17 @@ class TestCapacityRecovery:
     """Protect the fixed first-claim clock and complete progress witness."""
 
     @staticmethod
+    def _chained(
+        result: AccountExecutionResult, traces: tuple[AccountPaperTrace, ...]
+    ) -> HistoryDigest:
+        """Extend an inspection's trace history by exact trace bytes, as the journal does."""
+        assert result.paper_trace_history is not None
+        history = result.paper_trace_history
+        for trace in traces:
+            history = history.extend(DomainCodec().encode_json(trace))
+        return history
+
+    @staticmethod
     def _retention_case(
         tmp_path: Path, *, late: bool = False, final_checkpoint: bytes = b"old"
     ) -> tuple[CapacityRecovery, _RetentionClient, _RetentionBoundary]:
@@ -260,8 +280,11 @@ class TestCapacityRecovery:
             accounts=AccountJournal(journal_path, account.configuration).accounts(),
             orders=(),
             journal_path=str(journal_path),
+            paper_trace_history=HistoryDigest(count=0, sha256=""),
         )
-        after = msgspec.structs.replace(before, paper_traces=(trace,))
+        after = msgspec.structs.replace(
+            before, paper_trace_history=TestCapacityRecovery._chained(before, (trace,))
+        )
         owner = PaperOwner(
             account_id=account.account_id,
             deployment_sha256="a" * 64,
@@ -271,7 +294,7 @@ class TestCapacityRecovery:
             generation=1,
         )
         request = AccountExecutionRequest(
-            action="paper_market",
+            action="public_market",
             account_id=account.account_id,
             market=market,
             scenario=source.scenario,
@@ -288,6 +311,7 @@ class TestCapacityRecovery:
             late=late,
             final_checkpoint=final_checkpoint,
         )
+        client.appended = (trace,)
         status = _Status(
             active=("bitfinex-shared-fixed-btc",),
             workers={"bitfinex-shared-fixed-btc": _Child(pid=123, alive=True)},
@@ -364,12 +388,28 @@ class TestCapacityRecovery:
         assert witness["passed"] is False
         if failure == "late_request":
             assert witness["frozen_requests"] == []
-            assert (client.requests / "market.json").is_file()
+            assert (client.requests / "life.jsonl").is_file()
         else:
             checkpoint = cast(dict[str, dict[str, object]], witness["comparisons"])["checkpoint"]
             assert checkpoint["equal"] is False
             assert checkpoint["before_sha256"] == hashlib.sha256(b"old").hexdigest()
             assert checkpoint["after_sha256"] == hashlib.sha256(b"changed").hexdigest()
+
+    def test_retention_freezes_each_complete_log_line_and_refuses_a_torn_one(
+        self, tmp_path: Path
+    ) -> None:
+        """One service-life log yields one request per line; a torn or late line proves nothing."""
+        log = tmp_path / "life.jsonl"
+        log.write_bytes(b'{"first":1}\n{"second":2}\n{"torn"')
+        cutoff = log.stat().st_mtime_ns
+        frozen = CapacityRecovery._freeze_retained_requests(log, cutoff)
+        assert [(item.name, item.payload, item.stable_before_cutoff) for item in frozen] == [
+            ("life.jsonl:1", b'{"first":1}', True),
+            ("life.jsonl:2", b'{"second":2}', True),
+            ("life.jsonl:3", b'{"torn"', False),
+        ]
+        late = CapacityRecovery._freeze_retained_requests(log, cutoff - 1)
+        assert not any(item.stable_before_cutoff for item in late)
 
     @pytest.mark.parametrize("failure", ("malformed", "unstable", "duplicate", "prefix"))
     def test_retention_rejects_unproved_or_rewritten_trace_history(
@@ -380,22 +420,25 @@ class TestCapacityRecovery:
         frozen = (
             _RetainedRequest(
                 name="market.json",
-                payload=b'{"action":"paper_market"}' if failure == "malformed" else client.payload,
+                payload=b'{"action":"public_market"}' if failure == "malformed" else client.payload,
                 modified_ns=1,
                 stable_before_cutoff=failure != "unstable",
             ),
         )
-        before, after = client.before, client.after
+        before, after, appended = client.before, client.after, client.appended
         if failure == "duplicate":
-            after = msgspec.structs.replace(after, paper_traces=after.paper_traces * 2)
+            appended *= 2
+            after = msgspec.structs.replace(
+                after, paper_trace_history=self._chained(before, appended)
+            )
         if failure == "prefix":
             before, after = after, before
         passed, witness = recovery._request_retention_proof(
-            "bitfinex-shared", before, after, b"old", b"old", frozen
+            "bitfinex-shared", before, after, b"old", b"old", appended, frozen
         )
         assert not passed
-        assert witness["before_traces"] == before.paper_traces
-        assert witness["after_traces"] == after.paper_traces
+        assert witness["before_trace_history"] == before.paper_trace_history
+        assert witness["after_trace_history"] == after.paper_trace_history
 
     @pytest.mark.parametrize(
         "field", ("ledger", "orders", "net_orders", "paper_fills", "paper_costs")
@@ -403,7 +446,7 @@ class TestCapacityRecovery:
     def test_retention_keeps_every_economic_field_exact(self, tmp_path: Path, field: str) -> None:
         """An attributed no-fill append cannot excuse any simultaneous economic mutation."""
         recovery, client, _ = self._retention_case(tmp_path)
-        trace = client.after.paper_traces[0]
+        trace = client.appended[0]
         quantity = trace.market.ask_quantity.model_copy(update={"value": Decimal("1")})
         zero = quantity.model_copy(update={"value": Decimal("0")})
         fee = Money(value=Decimal("0"), currency=trace.market.ask.currency)
@@ -497,7 +540,7 @@ class TestCapacityRecovery:
             ),
         )
         passed, witness = recovery._request_retention_proof(
-            "bitfinex-shared", client.before, after, b"old", b"old", frozen
+            "bitfinex-shared", client.before, after, b"old", b"old", client.appended, frozen
         )
         assert not passed
         comparison = cast(dict[str, dict[str, object]], witness["comparisons"])[field]

@@ -68,6 +68,80 @@ class TestAccountHistoryCapacity:
         assert (output / "samples.json").is_file()
         assert not any(output.glob("level-*.sqlite3"))
 
+    def test_trace_count_is_independent_and_every_reader_is_probed(self, tmp_path: Path) -> None:
+        """Eventless history traces fill to their own count; each reader reports its cost."""
+        output = tmp_path / "run"
+        summary = HistoryCapacity(
+            output,
+            batches=4,
+            traces=12,
+            commits=1,
+            opens=1,
+            fresh_opens=1,
+            memory_commits=1,
+            host=_Constant(dict[str, object](host="test")),
+        ).run()
+
+        journal = output / "journal.sqlite3"
+        # The template's batch and trace, the history, then one measured commit each.
+        assert HistoryCapacityChecks.counts(journal) == (2 * (1 + 4 + 1), 1 + 4 + 1, 1 + 12 + 1)
+        store = AccountStateStore(journal, HistoryJournalFixture.configuration(), DomainCodec())
+        with store.snapshot() as snapshot:
+            history = tuple(
+                trace
+                for trace in snapshot.iter_traces("shared")
+                if trace.market.identity.startswith("history-market-")
+            )
+        assert len(history) == 12
+        assert all(
+            trace.status == "committed"
+            and not trace.physical_events
+            and not trace.child_fill_events
+            for trace in history
+        )
+        workload = cast(dict[str, object], summary["workload"])
+        assert (workload["batches"], workload["traces"]) == (4, 12)
+        readers = cast(dict[str, dict[str, int]], summary["readers_fresh_interpreter"])
+        assert set(readers) == {
+            "monitoring",
+            "facts",
+            "full",
+            "page",
+            "history",
+            "latest",
+            "traces",
+            "verify",
+            "newest",
+            "retry",
+            "recovery",
+        }
+        # Template plus history: the template trace fills both instances; 13 traces.
+        assert readers["monitoring"]["traces"] == 13
+        # Monitoring carries the instrument's newest trace beside the two fills.
+        assert readers["monitoring"]["items"] == 3
+        assert readers["facts"]["items"] == readers["full"]["items"] == 2
+        assert readers["page"]["items"] == readers["traces"]["items"] == 13
+        assert readers["history"]["items"] == 13
+        assert readers["latest"]["items"] == readers["newest"]["items"] == 1
+        assert readers["verify"]["items"] == 1
+        assert readers["retry"]["lookup_sample_count"] == 1000
+        assert {"copy_and_stop_ns", "backup_ns", "restore_ns"} <= set(readers["recovery"])
+        assert all(
+            "elapsed_ns" in value
+            for name, value in readers.items()
+            if name not in ("retry", "recovery")
+        )
+        assert not any(output.glob("*.recovery")) and not any(output.glob("*.traces-export.json"))
+        occupancy = cast(dict[str, object], summary["disk"])["allocated_bytes_by_table_and_index"]
+        with closing(sqlite3.connect(":memory:")) as connection:
+            options = cast(
+                list[tuple[str]], connection.execute("PRAGMA compile_options").fetchall()
+            )
+        if ("ENABLE_DBSTAT_VTAB",) in options:
+            assert {"paper_traces", "paper_traces_account"} <= set(cast(dict[str, int], occupancy))
+        else:
+            assert occupancy == "unmeasured: this SQLite has no dbstat"
+
     def test_synthetic_items_have_fresh_identities_and_declared_checkpoints(
         self, tmp_path: Path
     ) -> None:
@@ -165,7 +239,7 @@ class HistoryCapacityChecks:
                             "net_orders",
                             "paper_fills",
                             "paper_costs",
-                            "paper_traces",
+                            "paper_trace_history",
                             "checkpoints",
                         )
                     },

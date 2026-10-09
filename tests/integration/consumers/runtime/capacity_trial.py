@@ -9,6 +9,7 @@ from __future__ import annotations
 
 # standard library imports
 import argparse
+import gzip
 import hashlib
 import os
 import shutil
@@ -922,12 +923,6 @@ class CapacityTrial:
             self.receiver.close()
         for stream in self.streams:
             stream.close()
-        for definition in self.config.accounts:
-            timings = Path(definition.socket_path).with_suffix(".request-timings.jsonl")
-            if timings.is_file():
-                shutil.copyfile(
-                    timings, self.output / f"{definition.account_id}.request-timings.jsonl"
-                )
         phases: dict[str, str] = {}
         for definition in self.config.accounts:
             try:
@@ -954,6 +949,19 @@ class CapacityTrial:
             "cleanup",
             {"phases": phases, "process_exits": [(p.pid, p.returncode) for p in self.processes]},
         )
+        # After the final stops: compressing a day's rows takes a while, and a failed
+        # copy is recorded without skipping any stop.
+        for definition in self.config.accounts:
+            timings = Path(definition.socket_path).with_suffix(".request-timings.jsonl")
+            if not timings.is_file():
+                continue
+            # Kept compressed: one row a request, about 600 MB an account-day as text.
+            copy = self.output / f"{definition.account_id}.request-timings.jsonl.gz"
+            try:
+                with timings.open("rb") as source, gzip.open(copy, "wb", compresslevel=6) as target:
+                    shutil.copyfileobj(source, target)
+            except OSError as error:
+                self.failures.append(f"request timings {definition.account_id}: {error}")
 
 
 class _Arguments(argparse.Namespace):

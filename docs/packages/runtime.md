@@ -270,19 +270,33 @@ the due candidates decide at that instant from the latest eligible market at or
 before it, whose quote the journal observes. The batch coordinates at the instant
 plus one microsecond, so the account's knowledge stays before that delivery, or one
 microsecond after an earlier group decided on the same or the previous delivery if
-that is later, so the account never learns decisions out of order. Only
-an eligible book matches orders: the first one at or after each crossing or
-decision. New orders therefore first meet the next book. A decision
+that is later, so the account never learns decisions out of order. Every eligible
+book, a snapshot or update with a fresh two-sided touch, matches the account's open
+orders, as dedicated paper matches every market. That covers resting, partially
+filled and cancel-requested orders, and orders from decisions, direct admission,
+reissue and protective reductions alike. The paper scenario alone decides what a book
+can do to each order: an order fills only from a book at or after its decision plus
+`entry_delay_us`, and strictly after its decision, and a requested cancellation takes
+effect at the first book at or after the request plus `cancel_delay_us`. A clock,
+heartbeat or control never matches. Which books match depends only on the retained
+delivery stream, never on the destination journal's open orders. Each matched book
+is one fenced account command, `apply_public_market`, which observes the book's ask
+as valuation and matches it in one transaction. A decision
 waits at most about one capture clock interval past its inputs' readiness,
 whatever the market's activity, and a study of the candidate should model at
-least that entry delay. Deliveries between instants update monitoring only. An instant without a fresh market or complete inputs is
+least that entry delay. An instant without a fresh market or complete inputs is
 skipped, and the candidate's gap rule (`pause`, `reset` or `continue`) governs it.
-`SharedBookDelivery` (`shared-candidate-delivery`) is persisted before effects
+`SharedBookDelivery` (`shared-eligible-book-delivery`) is persisted before effects
 with each decided instant's inputs, quote and coordination clock, and whether the
-book matched; only a snapshot or update matches, and one that decides a
-source-fed instant always does. Replay recomputes the grid and refuses a retained delivery whose
-matching or decided inputs differ. Native invalidation blocks new independent
-admission while preserving pending exposure.
+book matched, which every eligible book does. Readers decode a retained line with
+`SharedBookDelivery.decode`, which reads the tag before any other field and refuses
+another format at its first line with "unsupported shared book delivery schema".
+Replay recomputes the grid and each book's eligibility and refuses a retained
+delivery whose matching or decided inputs differ. Replay into the live journal is an
+exact retry: the paper account resolves each matched book's identity against its
+whole trace history and returns the saved outcome without a write, and shadow, which
+keeps only the latest valuation, skips a book older than it. Native invalidation blocks
+new independent admission while preserving pending exposure.
 
 Shared accounts also run feature-served candidates. `SharedStrategyInput` carries
 either source `inputs` or a `served` feature, and both executors accept either. The
@@ -334,7 +348,7 @@ valid book that is momentarily one-sided or crossed between per-order messages,
 and the heartbeats or controls that follow it, has no eligible market. It faults
 the account only if no eligible market arrives within the smaller of source
 freshness and capture idle time, measured on retained delivery clocks. This is a
-grid-selected paper model, not a measured feed or throughput capacity claim.
+paper model, not a measured feed or throughput capacity claim.
 
 `ReferenceCandidates` packages the installed `fixed_clip`, `liquidity_clip` and
 `target_clip` formulas over the native touch (ask, bid, ask size) as complete
@@ -453,6 +467,9 @@ Keep compatible signed artifacts/trust separately and reconcile missing facts
 before any explicit selection and restart. An older stopped snapshot can be
 restored for recovery inspection; managed paper quarantines a restored journal
 before publication, so it cannot resume, claim, reduce or match from that copy.
+The quarantine's connection closes before the staged journal is checked again as
+a standalone snapshot, so a restore publishes exactly the backup's files, with no
+SQLite side files.
 This local operation provides no external venue-generation or anti-rewind
 attestation.
 

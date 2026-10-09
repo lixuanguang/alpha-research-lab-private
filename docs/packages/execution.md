@@ -24,6 +24,16 @@ modeled paper/shadow work only. A selected reference identity has
 `qualification == "referenced"` but venue rule freshness remains the caller's
 responsibility. Neither qualification grants executable authority.
 
+A decision never cancels the instance's open orders. This is the interim reading
+while plan decision D2 is deferred. A target or exposure decision made while any
+order is open is rejected as `pending_target`, and the open order keeps its
+reservation until a fill, cancellation or rejection ends it. Cancellation is a
+separate, explicitly requested operation. Research simulation instead replaces the
+plan at each decision: it cancels a resting order and enters the new one after the
+cancel and entry delays. Dedicated paper is therefore not research-parity evidence
+for a strategy whose resting orders or IOCs are still unfilled at the next
+decision; its fills and reservations can differ from research for those decisions.
+
 Paper matching claims each modeled quote identity with exact immutable bytes in
 the same transaction as its effects; shadow mode uses `claim_market` to record a
 quote before its step commits. `markets()` exposes claims in insertion order so a supervising
@@ -82,9 +92,13 @@ codec bytes and sha256; the head keeps each field's row count and a sha256 over 
 digests in order. A commit writes only changed or new rows and a head of bounded size;
 another process reads the head, compares row digests and decodes only rows that
 changed. In memory the state still holds the complete tuples, so account behavior does
-not depend on this layout. Only this `account-journal` layout is readable: a journal
-with other tables, including one without `state_rows` or `dispatch_leases`, is refused
-as an unsupported account journal schema and is never migrated. The head also names
+not depend on this layout. Each paper trace row also records whether the trace posted
+a modeled fill (`filled`), checked against its bytes on verification, and only those
+rows are indexed for fills: report facts decode the fill-bearing traces alone, so a
+cold read does not grow with the number of books matched. Only this `account-journal`
+layout is readable: a journal with other tables, columns or indexes, including one
+without `state_rows`, `dispatch_leases` or the trace fill flag, is refused as an
+unsupported account journal schema and is never migrated. The head also names
 the order-event vocabulary its facts are written in; a head without one, as written
 before terminal cancellations stated their cause, or with another vocabulary is
 refused as an unsupported account journal state schema. The journal composes admission and reconciliation from
@@ -159,6 +173,12 @@ account API does not grant live venue authority or submission.
 This is an atomic local command service with no venue transport, credential
 resolver or submission. Concurrent calls serialize at SQLite; the separately
 described test-venue gateway owns its executing fence and physical reconciliation.
+A journal lends one SQLite connection to its sequential transactions; a nested or
+concurrent use opens its own. A use that leaves its transaction open or raises a
+SQLite error closes that connection, releasing its locks, and the next use opens
+another; a refusal that rolled back keeps it. `close()` closes it at once and is
+refused while the connection is lent; otherwise it closes when the journal is
+collected. Close a briefly opened journal before moving its files.
 State is pinned
 to exact configuration bytes and uses the `account-runtime` and
 `account-postings` contracts. It establishes correctness for
@@ -221,27 +241,68 @@ an order.
 
 For one or several strategies on a shared account,
 `AccountJournal.bind_paper_scenario(account_id, scenario)` pins the exact profile
-before orders for that account and instrument. `match_public_market(account_id,
-market, scenario)` applies projected facts to direct physical orders and to
-portfolio net parents inside one `BEGIN IMMEDIATE` firm transaction. Net parent
-fills then use the existing exact child quantity and fee allocation; displayed
-liquidity is consumed once per physical parent, not once per strategy child.
-Identical input retries return the original result across restart. A changed
-market identity or regressed availability is rejected. A modeled event that
-fails the account lifecycle or economic checks leaves that quote's partial
-effects unapplied and retains a failed trace, rejected fact and account fault.
-Unknown outcomes remain reserved; cancellation is terminal only after its
+before orders for that account and instrument. `apply_public_market(account_id,
+market, scenario)` is the one command per eligible book. Inside one
+`BEGIN IMMEDIATE` firm transaction it checks the current owner, generation,
+restore quarantine and clock, and the bound scenario; then it resolves the
+market's identity against the whole committed trace history before any effect.
+- An identity this account already applied is an exact retry: the command returns
+  the saved outcome and writes nothing, so valuation, liquidity, accounting and
+  checkpoints are unchanged. Ageing and grant expiry do not block it; an owner
+  change, quarantine or clock regression does.
+- The same identity with other input, in any account, is refused.
+- A new market must be fresh under managed authority; it is matched and its ask
+  is observed as the instrument's valuation, both in that transaction. Projected
+  facts apply to direct physical orders and to portfolio net parents. Net parent
+  fills use the existing exact child quantity and fee allocation; displayed
+  liquidity is consumed once per physical parent, not once per strategy child.
+  Regressed availability, or a valuation at the same clock with another quote, is
+  refused with no effect.
+- A shadow account keeps no trace and only observes the ask; the identical quote
+  at the valuation's clock changes nothing.
+
+The command returns a `PaperMarketOutcome`: the account, the market identity and
+the SHA-256 of the committed trace's exact journal bytes (none in shadow). A
+modeled event that fails the account lifecycle or economic checks leaves that
+quote's partial effects unapplied and commits a failed trace, rejected fact and
+account fault; the command then raises, and an exact retry raises the same
+failure. Unknown outcomes remain reserved; cancellation is terminal only after its
 modeled confirmation.
 
-`paper_traces(account_id)` exposes each exact market, scenario, input digest,
-physical events, attributed child fills and durable liquidity cursor, including
-no-fill markets. `paper_report_facts(account_id)` exposes strategy-owned fills and
-their current effective fee links; a corrected-to-zero fee has an explicit zero
-link. `paper_market_seen(account_id, market_identity)` reads fresh membership of
-committed and failed traces in exactly that account. Shared observers use this
-Boolean before observing a quote. Installed clients request `market_membership`
-with `account_id` and `query_market`, avoiding transfer of historical trace bodies;
-managed queries recheck the current bound owner generation in the same snapshot.
+Each trace holds the exact market, scenario, input digest, physical events,
+attributed child fills and durable liquidity cursor, including no-fill markets.
+The trace history grows with every eligible book, so it is read in bounded pieces,
+never whole:
+- `paper_trace(account_id, market_identity)` reads one market's trace, if the
+  account applied it;
+- `paper_trace_page(account_id, after=...)` reads the traces after a journal-wide
+  position, from -1: at most `PaperTracePage.maximum` (256) and, beyond the first,
+  at most `PaperTracePage.maximum_bytes` (512 KiB) of stored trace bytes, so a page
+  stays well inside a 1 MiB socket response. A page that stopped at either bound
+  names the position to continue from; one that did not ends the history. Each page
+  carries the journal's whole trace history as a `HistoryDigest`, every account's:
+  its count and the hash chain over every trace's exact bytes, so pages joined from
+  successive snapshots can be checked against it. `iter_paper_traces` joins pages;
+- `latest_paper_traces(account_id)` reads the newest trace of each bound instrument;
+- `paper_trace_history()` reads the history's count and chain;
+- `export_paper_traces(destination, account_id)` publishes the codec's encoding of
+  the account's traces as one JSON array, written from their stored bytes in
+  bounded memory while every row of the history extends the chain checked against
+  the head; a mismatch leaves no file.
+
+`paper_report_facts(account_id)` exposes strategy-owned fills and their current
+effective fee links; a corrected-to-zero fee has an explicit zero link.
+`valuation(instrument)` reads the latest observed valuation quote of one
+instrument; installed clients request the `valuation` projection with only
+`query_instrument`. A shadow account keeps no trace, so a shared observer
+replaying into it skips a book older than that valuation as already applied.
+Installed clients read one market's trace with the `market_trace` projection
+(`account_id`, `query_market`), a page with the `traces` projection
+(`query_after`), and the history with `trace_history`; a full inspection states
+`paper_trace_history`, the journal-wide history even when it names one account,
+instead of returning trace bodies, and `monitoring` adds each bound instrument's
+newest trace. The one-shot `export_traces` command
+(`export_path`, optional `account_id`) runs the export in the signed runner.
 Reconciliation still requires a complete independently supplied
 `AccountObservation` with physical cash, positions, costs, posting identities and
 cumulative physical open orders. A journal report or its own modeled trace is
@@ -540,11 +601,19 @@ The controls trust the local operator/source boundary; they are not a credential
 or live-capital authorization mechanism.
 
 Unknown schemas fail. `AccountJournal.verify(path, config)` performs
-read-only integrity/config/schema validation and sees committed WAL state; it also
-checks every history row, its key columns and the head's counts, hash chains and
-checkpoints, and every state row against its digest and the head's row summaries;
-`storage="snapshot"` additionally requires no SQLite sidecars and leaves a
-standalone snapshot unchanged. The [workspace recovery owner](runtime.md#account-workspace-recovery)
+read-only integrity/config/schema validation and sees committed WAL state. It runs
+SQLite's `integrity_check`, requires the exact layout and configuration, decodes
+the head, and checks every state row against its digest and the head's row
+summaries, decoding the state, ledger included, in full. It streams every history
+row (decisions, portfolio batches, paper traces) once, in order: each row's exact
+bytes must extend its table's hash chain to the head's count and digest, each
+row's key columns must equal the keys its bytes name (a trace's fill flag
+included), and the head's checkpoints must be each instance's latest decision.
+History rows were validated domain records when they were encoded and committed,
+and every read decodes them in full again, so verification reads only their keys:
+its time is linear in the stored bytes and its memory bounded by one row, at any
+history size. `storage="snapshot"` additionally requires no SQLite sidecars and
+leaves a standalone snapshot unchanged. The [workspace recovery owner](runtime.md#account-workspace-recovery)
 uses these checks under backup locks and before restore publication.
 
 ## Bounded paper deployment authority

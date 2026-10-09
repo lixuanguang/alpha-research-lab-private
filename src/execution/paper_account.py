@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 # standard library imports
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Protocol
 
 # project library imports
@@ -15,8 +17,12 @@ from execution.account_records import (
     AccountPaperFill,
     AccountPaperTrace,
     AccountQuote,
+    AccountStatus,
     AccountView,
+    HistoryDigest,
     NetOrder,
+    PaperMarketOutcome,
+    PaperTracePage,
     PortfolioBatch,
     PortfolioCommit,
     PortfolioResidual,
@@ -25,6 +31,7 @@ from execution.account_records import (
 from execution.account_reduction import PaperReductionResult
 from execution.paper import PaperMarket
 from execution.paper_authority import PaperActivation, PaperOwner
+from financial_units import Dimension
 
 
 class PaperAccount(Protocol):
@@ -42,6 +49,10 @@ class PaperAccount(Protocol):
 
     def accounts(self) -> tuple[AccountView, ...]:
         """Read current account ledgers and controls."""
+        ...
+
+    def account_statuses(self) -> tuple[AccountStatus, ...]:
+        """Read each account's operating phase and blocks without its ledger."""
         ...
 
     def orders(self) -> tuple[TaggedOrder, ...]:
@@ -64,12 +75,34 @@ class PaperAccount(Protocol):
         """Read requests without interpreting admission as liquidation."""
         ...
 
-    def paper_traces(self, account_id: str | None = None) -> tuple[AccountPaperTrace, ...]:
-        """Read durable modeled effects for an account."""
+    def paper_trace_page(self, account_id: str | None = None, *, after: int = -1) -> PaperTracePage:
+        """Read one count- and byte-bounded page of committed traces after a history position."""
         ...
 
-    def paper_market_seen(self, account_id: str, market_identity: str) -> bool:
-        """Read fresh committed/failed membership under the current bound account owner."""
+    def iter_paper_traces(
+        self, account_id: str | None = None, *, after: int = -1
+    ) -> Iterator[AccountPaperTrace]:
+        """Yield committed traces after a position in commit order, one page at a time."""
+        ...
+
+    def latest_paper_traces(self, account_id: str) -> tuple[AccountPaperTrace, ...]:
+        """Read the newest committed trace of each instrument bound to the account."""
+        ...
+
+    def paper_trace_history(self) -> HistoryDigest:
+        """Read the committed trace history's count and hash chain."""
+        ...
+
+    def export_paper_traces(self, destination: Path, account_id: str | None = None) -> int:
+        """Publish committed traces as one JSON array checked against the trace history."""
+        ...
+
+    def paper_trace(self, account_id: str, market_identity: str) -> AccountPaperTrace | None:
+        """Read the account's committed or failed trace of one market identity, if any."""
+        ...
+
+    def valuation(self, instrument: Dimension) -> AccountQuote | None:
+        """Read the latest observed valuation quote of one instrument, if any."""
         ...
 
     def paper_report_facts(
@@ -94,10 +127,15 @@ class PaperAccount(Protocol):
         """Verify the immutable matching assumptions."""
         ...
 
-    def match_public_market(
+    def apply_public_market(
         self, account_id: str, market: PaperMarket, scenario: PaperExecutionScenario
-    ) -> AccountPaperTrace:
-        """Match one bounded eligible book under the durable worker fence."""
+    ) -> PaperMarketOutcome:
+        """Observe and, in paper mode, match one eligible book under the worker fence.
+
+        One transaction resolves the market's identity against all history first: an
+        exact retry returns the saved outcome without effects, and a reused identity
+        with other input is refused.
+        """
         ...
 
     def coordinate(self, batch: PortfolioBatch) -> PortfolioCommit:

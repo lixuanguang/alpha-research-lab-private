@@ -654,10 +654,11 @@ class PaperRecovery:
     def recover(self, market: PaperMarket | None) -> tuple[PaperOwner, dict[str, object]]:
         """Return the fresh owner and what recovery observed and did."""
         account_id = self.account.account_id
-        state = self.installed.execute(AccountExecutionRequest(action="inspect"))
-        if len(state.paper_activations) != 1 or state.paper_activations[0].owner is None:
+        # Recovery needs the retained authority, not the account's growing history.
+        activations = self.installed.paper_activations()
+        if len(activations) != 1 or activations[0].owner is None:
             raise ValueError("recovery requires one retained activation and its owner")
-        activation = state.paper_activations[0]
+        activation = activations[0]
         self.installed.paper_owner = activation.owner
         observed: dict[str, object] = {"account": account_id}
         if self.installed.accounts()[0].phase == "running":
@@ -682,12 +683,12 @@ class PaperRecovery:
         )
         observed["cancel"] = cancel.status
         if market is not None:
-            settled = self.installed.match_public_market(
+            settled = self.installed.apply_public_market(
                 account_id,
                 msgspec.structs.replace(market, identity=uuid4().hex, at=datetime.now(UTC)),
                 activation.deployment.scenario,
             )
-            observed["settled"] = settled.status
+            observed["settled"] = settled.trace_sha256
         observation = PaperObservation(self.installed, account_id).observe(datetime.now(UTC))
         observed["reconciled"] = self.installed.reconcile(observation)
         observed["open_orders"] = len(observation.open_orders)
@@ -746,7 +747,7 @@ class DeliveryLogs:
     def books(self) -> tuple[SharedBookDelivery, ...]:
         """Decode the account's retained book deliveries in order."""
         return tuple(
-            self.codec.decode_json(line, SharedBookDelivery)
+            SharedBookDelivery.decode(line, self.codec)
             for line in self.book_log.read_bytes().splitlines()
         )
 
@@ -1408,6 +1409,12 @@ class JourneyPaper:
             ),
         )
 
+    def served_accounts(self) -> dict[str, SocketPaperAccount]:
+        """Bind every planned account's socket client, by account."""
+        return {
+            account.account_id: self.served(account) for account in self.configuration().accounts
+        }
+
     def account(self, account_id: str) -> PaperServiceAccount:
         """Return one planned account."""
         return next(item for item in self.configuration().accounts if item.account_id == account_id)
@@ -1572,43 +1579,65 @@ class JourneyPaper:
         print(self.codec.encode_json(verification.gates()).decode())
 
     def reconcile(self) -> None:
-        """Reconcile every account each period until the stop file appears; stop at a mismatch."""
+        """Reconcile each account on its own clock from the phase's start until stopped.
+
+        The reclaims before a phase reconciled each account one after another, so an
+        account is reconciled as soon as the supervisor reports its first accepted
+        market, stamped at it; a stamp at the account's own clock alone would leave
+        its reconciliation as old as the reclaim. An account still without a market
+        when a period has passed is reconciled at its own clock, and again at its
+        first market when that arrives. After that, each account is reconciled one
+        period after its own previous reconciliation, whatever the others take. A
+        mismatch stops the reconciler.
+        """
         arguments = self.arguments
-        configuration = self.configuration()
-        clients = {account.account_id: self.served(account) for account in configuration.accounts}
+        clients = self.served_accounts()
         log = arguments.plan / "reconciliation.jsonl"
+        started = time.monotonic()
+        due = dict.fromkeys(clients, started + arguments.period)
+        awaiting = set(clients)
         while not arguments.stop.exists():
-            time.sleep(arguments.period)
-            if arguments.stop.exists():
+            for account_id in sorted(clients):
+                market = self.accepted_market(account_id)
+                first_market = account_id in awaiting and market is not None
+                if first_market or time.monotonic() >= due[account_id]:
+                    self.reconcile_account(clients[account_id], account_id, log)
+                    due[account_id] = time.monotonic() + arguments.period
+                    if market is not None:
+                        awaiting.discard(account_id)
+                    if arguments.stop.exists():
+                        return
+            time.sleep(0.5)
+
+    def reconcile_account(self, installed: SocketPaperAccount, account_id: str, log: Path) -> None:
+        """Reconcile one account at its last accepted market and record the outcome."""
+        # A decision landing between the read and the reconcile makes the
+        # observation stale; the account refuses it unrecorded, so re-observe.
+        for attempt in range(3):
+            observed = PaperObservation(installed, account_id).observe(
+                self.accepted_market(account_id)
+            )
+            try:
+                matched = installed.reconcile(observed)
                 break
-            for account_id, installed in sorted(clients.items()):
-                # A decision landing between the read and the reconcile makes the
-                # observation stale; the account refuses it unrecorded, so re-observe.
-                for attempt in range(3):
-                    observed = PaperObservation(installed, account_id).observe(
-                        self.accepted_market(account_id)
-                    )
-                    try:
-                        matched = installed.reconcile(observed)
-                        break
-                    except RuntimeError as error:
-                        if "observation_precedes_account_state" not in str(error) or attempt == 2:
-                            raise
-                with log.open("ab") as stream:
-                    stream.write(
-                        self.codec.encode_json(
-                            {
-                                "account": account_id,
-                                "identity": observed.identity,
-                                "at": observed.at,
-                                "matched": matched,
-                                "open_orders": len(observed.open_orders),
-                            }
-                        )
-                        + b"\n"
-                    )
-                if not matched:
-                    raise SystemExit(f"reconciliation mismatch on {account_id}")
+            except RuntimeError as error:
+                if "observation_precedes_account_state" not in str(error) or attempt == 2:
+                    raise
+        with log.open("ab") as stream:
+            stream.write(
+                self.codec.encode_json(
+                    {
+                        "account": account_id,
+                        "identity": observed.identity,
+                        "at": observed.at,
+                        "matched": matched,
+                        "open_orders": len(observed.open_orders),
+                    }
+                )
+                + b"\n"
+            )
+        if not matched:
+            raise SystemExit(f"reconciliation mismatch on {account_id}")
 
     def print_gates(self, gates: list[PhaseGate]) -> None:
         """Print criteria in the driver's gate shape."""
@@ -1637,8 +1666,7 @@ class JourneyPaper:
             before = installed.accounts()[0].phase
             observed: dict[str, object] = {"before": before}
             if before == "running":
-                state = installed.execute(AccountExecutionRequest(action="inspect"))
-                installed.paper_owner = state.paper_activations[0].owner
+                installed.paper_owner = installed.paper_activations()[0].owner
                 stop = installed.control(
                     AccountControl(
                         identity=f"{account.account_id}-j7-stop-{uuid4().hex[:8]}",

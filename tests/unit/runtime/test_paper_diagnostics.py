@@ -171,6 +171,21 @@ class TestPaperMonitoring:
         assert facts["data.source_clock_drift_seconds"].missing_reason == "not_measured"
         assert facts["data.frames"].missing_reason == "not_measured"
 
+    def test_source_clocks_refuse_a_replaced_delivery_format(self, tmp_path: Path) -> None:
+        """Monitoring refuses a delivery log in another format at its first line."""
+        (tmp_path / "deliveries.jsonl").write_bytes(
+            b'{"schema_version":"shared-candidate-delivery"}\n'
+        )
+        with pytest.raises(ValueError, match="unsupported shared book delivery schema"):
+            PaperSourceMonitoring.project(
+                root=tmp_path,
+                context=self._event().context,
+                observed_at=self.at,
+                summary={"gaps": [], "synchronized": True},
+                processing_ns=None,
+                delivered_count=1,
+            )
+
     def test_queue_saturation_is_visible_and_bounded(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

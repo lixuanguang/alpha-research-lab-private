@@ -76,8 +76,9 @@ Before decisions, supply a complete independently derived `AccountObservation`
 when the journal requires opening or recovery reconciliation. The workflow never
 constructs a successful reconciliation from its own output. At each candidate
 grid instant the due candidates decide from the latest eligible market at or
-before it, then the book that crossed the instant matches orders, so a decision's
-input cannot also fill its own order. Each decision replaces its instance's
+before it. Every eligible book matches open orders under the declared delays; a
+decision's order is first offered the book after its inputs, so its input cannot
+also fill it. Each decision replaces its instance's
 working orders: the account requests their cancellation at the decision time, and
 an abstention replaces them with none. Matching uses the declared
 entry/cancel delays, fee, adverse price and take fraction. The supervisor binds each
@@ -87,7 +88,11 @@ Two distinct active candidates exercise the public extension points; their
 formulas are engineering workloads, not profitability evidence.
 
 Output retains `manifest.json`, native `capture/`, fsynced `deliveries.jsonl`,
-`paper-result.json`, `execution-traces.json` and `cost-report.json`. The manifest
+`paper-result.json`, `execution-traces.json` and `cost-report.json`.
+`execution-traces.json` is the account's export: its traces as one JSON array,
+written from their stored bytes in bounded memory and checked against the trace
+history's hash chain. Monitoring projects the traces committed after the history
+position the run started from, in bounded pages. The manifest
 pins configuration, source/implementation, book registry, projected input
 requirements, candidate and deployment identities, execution
 assumptions and `last_eligible_bid` mark policy. Reports require fresh marks
@@ -173,8 +178,10 @@ failures and negative net P&L by currency; missing/stale evidence triggers the
 configured route. Preserve the same socket configuration and alert journal when
 reopening if identical alert identities are required.
 
-Replay retained `SharedBookDelivery` envelopes through a fresh
-`SharedPaperCaptureObserver` over the same source/registry configuration. Native
+Replay retained `SharedBookDelivery` envelopes, decoded with
+`SharedBookDelivery.decode`, through a fresh `SharedPaperCaptureObserver` over the
+same source/registry configuration. A log in another delivery format is refused at
+its first line before any effect. Native
 state rebuilds from the beginning of the recording; exact old account/decision
 retries preserve newer state. A new capture uses a new recording and waits for
 fresh synchronization. Known invalid input blocks admission without releasing
@@ -241,6 +248,20 @@ operation through `alpha-governance-artifacts run --target ... --policy ... --
 account --request ...`. The launcher fixes signed configuration, current release
 and journal paths. The client retains exact request/result bytes and never
 retries a failed or uncertain command automatically.
+
+The client waits 300 seconds for `backup` and `restore`, which copy, hash and
+verify the whole journal, and 30 seconds for every other action. The signed
+launcher bounds the same run independently, by the signed service life plus 60
+seconds (180 seconds when the life is undeclared), so the shorter bound applies:
+the journey (3,000 s life) and day (90,000 s) configurations allow the full 300
+seconds. A day-scale journal (about 10 GB) took 83–92 s to back up or restore on
+the development host; 300 seconds does not qualify a larger journal. A timeout
+ends only the wait: the launched command may still complete, so the outcome is
+uncertain and the request is not retried. When the launcher's bound expires
+first, it ends the account command, possibly part-way or after publication, and the
+client reports a non-zero exit (`RuntimeError`): that outcome is uncertain too.
+After either, check whether `backup_root` (or `restore_root`) exists before choosing
+a new one.
 
 The deployment input digest is SHA-256 of
 `DomainCodec().encode_json((capture_config, requirements))`, where `requirements`
@@ -332,11 +353,12 @@ held, a checkpoint commits as `target_matched` without an order. A held position
 needs the account reconciled within its state-age budget.
 
 All native books are retained and validated. Each candidate decides at its grid
-instants from the latest eligible market at or before the instant, and the book
-that crosses an instant matches orders; books between instants update monitoring
-marks without fills or checkpoint changes. Source invalidation still protects
-accounts immediately. Delivery records retain decided instants for exact replay.
-This grid-selected paper model does not establish sustained native-feed capacity.
+instants from the latest eligible market at or before the instant. Every eligible
+book matches the account's open orders under the scenario's entry and cancel delays;
+books between instants update monitoring marks and can fill, but change no
+checkpoint. Source invalidation still protects accounts immediately. Delivery records
+retain decided instants and each book's matching for exact replay. This paper model
+does not establish sustained native-feed capacity.
 
 After installing, authorizing, reconciling and claiming each account separately,
 start its signed owner service using the

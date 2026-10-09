@@ -28,5 +28,6 @@ class _IndexedSharedDelivery(SharedBookDelivery, frozen=True):
     source: _IndexedSourceDelivery
 
     def __post_init__(self) -> None:
-        """Check coordination after the decoder validates every nested source and policy field."""
+        """Check the schema and coordination after the decoder validates nested fields."""
+        self._require_schema()
         self._require_coordination()

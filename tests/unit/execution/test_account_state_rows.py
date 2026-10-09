@@ -9,6 +9,7 @@ from collections.abc import Callable
 from contextlib import closing
 from functools import partial
 from pathlib import Path
+from types import MethodType
 from typing import cast
 
 # third party library imports
@@ -18,9 +19,9 @@ from test_account_history_scaling import _SharedFirmHistory
 
 # project library imports
 from execution import AccountJournal
+from execution.account_records import HistoryDigest
 from execution.account_state import (
     AccountStateStore,
-    HistoryDigest,
     HistorySummary,
     RowSummary,
     StateRows,
@@ -46,6 +47,25 @@ class _CommitBeforeRowLoad:
         """Commit through the other journal, then load rows as before."""
         self._history.round_trip()
         return self._load(connection, summary)
+
+
+class _TracedConnections:
+    """Record every statement the account store's connections run."""
+
+    def __init__(self, connect: Callable[[AccountStateStore], sqlite3.Connection]) -> None:
+        """Wrap the store's connection factory with no statements recorded."""
+        self._connect = connect
+        self.statements: list[str] = []
+
+    def __get__(self, store: AccountStateStore | None, owner: type[AccountStateStore]) -> object:
+        """Bind to a store as the replaced method does."""
+        return self if store is None else MethodType(self, store)
+
+    def __call__(self, store: AccountStateStore) -> sqlite3.Connection:
+        """Open the store's connection and trace its expanded statements."""
+        connection = self._connect(store)
+        connection.set_trace_callback(self.statements.append)
+        return connection
 
 
 class TestAccountStateRows:
@@ -195,6 +215,75 @@ class TestAccountStateRows:
         for refusal in refusals:
             with pytest.raises(ValueError, match="unsupported account journal schema"):
                 refusal()
+
+    def test_journal_without_the_trace_fill_flag_is_refused_unchanged(self, tmp_path: Path) -> None:
+        """The previous paper-trace layout is refused at open before any effect."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        history.round_trip()
+        history.busy_tick()
+        path, config = history.journal.path, history._config()
+        # Rebuild exactly the layout written before traces recorded their fill flag; a
+        # temporary table keeps the rows, so the stored schema text is the original one.
+        TestAccountStateRows.execute(
+            path,
+            "PRAGMA wal_checkpoint(TRUNCATE);"
+            "CREATE TEMP TABLE kept AS SELECT seq, account_id, venue, instrument_id, "
+            "market_identity, payload FROM paper_traces;"
+            "DROP TABLE paper_traces;"
+            "CREATE TABLE paper_traces (seq INTEGER PRIMARY KEY, account_id TEXT NOT NULL, "
+            "venue TEXT NOT NULL, instrument_id TEXT NOT NULL, market_identity TEXT NOT NULL, "
+            "payload BLOB NOT NULL, UNIQUE(account_id, venue, instrument_id, market_identity));"
+            "INSERT INTO paper_traces SELECT * FROM kept;"
+            "DROP TABLE kept;"
+            "CREATE INDEX paper_traces_market ON paper_traces(market_identity, seq);"
+            "CREATE INDEX paper_traces_account ON paper_traces(account_id, seq);"
+            "CREATE INDEX paper_traces_instrument "
+            "ON paper_traces(account_id, instrument_id, seq);"
+            "PRAGMA wal_checkpoint(TRUNCATE);",
+        )
+        before = path.read_bytes()
+        refusals: tuple[Callable[[], object], ...] = (
+            partial(AccountJournal, path, config),
+            partial(AccountJournal.verify, path, config),
+        )
+        for refusal in refusals:
+            with pytest.raises(ValueError, match="unsupported account journal schema"):
+                refusal()
+        assert path.read_bytes() == before
+
+    def test_the_fill_read_searches_only_the_partial_fill_index(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Cold report facts visit fill-bearing rows only, not every trace of the account."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        history.round_trip()
+        history.busy_tick()
+        traced = _TracedConnections(AccountStateStore._connect)
+        monkeypatch.setattr(AccountStateStore, "_connect", traced)
+        AccountJournal(history.journal.path, history._config()).paper_report_facts("busy")
+        monkeypatch.undo()
+        reads = [statement for statement in traced.statements if "filled=1" in statement]
+        assert len(reads) == 1
+        with closing(sqlite3.connect(history.journal.path)) as connection:
+            plan = cast(
+                list[tuple[object, ...]],
+                connection.execute(f"EXPLAIN QUERY PLAN {reads[0]}").fetchall(),
+            )
+        assert [row[3] for row in plan] == [
+            "SEARCH paper_traces USING INDEX paper_traces_filled (account_id=? AND seq>?)"
+        ]
+
+    def test_a_fill_flag_that_differs_from_its_trace_fails_verification(
+        self, tmp_path: Path
+    ) -> None:
+        """The indexed flag is checked against each trace's bytes, so it cannot hide a fill."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        history.round_trip()
+        path, config = history.journal.path, history._config()
+        assert len(AccountJournal.verify(path, config)) == 2
+        TestAccountStateRows.execute(path, "UPDATE paper_traces SET filled = 1 - filled")
+        with pytest.raises(ValueError, match="history differs from its head"):
+            AccountJournal.verify(path, config)
 
     @pytest.mark.performance
     def test_round_trip_cost_is_flat_in_filled_orders(self, tmp_path: Path) -> None:

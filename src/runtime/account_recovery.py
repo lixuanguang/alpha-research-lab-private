@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+from contextlib import closing
 from pathlib import Path
 from typing import Literal
 
@@ -100,8 +101,14 @@ class AccountWorkspace:
     def _validate_restored(self, root: Path) -> None:
         """Admit the staged database through its owner before publication."""
         _StoppedAccounts(self.config, self._journal(root), storage="snapshot").validate()
-        AccountJournal(self._journal(root), self.config).quarantine_paper_restore()
-        _StoppedAccounts(self.config, self._journal(root)).validate()
+        # Closing the only connection checkpoints the quarantine into the database,
+        # so it is checked as a standalone snapshot, and no SQLite side file is
+        # published with it.
+        with closing(AccountJournal(self._journal(root), self.config)) as journal:
+            journal.quarantine_paper_restore()
+            if not journal.paper_restore_quarantined():
+                raise ValueError("account restore quarantine was not recorded")
+        _StoppedAccounts(self.config, self._journal(root), storage="snapshot").validate()
 
     def _require_component(self, manifest: WorkspaceManifest) -> None:
         """Keep this recovery operation scoped to the selected account component."""

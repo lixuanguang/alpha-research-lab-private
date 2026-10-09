@@ -555,7 +555,7 @@ class PublicPaperWorkload:
         groups = tuple(
             (group.coordinated_at, {item.instance_id for item in group.inputs})
             for line in deliveries.read_bytes().splitlines()
-            for group in self.codec.decode_json(line, SharedBookDelivery).decisions
+            for group in SharedBookDelivery.decode(line, self.codec).decisions
         )
         owner = {
             child.order.identity: child.instance_id
@@ -608,7 +608,7 @@ class PublicPaperWorkload:
         live when a later retained decision of an owning instance coordinates carries
         a cancel request.
         """
-        traces = journal.paper_traces("paper")
+        traces = tuple(journal.iter_paper_traces("paper"))
         replaced = self.replaced(traces, decisions, deliveries)
         quantity, notional, fees = Fraction(0), Fraction(0), Fraction(0)
         expected_orders: list[OrderState] = []
@@ -816,7 +816,12 @@ class PublicPaperWorkload:
             )
         if paper_account is None:
             before = self.codec.encode_json(
-                (journal.accounts(), journal.orders(), journal.net_orders(), journal.paper_traces())
+                (
+                    journal.accounts(),
+                    journal.orders(),
+                    journal.net_orders(),
+                    tuple(journal.iter_paper_traces()),
+                )
             )
             observer = SharedPaperCaptureObserver(
                 source=LiveBookDecisionSource(request, self.requirements, history_capacity=1000),
@@ -828,12 +833,19 @@ class PublicPaperWorkload:
                 delivery_path=None,
             )
             for line in (output / "run/deliveries.jsonl").read_bytes().splitlines():
-                observer.deliver(self.codec.decode_json(line, SharedBookDelivery))
+                observer.deliver(SharedBookDelivery.decode(line, self.codec))
             assert before == self.codec.encode_json(
-                (journal.accounts(), journal.orders(), journal.net_orders(), journal.paper_traces())
+                (
+                    journal.accounts(),
+                    journal.orders(),
+                    journal.net_orders(),
+                    tuple(journal.iter_paper_traces()),
+                )
             )
         (output / "report.json").write_bytes(self.codec.encode_json(report))
-        (output / "traces.json").write_bytes(self.codec.encode_json(journal.paper_traces()))
+        (output / "traces.json").write_bytes(
+            self.codec.encode_json(tuple(journal.iter_paper_traces()))
+        )
         summary: dict[str, object] = {
             "venue": self.capture.venue,
             "reference_consumer": self.reference_identity,
@@ -986,7 +998,10 @@ class PublicPaperWorkload:
         cancel_market = self.fixture_market(
             "cancel-book", bid="99", ask="100", bid_quantity=self.quantity("4")
         )
-        cancelled = account.match_public_market("paper", cancel_market, self.scenario)
+        account.apply_public_market("paper", cancel_market, self.scenario)
+        cancelled = account.paper_trace("paper", cancel_market.identity)
+        if cancelled is None:
+            raise ValueError("public quote left no trace of its cancellation")
         # The account cancel took effect at this book, so each fact states that cause.
         if cancelled.status != "committed" or not pending.issubset(
             {
@@ -1027,18 +1042,18 @@ class PublicPaperWorkload:
             )
         )
 
-        quote = AccountQuote(price=self.price("100"), at=datetime.now(UTC))
-        account.observe(quote)
         connection_market = self.fixture_market(
             "reduction-connection", bid="98.99", ask="100.01", bid_quantity=self.quantity("4")
         )
-        connected = account.match_public_market(
-            "paper",
-            connection_market,
-            self.scenario,
-        )
-        if connected.status != "committed":
+        account.apply_public_market("paper", connection_market, self.scenario)
+        connected = account.paper_trace("paper", connection_market.identity)
+        if connected is None or connected.status != "committed":
             raise ValueError("public reduction market was not connected")
+        # The connected book's ask is now the account's valuation; a reduction must
+        # carry the quote the account observed.
+        quote = AccountQuote(price=connection_market.ask, at=connection_market.at)
+        if account.valuation(connection_market.ask.per) != quote:
+            raise ValueError("public reduction market did not become the valuation")
         owned = AccountLedger(account.accounts()[0].ledger).snapshot(instance_id="fixed")
         position = next(
             (item for item in owned.positions if item.dimension == self.dimension), None
@@ -1070,7 +1085,10 @@ class PublicPaperWorkload:
         reduction_market = self.fixture_market(
             "reduction-book", bid="98.98", ask="100.02", bid_quantity=lot
         )
-        reduced = account.match_public_market("paper", reduction_market, self.scenario)
+        reduced_outcome = account.apply_public_market("paper", reduction_market, self.scenario)
+        reduced = account.paper_trace("paper", reduction_market.identity)
+        if reduced is None:
+            raise ValueError("public reduction book left no trace")
         if (
             reduced.status != "committed"
             or any(event.fill is not None for event in reduced.physical_events)
@@ -1157,7 +1175,11 @@ class PublicPaperWorkload:
             paper_owner=reclaimed,
         )
         before_retry = self._installed_state(recovered)
-        if recovered.match_public_market("paper", reduction_market, self.scenario) != reduced:
+        if (
+            recovered.apply_public_market("paper", reduction_market, self.scenario)
+            != reduced_outcome
+            or recovered.paper_trace("paper", reduction_market.identity) != reduced
+        ):
             raise ValueError("rolled-back owner did not replay the original reduction trace")
         if self._installed_state(recovered) != before_retry:
             raise ValueError("replayed public quote duplicated an economic effect")
@@ -1202,7 +1224,7 @@ class PublicPaperWorkload:
                 account.accounts(),
                 account.orders(),
                 account.net_orders(),
-                account.paper_traces("paper"),
+                tuple(account.iter_paper_traces("paper")),
                 account.paper_report_facts("paper"),
                 account.paper_activations(),
                 account.paper_reductions(),
@@ -1422,7 +1444,7 @@ class PublicPaperWorkload:
             "accounts": self.codec.encode_json(journal.accounts()),
             "orders": self.codec.encode_json(journal.orders()),
             "net_orders": self.codec.encode_json(journal.net_orders()),
-            "paper_traces": self.codec.encode_json(journal.paper_traces()),
+            "paper_traces": self.codec.encode_json(tuple(journal.iter_paper_traces())),
         }
 
     def replay(self, output: Path) -> dict[str, object]:
@@ -1503,7 +1525,7 @@ class PublicPaperWorkload:
         if not lines or not deliveries_bytes.endswith(b"\n"):
             raise ValueError("retained public delivery log is empty or incomplete")
         for line in lines:
-            delivery = self.codec.decode_json(line, SharedBookDelivery)
+            delivery = SharedBookDelivery.decode(line, self.codec)
             if self.codec.encode_json(delivery) != line:
                 raise ValueError("retained public delivery differs from canonical event bytes")
             observer.deliver(delivery)

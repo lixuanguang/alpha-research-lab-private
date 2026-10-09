@@ -6,12 +6,14 @@ from __future__ import annotations
 import hashlib
 import operator
 import sqlite3
+import threading
+import weakref
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import closing, contextmanager
 from datetime import datetime
 from itertools import chain, compress
 from pathlib import Path
-from typing import Literal, NamedTuple, cast
+from typing import BinaryIO, Literal, NamedTuple, cast
 
 # third party library imports
 import msgspec
@@ -28,6 +30,7 @@ from execution.account_records import (
     AccountPaperTrace,
     AccountQuote,
     AccountView,
+    HistoryDigest,
     NativeFeeAllocation,
     NativeFill,
     NetFeeAllocation,
@@ -146,38 +149,6 @@ class FirmState(WireRecord, frozen=True):
     paper_activations: tuple[PaperActivation, ...] = ()
     paper_reductions: tuple[PaperReductionResult, ...] = ()
     paper_restore_quarantine: bool = False
-
-
-class HistoryDigest(WireRecord, frozen=True):
-    """Bind one history table's row count to a hash chain over its item bytes."""
-
-    count: int
-    sha256: str
-
-    def __post_init__(self) -> None:
-        """Require an empty chain for no rows and a sha256 digest otherwise."""
-        HistoryDigest.require_shape(self.count, self.sha256, "invalid account history digest")
-
-    def extend(self, item: bytes) -> HistoryDigest:
-        """Chain one more item's exact bytes after the current rows."""
-        digest = hashlib.sha256(bytes.fromhex(self.sha256) + item).hexdigest()
-        return HistoryDigest(count=self.count + 1, sha256=digest)
-
-    @staticmethod
-    def require_shape(count: object, sha256: object, message: str) -> None:
-        """Require a row count, with no digest for no rows and lowercase hex sha256 otherwise."""
-        if (
-            type(count) is not int
-            or count < 0
-            or type(sha256) is not str
-            or (sha256 == "") != (count == 0)
-            or (count and (len(sha256) != 64 or sha256 != sha256.lower()))
-        ):
-            raise ValueError(message)
-        try:
-            bytes.fromhex(sha256)
-        except ValueError:
-            raise ValueError(message) from None
 
 
 class _InstanceCheckpoint(WireRecord, frozen=True):
@@ -516,10 +487,13 @@ _HISTORY_TABLES = (
     "batch_identity TEXT NOT NULL UNIQUE, payload BLOB NOT NULL)",
     "CREATE TABLE paper_traces (seq INTEGER PRIMARY KEY, account_id TEXT NOT NULL, "
     "venue TEXT NOT NULL, instrument_id TEXT NOT NULL, market_identity TEXT NOT NULL, "
+    "filled INTEGER NOT NULL CHECK(filled IN (0, 1)), "
     "payload BLOB NOT NULL, UNIQUE(account_id, venue, instrument_id, market_identity))",
     "CREATE INDEX paper_traces_market ON paper_traces(market_identity, seq)",
     "CREATE INDEX paper_traces_account ON paper_traces(account_id, seq)",
     "CREATE INDEX paper_traces_instrument ON paper_traces(account_id, instrument_id, seq)",
+    # Only the few traces that posted fills: report facts never decode the rest.
+    "CREATE INDEX paper_traces_filled ON paper_traces(account_id, seq) WHERE filled=1",
 )
 
 
@@ -577,11 +551,16 @@ _TABLE_STATEMENTS: dict[str, tuple[str, str]] = {
     ),
     "paper_traces": (
         "INSERT INTO paper_traces (seq, account_id, venue, instrument_id, market_identity, "
-        "payload) VALUES (?, ?, ?, ?, ?, ?)",
-        "SELECT seq, account_id, venue, instrument_id, market_identity, payload "
+        "filled, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "SELECT seq, account_id, venue, instrument_id, market_identity, filled, payload "
         "FROM paper_traces ORDER BY seq",
     ),
 }
+# Repeating the partial index's filled=1 term lets SQLite read only fill-bearing rows.
+_FILLED_TRACES_AFTER = (
+    "SELECT seq, payload FROM paper_traces "
+    "WHERE account_id=? AND filled=1 AND seq>? ORDER BY seq ASC"
+)
 # Optional trace keys match any value when their parameter is NULL.
 _FIND_TRACE = (
     "SELECT payload FROM paper_traces WHERE market_identity=?1 "
@@ -611,8 +590,120 @@ _ITER_TRACES = {
 }
 
 
+# Committed traces after a position, in commit order, every account's or one's.
+_TRACE_PAGE = {
+    False: "SELECT seq, payload FROM paper_traces WHERE seq>? ORDER BY seq ASC LIMIT ?",
+    True: (
+        "SELECT seq, payload FROM paper_traces WHERE account_id=? AND seq>? "
+        "ORDER BY seq ASC LIMIT ?"
+    ),
+}
+# Every committed trace in commit order, for an export that checks the whole chain.
+_EXPORT_TRACES = "SELECT account_id, payload FROM paper_traces ORDER BY seq ASC"
+# The newest trace of one account instrument, read for its market clock alone.
+_LATEST_TRACE = (
+    "SELECT payload FROM paper_traces WHERE account_id=? AND instrument_id=? "
+    "ORDER BY seq DESC LIMIT 1"
+)
+
+
+class _MarketClock(msgspec.Struct, frozen=True):
+    """Read a committed market's availability clock; its other fields are skipped."""
+
+    at: datetime
+
+
+class _TraceMarketClock(msgspec.Struct, frozen=True):
+    """Read only a committed trace's market clock, never its financial values.
+
+    The trace was validated before it was encoded and committed, so ordering checks
+    need its clock, not a second validation of every price and quantity it holds.
+    """
+
+    market: _MarketClock
+
+
+class _IdentityKey(msgspec.Struct, frozen=True):
+    """Read a nested record's identity; its other fields are skipped."""
+
+    identity: str
+
+
+class _DecisionRequestKey(msgspec.Struct, frozen=True):
+    """Read a saved decision's instance, decision identity and continuation."""
+
+    instance_id: str
+    decision: _IdentityKey
+    checkpoint: bytes
+
+
+class _DecisionKey(msgspec.Struct, frozen=True):
+    """Read the lookup columns and checkpoint a ``decisions`` row's bytes name."""
+
+    request: _DecisionRequestKey
+
+    def columns(self) -> tuple[str | int, ...]:
+        """Return the ``decisions`` key columns these bytes require."""
+        return self.request.instance_id, self.request.decision.identity
+
+
+class _BatchKey(msgspec.Struct, frozen=True):
+    """Read the lookup column a ``portfolio_batches`` row's bytes name."""
+
+    batch: _IdentityKey
+
+    def columns(self) -> tuple[str | int, ...]:
+        """Return the ``portfolio_batches`` key column these bytes require."""
+        return (self.batch.identity,)
+
+
+class _ScenarioKey(msgspec.Struct, frozen=True):
+    """Read a scenario's venue and canonical instrument text."""
+
+    venue: str
+    instrument_id: str
+
+
+class _FillMark(msgspec.Struct, frozen=True):
+    """Read whether an order event carries a fill, without decoding the fill."""
+
+    fill: msgspec.Raw = msgspec.Raw(b"null")
+
+
+class _TraceKey(msgspec.Struct, frozen=True):
+    """Read the lookup columns and fill flag a ``paper_traces`` row's bytes name."""
+
+    account_id: str
+    scenario: _ScenarioKey
+    market: _IdentityKey
+    status: str
+    physical_events: tuple[_FillMark, ...]
+    child_fill_events: tuple[_FillMark, ...]
+
+    def columns(self) -> tuple[str | int, ...]:
+        """Return the ``paper_traces`` key columns, deriving the fill flag as a trace does."""
+        filled = self.status == "committed" and (
+            bool(self.child_fill_events)
+            or any(bytes(event.fill) != b"null" for event in self.physical_events)
+        )
+        return (
+            self.account_id,
+            self.scenario.venue,
+            self.scenario.instrument_id,
+            self.market.identity,
+            int(filled),
+        )
+
+
 class _HistoryTables:
     """Read committed history rows inside one open SQLite transaction."""
+
+    _clock_decoder: msgspec.json.Decoder[_TraceMarketClock] = msgspec.json.Decoder(
+        _TraceMarketClock
+    )
+    _decision_keys: msgspec.json.Decoder[_DecisionKey] = msgspec.json.Decoder(_DecisionKey)
+    _batch_keys: msgspec.json.Decoder[_BatchKey] = msgspec.json.Decoder(_BatchKey)
+    _trace_keys: msgspec.json.Decoder[_TraceKey] = msgspec.json.Decoder(_TraceKey)
 
     def __init__(
         self, connection: sqlite3.Connection, codec: DomainCodec, summary: HistorySummary
@@ -672,20 +763,79 @@ class _HistoryTables:
         for row in cast(Iterator[tuple[object, ...]], cursor):
             yield self.codec.decode_json(self._blob(row[0]), AccountPaperTrace)
 
+    def latest_trace_market_at(
+        self, account_id: str, instrument_id: InstrumentId
+    ) -> datetime | None:
+        """Return the newest committed trace's market clock for one account instrument."""
+        payload = self._payload(_LATEST_TRACE, (account_id, self._instrument(instrument_id)))
+        return None if payload is None else self._clock_decoder.decode(payload).market.at
+
+    def latest_trace(
+        self, account_id: str, instrument_id: InstrumentId
+    ) -> AccountPaperTrace | None:
+        """Return the newest committed trace of one account instrument, decoded in full."""
+        payload = self._payload(_LATEST_TRACE, (account_id, self._instrument(instrument_id)))
+        return None if payload is None else self.codec.decode_json(payload, AccountPaperTrace)
+
+    def trace_page(
+        self, account_id: str | None, after: int, limit: int, limit_bytes: int
+    ) -> tuple[list[tuple[int, AccountPaperTrace]], bool]:
+        """Return committed traces after a position, with positions, and whether more may follow.
+
+        The page holds at most ``limit`` traces and, beyond the first, at most
+        ``limit_bytes`` of their stored bytes; it may continue when it stopped at
+        either bound.
+        """
+        parameters = (after, limit) if account_id is None else (account_id, after, limit)
+        cursor = self.connection.execute(_TRACE_PAGE[account_id is not None], parameters)
+        rows: list[tuple[int, AccountPaperTrace]] = []
+        used = 0
+        for row in cast(Iterator[tuple[object, ...]], cursor):
+            payload = self._blob(row[1])
+            if rows and used + len(payload) > limit_bytes:
+                return rows, True
+            used += len(payload)
+            rows.append((cast(int, row[0]), self.codec.decode_json(payload, AccountPaperTrace)))
+        return rows, len(rows) == limit
+
+    def export_traces(self, account_id: str | None, stream: BinaryIO) -> int:
+        """Write committed trace bytes as one JSON array, checking the whole chain.
+
+        Every row's exact stored bytes extend the chain, every account's included, and
+        the chain must end at the head's count and digest. The selected rows are
+        written unchanged between ``[``, ``,`` and ``]``, which is exactly the codec's
+        encoding of the tuple of those traces. Memory stays bounded by one row.
+
+        Returns:
+            The number of traces written.
+
+        Raises:
+            ValueError: The stored rows differ from the head's trace history.
+        """
+        chain, count, written = b"", 0, 0
+        stream.write(b"[")
+        for row in cast(Iterator[tuple[object, ...]], self.connection.execute(_EXPORT_TRACES)):
+            payload = self._blob(row[1])
+            chain = hashlib.sha256(chain + payload).digest()
+            count += 1
+            if account_id is None or row[0] == account_id:
+                stream.write(b"," + payload if written else payload)
+                written += 1
+        stream.write(b"]")
+        self._require_chain("paper_traces", count, chain)
+        return written
+
     def iter_decisions(self) -> Iterator[SavedDecision]:
         """Yield committed decisions in commit order."""
         cursor = self.connection.execute("SELECT payload FROM decisions ORDER BY seq ASC")
         for row in cast(Iterator[tuple[object, ...]], cursor):
             yield self.codec.decode_json(self._blob(row[0]), SavedDecision)
 
-    def iter_traces_after(
+    def iter_filled_traces_after(
         self, account_id: str, after_seq: int
     ) -> Iterator[tuple[int, AccountPaperTrace]]:
-        """Yield one account's committed traces after a sequence, in commit order."""
-        cursor = self.connection.execute(
-            "SELECT seq, payload FROM paper_traces WHERE account_id=? AND seq>? ORDER BY seq ASC",
-            (account_id, after_seq),
-        )
+        """Yield one account's committed fill-bearing traces after a sequence, in order."""
+        cursor = self.connection.execute(_FILLED_TRACES_AFTER, (account_id, after_seq))
         for row in cast(Iterator[tuple[object, ...]], cursor):
             yield cast(int, row[0]), self.codec.decode_json(self._blob(row[1]), AccountPaperTrace)
 
@@ -718,13 +868,22 @@ class _HistoryTables:
         )
 
     def verify(self) -> None:
-        """Check every row, its key columns and the head's counts, digests and checkpoints."""
-        decisions = self._verify_table("decisions", SavedDecision, _HistoryTables._decision_key)
-        self._verify_table("portfolio_batches", SavedPortfolioBatch, _HistoryTables._batch_key)
-        self._verify_table("paper_traces", AccountPaperTrace, _HistoryTables._trace_key)
+        """Check every row's bytes, key columns and the head's counts, digests and checkpoints.
+
+        Each row's exact stored bytes extend its table's hash chain, which must end at
+        the head's count and digest; each row's key columns must equal the keys its
+        bytes name; and the head's checkpoints must be each instance's latest decision.
+        Every row was a validated domain record when it was encoded and committed, and
+        every read decodes it in full again, so this check reads only its keys: its
+        time is linear in the stored bytes and its memory bounded by one row.
+        """
         checkpoints: dict[str, bytes] = {}
-        for saved in decisions:
-            checkpoints[saved.request.instance_id] = saved.request.checkpoint
+        for decision in self._verified_keys("decisions", self._decision_keys):
+            checkpoints[decision.request.instance_id] = decision.request.checkpoint
+        for _ in self._verified_keys("portfolio_batches", self._batch_keys):
+            pass
+        for _ in self._verified_keys("paper_traces", self._trace_keys):
+            pass
         expected = tuple(
             _InstanceCheckpoint(instance_id=instance_id, checkpoint=checkpoint)
             for instance_id, checkpoint in checkpoints.items()
@@ -737,7 +896,7 @@ class _HistoryTables:
         table: str,
         digest: HistoryDigest,
         items: tuple[T, ...],
-        key: Callable[[T], tuple[str, ...]],
+        key: Callable[[T], tuple[str | int, ...]],
     ) -> HistoryDigest:
         """Append staged items after the committed rows, extending the table's chain."""
         statement = _TABLE_STATEMENTS[table][0]
@@ -747,24 +906,31 @@ class _HistoryTables:
             digest = digest.extend(payload)
         return digest
 
-    def _verify_table[T](
-        self, table: str, target: type[T], key: Callable[[T], tuple[str, ...]]
-    ) -> list[T]:
-        """Decode one table in order and compare it with the head's digest."""
+    def _verified_keys[K: (_DecisionKey, _BatchKey, _TraceKey)](
+        self, table: str, decoder: msgspec.json.Decoder[K]
+    ) -> Iterator[K]:
+        """Yield each row's keys in order once its position, columns and bytes check out.
+
+        The table's chain is compared with the head after the last row, so a caller
+        must read every yielded row.
+        """
         cursor = self.connection.execute(_TABLE_STATEMENTS[table][1])
-        digest = HistoryDigest(count=0, sha256="")
-        items: list[T] = []
+        chain, count = b"", 0
         for row in cast(Iterator[tuple[object, ...]], cursor):
             payload = self._blob(row[-1])
-            item = self.codec.decode_json(payload, target)
-            if row[0] != digest.count or row[1:-1] != key(item):
+            keys = decoder.decode(payload)
+            if row[0] != count or row[1:-1] != keys.columns():
                 raise ValueError("account journal history differs from its head")
-            digest = digest.extend(payload)
-            items.append(item)
-        expected: object = getattr(self.summary, table)
-        if digest != expected:
+            chain = hashlib.sha256(chain + payload).digest()
+            count += 1
+            yield keys
+        self._require_chain(table, count, chain)
+
+    def _require_chain(self, table: str, count: int, chain: bytes) -> None:
+        """Require a table's row count and final chain to be the head's."""
+        expected = cast(HistoryDigest, getattr(self.summary, table))
+        if (expected.count, expected.sha256) != (count, chain.hex() if count else ""):
             raise ValueError("account journal history differs from its head")
-        return items
 
     @staticmethod
     def _instrument(instrument_id: InstrumentId | None) -> str | None:
@@ -796,13 +962,14 @@ class _HistoryTables:
         return (saved.batch.identity,)
 
     @staticmethod
-    def _trace_key(trace: AccountPaperTrace) -> tuple[str, ...]:
-        """Return the paper traces table lookup columns."""
+    def _trace_key(trace: AccountPaperTrace) -> tuple[str | int, ...]:
+        """Return the paper traces table lookup columns, including the fill flag."""
         return (
             trace.account_id,
             trace.scenario.venue,
             str(trace.scenario.instrument_id.uuid_value),
             trace.market.identity,
+            int(trace.filled),
         )
 
 
@@ -817,11 +984,11 @@ class _AccountSnapshot:
         self.state = state
         self.tables = tables
 
-    def iter_committed_traces_after(
+    def iter_committed_filled_traces_after(
         self, account_id: str, after_seq: int
     ) -> Iterator[tuple[int, AccountPaperTrace]]:
-        """Yield one account's committed traces after a sequence; staged items are excluded."""
-        return self.tables.iter_traces_after(account_id, after_seq)
+        """Yield one account's committed fill-bearing traces after a sequence; no staged ones."""
+        return self.tables.iter_filled_traces_after(account_id, after_seq)
 
     def find_decision(self, instance_id: str, decision_identity: str) -> SavedDecision | None:
         """Resolve one saved decision by instance and decision identity."""
@@ -881,6 +1048,36 @@ class _AccountSnapshot:
             ):
                 return trace
         return None
+
+    def latest_trace_market_at(
+        self, account_id: str, instrument_id: InstrumentId
+    ) -> datetime | None:
+        """Return the newest trace's market clock for one account instrument, staged first."""
+        for trace in reversed(self.state.paper_traces):
+            if trace.account_id == account_id and trace.scenario.instrument_id == instrument_id:
+                return trace.market.at
+        return self.tables.latest_trace_market_at(account_id, instrument_id)
+
+    @property
+    def trace_history(self) -> HistoryDigest:
+        """Return the committed trace history's count and hash chain at this snapshot."""
+        return self.tables.summary.paper_traces
+
+    def trace_page(
+        self, account_id: str | None, after: int, limit: int, limit_bytes: int
+    ) -> tuple[list[tuple[int, AccountPaperTrace]], bool]:
+        """Return bounded committed traces after a position and whether more may follow."""
+        return self.tables.trace_page(account_id, after, limit, limit_bytes)
+
+    def latest_trace(
+        self, account_id: str, instrument_id: InstrumentId
+    ) -> AccountPaperTrace | None:
+        """Return one account instrument's newest committed trace."""
+        return self.tables.latest_trace(account_id, instrument_id)
+
+    def export_traces(self, account_id: str | None, stream: BinaryIO) -> int:
+        """Write committed traces as one JSON array, checking the whole chain first to last."""
+        return self.tables.export_traces(account_id, stream)
 
     def iter_traces(
         self,
@@ -1081,6 +1278,9 @@ class AccountStateStore:
         self._configuration_payload = codec.encode_json(config)
         self._cached_snapshot: tuple[bytes, _LoadedHead] | None = None
         self._rows = StateRows(codec)
+        self._connection: sqlite3.Connection | None = None
+        self._finalizer: weakref.finalize[[], AccountStateStore] | None = None
+        self._session_lock = threading.Lock()
         path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -1124,7 +1324,7 @@ class AccountStateStore:
 
     def read(self) -> FirmState:
         """Read one atomic firm snapshot; its history tuples are empty."""
-        with closing(self._connect()) as connection:
+        with self._session() as connection:
             # The head and its rows are separate selects; one transaction keeps
             # them on one WAL snapshot while another process commits.
             connection.execute("BEGIN")
@@ -1136,7 +1336,7 @@ class AccountStateStore:
     @contextmanager
     def snapshot(self) -> Iterator[_AccountSnapshot]:
         """Hold one read transaction so state and history lookups agree."""
-        with closing(self._connect()) as connection:
+        with self._session() as connection:
             connection.execute("BEGIN")
             try:
                 head = self._load(connection)
@@ -1203,7 +1403,7 @@ class AccountStateStore:
     @contextmanager
     def write(self) -> Iterator[AccountTransaction]:
         """Serialize read/check/write so concurrent clients cannot over-admit capacity."""
-        with closing(self._connect()) as connection:
+        with self._session() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 head = self._load(connection)
@@ -1266,9 +1466,67 @@ class AccountStateStore:
             accounts.append(AccountView(ledger=ledger.state))
         return FirmState(accounts=tuple(accounts))
 
+    @contextmanager
+    def _session(self) -> Iterator[sqlite3.Connection]:
+        """Lend the store's reused connection, or a fresh one while it is lent elsewhere.
+
+        Reusing one connection keeps SQLite's WAL index open between transactions, so
+        a transaction no longer pays a connection's setup and the checkpoint that
+        closing the last connection runs; SQLite still checkpoints as the WAL grows.
+        A nested or concurrent use gets its own connection, as every use did before.
+        A use that leaves its transaction open (an interrupt just after ``BEGIN``, or a
+        failed rollback) or raises a SQLite error closes the reused connection, which
+        rolls the transaction back and releases its locks, as closing each use's
+        connection did; the next use opens another. A refusal that rolled back keeps
+        it. The connection also closes on ``close`` or when the store is collected.
+        """
+        if not self._session_lock.acquire(blocking=False):
+            with closing(self._connect()) as fresh:
+                yield fresh
+            return
+        try:
+            if self._connection is None:
+                self._connection = self._connect()
+                self._finalizer = weakref.finalize(self, self._connection.close)
+            connection = self._connection
+            try:
+                yield connection
+            except BaseException as error:
+                if isinstance(error, sqlite3.Error) or connection.in_transaction:
+                    self._release()
+                raise
+            if connection.in_transaction:
+                self._release()
+        finally:
+            self._session_lock.release()
+
+    def close(self) -> None:
+        """Close the reused connection now; a later use opens another.
+
+        A journal opened briefly, for example to quarantine a staged restore, closes
+        it before its files move, so no SQLite side file moves with them. Closing is
+        refused while the connection is lent to a use.
+        """
+        if not self._session_lock.acquire(blocking=False):
+            raise RuntimeError("account store connection is in use")
+        try:
+            self._release()
+        finally:
+            self._session_lock.release()
+
+    def _release(self) -> None:
+        """Close and forget the reused connection; closing an absent one does nothing."""
+        if self._finalizer is not None:
+            self._finalizer()
+        self._connection, self._finalizer = None, None
+
     def _connect(self) -> sqlite3.Connection:
-        """Open a durable bounded SQLite connection shared by all firm clients."""
-        connection = sqlite3.connect(self.path, timeout=5)
+        """Open a durable bounded SQLite connection shared by all firm clients.
+
+        The store's reused connection may serve a later caller on another thread; its
+        session lock keeps one user at a time, so the thread check is not needed.
+        """
+        connection = sqlite3.connect(self.path, timeout=5, check_same_thread=False)
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=FULL")
         return connection

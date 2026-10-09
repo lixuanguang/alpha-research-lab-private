@@ -241,7 +241,7 @@ class _RetainedBookIndex:
                     line = stream.readline(retained_end - source.offset)
                     if not line.endswith(b"\n"):
                         break
-                    delivery = self.codec.decode_json(line, _IndexedSharedDelivery)
+                    delivery = _IndexedSharedDelivery.decode(line, self.codec)
                     row = delivery.source.book
                     if (
                         row.position != source.deliveries
@@ -281,9 +281,7 @@ class _RetainedBookIndex:
             read_bytes = len(encoded_delivery)
             if read_bytes != length or not encoded_delivery.endswith(b"\n"):
                 raise ValueError(f"{source_name} indexed delivery is truncated")
-            selected_row = self.codec.decode_json(
-                encoded_delivery, _IndexedSharedDelivery
-            ).source.book
+            selected_row = _IndexedSharedDelivery.decode(encoded_delivery, self.codec).source.book
             target = lookup.quote if lookup.quote is not None else lookup.boundary
             if target is None or selected_row.position != target.position:
                 raise ValueError(f"{source_name} indexed delivery differs from its boundary")
@@ -320,7 +318,7 @@ class _RetainedBookIndex:
                 for line in stream:
                     if not line.endswith(b"\n"):
                         raise ValueError(f"{source.name} delivery has an incomplete line")
-                    delivered.append(self.codec.decode_json(line, SharedBookDelivery))
+                    delivered.append(SharedBookDelivery.decode(line, self.codec))
             if len(delivered) != source.deliveries:
                 raise ValueError(f"{source.name} delivery changed after final index poll")
             raw_records = tuple(

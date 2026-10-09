@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 # standard library imports
+import gc
 import sqlite3
+import threading
+import warnings
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
-from typing import cast
+from types import MethodType
+from typing import ClassVar, cast
 
 # third party library imports
 import msgspec
@@ -166,3 +171,213 @@ class TestAccountStateCache:
             )
         assert row is not None and type(row[0]) is bytes
         return row[0]
+
+
+class _FailingRollback(sqlite3.Connection):
+    """Fail armed rollbacks, leaving their transactions open as an interrupt would."""
+
+    failures: ClassVar[int] = 0
+
+    def rollback(self) -> None:
+        """Raise while armed; otherwise roll back."""
+        if _FailingRollback.failures:
+            _FailingRollback.failures -= 1
+            raise sqlite3.OperationalError("disk I/O error")
+        super().rollback()
+
+    @staticmethod
+    def connect(store: AccountStateStore) -> sqlite3.Connection:
+        """Open the store's connection as the store does, with this rollback."""
+        connection = sqlite3.connect(
+            store.path, timeout=5, check_same_thread=False, factory=_FailingRollback
+        )
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=FULL")
+        return connection
+
+
+class _CountedConnections:
+    """Count the connections an account store opens."""
+
+    def __init__(self, connect: Callable[[AccountStateStore], sqlite3.Connection]) -> None:
+        """Wrap the store's connection factory with no connection counted."""
+        self._connect = connect
+        self.opened = 0
+
+    def __get__(self, store: AccountStateStore | None, owner: type[AccountStateStore]) -> object:
+        """Bind to a store as the replaced method does."""
+        return self if store is None else MethodType(self, store)
+
+    def __call__(self, store: AccountStateStore) -> sqlite3.Connection:
+        """Open and count one connection."""
+        self.opened += 1
+        return self._connect(store)
+
+
+class TestAccountStoreConnection:
+    """Reuse one SQLite connection a store, falling back to fresh ones when it is lent."""
+
+    def test_one_connection_serves_every_sequential_transaction(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """After creating its schema, a store opens one connection for every read and write."""
+        fixture = _AccountFixture
+        counted = _CountedConnections(AccountStateStore._connect)
+        monkeypatch.setattr(AccountStateStore, "_connect", counted)
+        journal = AccountJournal(tmp_path / "reused.sqlite3", fixture._config())
+        assert counted.opened == 1
+        assert journal.reconcile(
+            fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())
+        )
+        for _ in range(5):
+            journal.accounts()
+            journal.paper_trace_history()
+        with journal._store.write() as transaction:
+            transaction.state = replace(transaction.state, stopped_instances=("alpha",))
+        assert journal._store.read().stopped_instances == ("alpha",)
+        assert counted.opened == 2
+
+    def test_nested_and_concurrent_uses_get_their_own_connection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A use while the reused connection is lent opens its own and sees committed state."""
+        fixture = _AccountFixture
+        journal = AccountJournal(tmp_path / "nested.sqlite3", fixture._config())
+        store = journal._store
+        counted = _CountedConnections(AccountStateStore._connect)
+        monkeypatch.setattr(AccountStateStore, "_connect", counted)
+        with store.snapshot() as snapshot:
+            with store.write() as transaction:
+                transaction.state = replace(transaction.state, stopped_instances=("beta",))
+            assert snapshot.state.stopped_instances == ()
+            assert store.read().stopped_instances == ("beta",)
+            other = _ThreadedRead(store)
+            other.start()
+            other.join(5)
+            assert other.read == ("beta",)
+        assert counted.opened == 4
+        assert store.read().stopped_instances == ("beta",)
+        assert counted.opened == 4
+
+    def test_a_use_that_leaves_its_transaction_open_discards_the_connection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed rollback neither wedges the store nor keeps its write lock.
+
+        Each rollback below fails, leaving its transaction open on the reused
+        connection, as an interrupt just after ``BEGIN IMMEDIATE`` would. A writer on
+        another connection then takes the lock at once, and the same store's next read
+        and write apply.
+        """
+        fixture = _AccountFixture
+        path = tmp_path / "rollback.sqlite3"
+        monkeypatch.setattr(AccountStateStore, "_connect", _FailingRollback.connect)
+        store = AccountJournal(path, fixture._config())._store
+        monkeypatch.setattr(_FailingRollback, "failures", 1)
+        with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
+            with store.write() as transaction:
+                transaction.state = replace(transaction.state, stopped_instances=("lost",))
+                raise RuntimeError("abandon the write")
+        with closing(sqlite3.connect(path, timeout=0)) as other:
+            other.execute("BEGIN IMMEDIATE")
+            other.rollback()
+        with store.write() as transaction:
+            transaction.state = replace(transaction.state, stopped_instances=("kept",))
+        monkeypatch.setattr(_FailingRollback, "failures", 1)
+        with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
+            store.read()
+        assert store.read().stopped_instances == ("kept",)
+
+    def test_a_use_ending_inside_its_transaction_discards_the_connection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A use that returns with its transaction still open does not keep the lock.
+
+        The use begins a write transaction and returns normally. Another connection
+        then takes the write lock at once, and the store's next read opens a new
+        connection and sees the committed state.
+        """
+        fixture = _AccountFixture
+        path = tmp_path / "open.sqlite3"
+        store = AccountJournal(path, fixture._config())._store
+        with store.write() as transaction:
+            transaction.state = replace(transaction.state, stopped_instances=("kept",))
+        counted = _CountedConnections(AccountStateStore._connect)
+        monkeypatch.setattr(AccountStateStore, "_connect", counted)
+        with store._session() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+        with closing(sqlite3.connect(path, timeout=0)) as other:
+            other.execute("BEGIN IMMEDIATE")
+            other.rollback()
+        assert store.read().stopped_instances == ("kept",)
+        assert counted.opened == 1
+
+    def test_a_refusal_that_rolled_back_keeps_the_connection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A domain refusal inside a write rolls back and keeps the reused connection.
+
+        Only a use left inside its transaction, or a SQLite error, costs a reopen.
+        """
+        fixture = _AccountFixture
+        store = AccountJournal(tmp_path / "refused.sqlite3", fixture._config())._store
+        store.read()
+        counted = _CountedConnections(AccountStateStore._connect)
+        monkeypatch.setattr(AccountStateStore, "_connect", counted)
+        for _ in range(3):
+            with pytest.raises(ValueError, match="refused in this test"):
+                with store.write() as transaction:
+                    transaction.state = replace(transaction.state, stopped_instances=("no",))
+                    raise ValueError("refused in this test")
+        assert store.read().stopped_instances == ()
+        assert counted.opened == 0
+
+    def test_closing_a_store_closes_its_connection_and_removes_the_wal(
+        self, tmp_path: Path
+    ) -> None:
+        """An explicitly closed journal releases its connection; a later use reopens one."""
+        fixture = _AccountFixture
+        path = tmp_path / "closed.sqlite3"
+        journal = AccountJournal(path, fixture._config())
+        assert journal.reconcile(
+            fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())
+        )
+        assert path.with_name(path.name + "-wal").exists()
+        journal.close()
+        assert not path.with_name(path.name + "-wal").exists()
+        assert not path.with_name(path.name + "-shm").exists()
+        assert journal.accounts()[0].reconciled_at == fixture.opening_at
+        journal.close()
+        journal.close()
+
+    def test_a_collected_store_closes_its_connection_and_checkpoints(self, tmp_path: Path) -> None:
+        """Dropping a journal closes its reused connection without a resource warning."""
+        fixture = _AccountFixture
+        path = tmp_path / "collected.sqlite3"
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            journal = AccountJournal(path, fixture._config())
+            assert journal.reconcile(
+                fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())
+            )
+            assert path.with_name(path.name + "-wal").exists()
+            del journal
+            gc.collect()
+        assert not [item for item in caught if issubclass(item.category, ResourceWarning)]
+        assert not path.with_name(path.name + "-wal").exists()
+        reopened = AccountJournal(path, fixture._config())
+        assert reopened.accounts()[0].reconciled_at == fixture.opening_at
+
+
+class _ThreadedRead(threading.Thread):
+    """Read a store's stopped instances from another thread."""
+
+    def __init__(self, store: AccountStateStore) -> None:
+        """Bind the store; nothing is read until the thread runs."""
+        super().__init__()
+        self.store = store
+        self.read: tuple[str, ...] | None = None
+
+    def run(self) -> None:
+        """Read the store's committed stopped instances."""
+        self.read = self.store.read().stopped_instances

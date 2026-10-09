@@ -1375,18 +1375,22 @@ class PaperServices:
         latest_markets = self.latest_markets()
         for account_id, account in self.accounts.items():
             try:
-                view = next(
-                    item for item in account.accounts() if item.ledger.account_id == account_id
+                # The status projection omits the ledger, which grows with every posting.
+                status = next(
+                    item for item in account.account_statuses() if item.account_id == account_id
                 )
                 self.account_phases[account_id] = {
                     "observed_at": datetime.now(UTC),
-                    "phase": view.phase,
+                    "phase": status.phase,
                     "status": "observed",
                 }
-                if view.phase in ("stopped", "faulted") and account_id not in self.faulted_accounts:
+                if (
+                    status.phase in ("stopped", "faulted")
+                    and account_id not in self.faulted_accounts
+                ):
                     self.faulted_accounts.add(account_id)
                     self._stop_account_workers(account_id)
-                    self._record("account_protected", account_id, view.phase)
+                    self._record("account_protected", account_id, status.phase)
             except (OSError, ValueError, RuntimeError, TimeoutError, StopIteration) as error:
                 self.monitor.failures += 1
                 self.monitor.last_error = f"account_phase:{type(error).__name__}: {error}"

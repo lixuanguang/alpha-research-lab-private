@@ -280,7 +280,7 @@ class _FeatureSource:
             )
         for encoded in retained:
             # Decoding validates the native depth once, as the runtime's source pipe does.
-            self.accept_delivery(self.codec.decode_json(encoded, _IndexedSharedDelivery).source)
+            self.accept_delivery(_IndexedSharedDelivery.decode(encoded, self.codec).source)
         decision = self.causal_source.read(self.entity, at)
         book = self.causal_source.book_at(self.entity, at)
         observation = decision.observations[0]

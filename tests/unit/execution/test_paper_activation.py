@@ -14,6 +14,7 @@ from typing import Literal, cast
 # third party library imports
 import pytest
 from msgspec.structs import replace
+from paper_books import PaperBooks
 
 # project library imports
 from accounting import AccountLedger, AccountPosting, AccountSnapshot, Fill
@@ -29,7 +30,6 @@ from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountControl,
     AccountDecision,
-    AccountExecutionRequest,
     AccountJournal,
     AccountObservation,
     AccountQuote,
@@ -481,19 +481,19 @@ class TestPaperActivation:
             worker.admit(self._decision("stale-direct-buy", self._at(14), quote))
         assert worker.orders() == ()
         with pytest.raises(ValueError, match="paper_market_stale_or_future"):
-            worker.match_public_market(
-                "shared", self._market("stale-book", self._at(14)), self._scenario()
+            PaperBooks.apply(
+                worker, "shared", self._market("stale-book", self._at(14)), self._scenario()
             )
-        assert worker.paper_traces("shared") == ()
+        assert tuple(worker.iter_paper_traces("shared")) == ()
         clock.at = self._at(14)
         with pytest.raises(ValueError, match="paper_input_stale_or_future"):
             worker.admit(self._decision("future-direct-buy", self._at(15), quote))
         with pytest.raises(ValueError, match="paper_market_stale_or_future"):
-            worker.match_public_market(
-                "shared", self._market("future-book", self._at(15)), self._scenario()
+            PaperBooks.apply(
+                worker, "shared", self._market("future-book", self._at(15)), self._scenario()
             )
         assert worker.orders() == ()
-        assert worker.paper_traces("shared") == ()
+        assert tuple(worker.iter_paper_traces("shared")) == ()
 
     def test_managed_portfolio_context_matches_deployment_before_mutation(
         self, tmp_path: Path
@@ -579,7 +579,8 @@ class TestPaperActivation:
         clock.at = self._at(15)
         assert (
             len(
-                worker.match_public_market(
+                PaperBooks.apply(
+                    worker,
                     "shared",
                     self._market("first-renewal-fill", self._at(15), ask_quantity="1"),
                     self._scenario(),
@@ -691,7 +692,8 @@ class TestPaperActivation:
         assert admin.paper_activations()[0].owner == first_owner
         assert admin.paper_activations()[0].authorization == first_grant
 
-        no_liquidity = worker.match_public_market(
+        no_liquidity = PaperBooks.apply(
+            worker,
             "shared",
             self._market(f"resting-{barrier}", self._at(16), ask_quantity="0"),
             self._scenario(),
@@ -727,7 +729,8 @@ class TestPaperActivation:
 
         due = now + timedelta(seconds=1)
         clock.at = due
-        settled = worker.match_public_market(
+        settled = PaperBooks.apply(
+            worker,
             "shared",
             self._market(f"cancel-confirmed-{barrier}", due, ask_quantity="0"),
             self._scenario(),
@@ -742,7 +745,8 @@ class TestPaperActivation:
         assert activation.authorizations == (first_grant, renewed)
         assert activation.owner is None
         with pytest.raises(ValueError, match="paper_owner_stale_or_absent"):
-            worker.match_public_market(
+            PaperBooks.apply(
+                worker,
                 "shared",
                 self._market(f"old-token-{barrier}", clock.at, ask_quantity="0"),
                 self._scenario(),
@@ -761,7 +765,8 @@ class TestPaperActivation:
         assert admitted.status == "committed"
         order_id = admitted.orders[0].identity
         clock.at = self._at(15)
-        no_liquidity = worker.match_public_market(
+        no_liquidity = PaperBooks.apply(
+            worker,
             "shared",
             self._market("empty-book", self._at(15), ask_quantity="0"),
             self._scenario(),
@@ -823,8 +828,8 @@ class TestPaperActivation:
         assert worker.orders()[0].order.status == "accepted"
         later = now + timedelta(seconds=1)
         clock.at = later
-        matched = worker.match_public_market(
-            "shared", self._market(f"actual-book-{expired}", later), self._scenario()
+        matched = PaperBooks.apply(
+            worker, "shared", self._market(f"actual-book-{expired}", later), self._scenario()
         )
         assert len(matched.child_fill_events) == 1
         after = AccountLedger(worker.accounts()[0].ledger).snapshot()
@@ -846,8 +851,8 @@ class TestPaperActivation:
         assert len(admitted.orders) == 1
         clock.at = self._at(15)
         first_market = self._market("partial-book", self._at(15), ask_quantity="1")
-        first_trace = worker.match_public_market("shared", first_market, self._scenario())
-        assert worker.paper_market_seen("shared", first_market.identity) is True
+        first_trace = PaperBooks.apply(worker, "shared", first_market, self._scenario())
+        assert worker.paper_trace("shared", first_market.identity) is not None
         assert len(first_trace.child_fill_events) == 1
         first_fill = first_trace.child_fill_events[0].fill
         assert first_fill is not None
@@ -860,7 +865,7 @@ class TestPaperActivation:
         assert partial.cash == (self._money("989.8899"),)
         assert partial.positions == (self._quantity("1"),)
         assert partial.fees == (self._money("0.1001"),)
-        assert worker.match_public_market("shared", first_market, self._scenario()) == first_trace
+        assert PaperBooks.apply(worker, "shared", first_market, self._scenario()) == first_trace
         assert AccountLedger(worker.accounts()[0].ledger).snapshot() == partial
 
         clock.at = self._at(16)
@@ -902,12 +907,12 @@ class TestPaperActivation:
         assert rollback_owner.generation == first_owner.generation + 1
         assert rollback_owner.release_identity == self.rollback_release
         with pytest.raises(ValueError, match="paper_owner_stale_or_absent"):
-            worker.paper_market_seen("shared", first_market.identity)
+            worker.apply_public_market("shared", first_market, self._scenario())
         with pytest.raises(ValueError, match="paper_owner_stale_or_absent"):
             worker.admit(self._decision("stale-owner-buy", self._at(18), self._quote(self._at(17))))
         with pytest.raises(ValueError, match="paper_owner_stale_or_absent"):
-            worker.match_public_market(
-                "shared", self._market("stale-owner-book", self._at(19)), self._scenario()
+            PaperBooks.apply(
+                worker, "shared", self._market("stale-owner-book", self._at(19)), self._scenario()
             )
         with pytest.raises(ValueError, match="paper_owner_stale_or_absent"):
             worker.reduce_paper(
@@ -915,22 +920,25 @@ class TestPaperActivation:
             )
 
         rollback = AccountJournal(path, self._config(), paper_owner=rollback_owner, clock=clock)
-        assert rollback.paper_market_seen("shared", first_market.identity) is True
-        with pytest.raises(ValueError, match="paper_owner_stale_or_absent"):
-            rollback.result_snapshot(
-                AccountExecutionRequest(
-                    action="inspect",
-                    projection="market_membership",
-                    account_id="shared",
-                    query_market=first_market.identity,
-                    paper_owner=first_owner,
-                )
+        # The new owner's exact retry of the first book returns its saved trace and
+        # leaves the later valuation, ledger and liquidity as they are.
+        valued = rollback.valuation(self.dimension)
+        with closing(sqlite3.connect(path)) as connection:
+            head_before = cast(
+                tuple[bytes], connection.execute("SELECT payload FROM firm").fetchone()
             )
+        assert PaperBooks.apply(rollback, "shared", first_market, self._scenario()) == first_trace
+        assert rollback.valuation(self.dimension) == valued == self._quote(self._at(17))
+        with closing(sqlite3.connect(path)) as connection:
+            head_after = cast(
+                tuple[bytes], connection.execute("SELECT payload FROM firm").fetchone()
+            )
+        assert head_after == head_before
         clock.at = self._at(19)
         second_market = self._market("remaining-book", self._at(19), ask_quantity="2")
-        assert rollback.paper_market_seen("shared", second_market.identity) is False
-        final_trace = rollback.match_public_market("shared", second_market, self._scenario())
-        assert rollback.paper_market_seen("shared", second_market.identity) is True
+        assert rollback.paper_trace("shared", second_market.identity) is None
+        final_trace = PaperBooks.apply(rollback, "shared", second_market, self._scenario())
+        assert rollback.paper_trace("shared", second_market.identity) is not None
         assert len(final_trace.child_fill_events) == 1
         final_fill = final_trace.child_fill_events[0].fill
         assert final_fill is not None
@@ -944,17 +952,13 @@ class TestPaperActivation:
         assert finished.positions == (self._quantity("2"),)
         assert finished.fees == (self._money("0.2002"),)
         assert rollback.orders()[0].order.status == "filled"
-        assert (
-            rollback.match_public_market("shared", second_market, self._scenario()) == final_trace
-        )
+        assert PaperBooks.apply(rollback, "shared", second_market, self._scenario()) == final_trace
         reopened = AccountJournal(path, self._config(), paper_owner=rollback_owner, clock=clock)
         assert AccountLedger(reopened.accounts()[0].ledger).snapshot() == finished
-        assert (
-            reopened.match_public_market("shared", second_market, self._scenario()) == final_trace
-        )
-        assert len(reopened.paper_traces("shared")) == 2
-        assert reopened.paper_market_seen("shared", first_market.identity) is True
-        assert reopened.paper_market_seen("shared", second_market.identity) is True
+        assert PaperBooks.apply(reopened, "shared", second_market, self._scenario()) == final_trace
+        assert len(tuple(reopened.iter_paper_traces("shared"))) == 2
+        assert reopened.paper_trace("shared", first_market.identity) is not None
+        assert reopened.paper_trace("shared", second_market.identity) is not None
 
     @pytest.mark.parametrize("barrier", ("revoked", "expired"))
     def test_stopped_owner_can_reduce_after_authority_ends(
@@ -968,8 +972,8 @@ class TestPaperActivation:
         )
         assert admitted.status == "committed"
         clock.at = self._at(15)
-        buy_trace = worker.match_public_market(
-            "shared", self._market("buy-two", self._at(15)), self._scenario()
+        buy_trace = PaperBooks.apply(
+            worker, "shared", self._market("buy-two", self._at(15)), self._scenario()
         )
         assert len(buy_trace.child_fill_events) == 1
         owned = AccountLedger(worker.accounts()[0].ledger).snapshot()
@@ -1024,8 +1028,8 @@ class TestPaperActivation:
         )
         current_quote = self._quote(now)
         worker.observe(current_quote)
-        worker.match_public_market(
-            "shared", self._market(f"connected-{barrier}", now), self._scenario()
+        PaperBooks.apply(
+            worker, "shared", self._market(f"connected-{barrier}", now), self._scenario()
         )
         request = self._reduction(f"protective-{barrier}", now, current_quote)
         result = worker.reduce_paper(request)
@@ -1033,7 +1037,8 @@ class TestPaperActivation:
         assert AccountLedger(worker.accounts()[0].ledger).snapshot() == owned
         later = now + timedelta(seconds=1)
         clock.at = later
-        sold_trace = worker.match_public_market(
+        sold_trace = PaperBooks.apply(
+            worker,
             "shared",
             self._market(f"sell-after-{barrier}", later, bid_quantity="1"),
             self._scenario(),
@@ -1214,9 +1219,9 @@ class TestPaperActivation:
         assert later.status == "committed"
         # The later decision replaced the batch's order: the first book confirms that
         # cancellation and the next one fills the later order.
-        worker.match_public_market("shared", self._market("cancel", self._at(15)), self._scenario())
+        PaperBooks.apply(worker, "shared", self._market("cancel", self._at(15)), self._scenario())
         clock.at = self._at(16)
-        worker.match_public_market("shared", self._market("fill", self._at(16)), self._scenario())
+        PaperBooks.apply(worker, "shared", self._market("fill", self._at(16)), self._scenario())
         assert sorted(item.order.status for item in worker.orders()) == ["cancelled", "filled"]
         settled = AccountLedger(worker.accounts()[0].ledger).snapshot()
         assert settled.positions == (self._quantity("1"),)
@@ -1283,8 +1288,8 @@ class TestPaperActivation:
         committed = worker.coordinate(batch)
         assert committed.status == "committed"
         clock.at = self._at(15)
-        worker.match_public_market(
-            "shared", self._market("fill-both", self._at(15)), self._scenario()
+        PaperBooks.apply(
+            worker, "shared", self._market("fill-both", self._at(15)), self._scenario()
         )
         # The batch replaced the direct order; one book cancels it and fills the batch.
         assert [item.order.status for item in worker.orders()] == ["cancelled", "filled"]

@@ -65,6 +65,7 @@ from execution import (
     AccountObservation,
     AccountPaperCost,
     AccountPaperFill,
+    AccountStatus,
     AccountView,
     PaperMarket,
     PaperOwner,
@@ -1443,7 +1444,7 @@ class TestPaperServices:
         class _Unreadable:
             """Refuse protection reads; the supervisor retains that as a phase failure."""
 
-            def accounts(self) -> tuple[AccountView, ...]:
+            def account_statuses(self) -> tuple[AccountStatus, ...]:
                 """Fail the synchronous phase read."""
                 raise ValueError("unreadable in this test")
 
@@ -2558,7 +2559,7 @@ class TestPaperServices:
     def test_blocked_report_does_not_delay_account_protection(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A fault is detected by the existing accounts projection while full reports wait."""
+        """A fault is detected by the ledger-free status projection while full reports wait."""
         monkeypatch.setattr(
             InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
         )
@@ -2579,7 +2580,7 @@ class TestPaperServices:
         account = _SnapshotAccount(
             config.accounts[0].configuration,
             owner,
-            AccountExecutionResult(accounts=(view,), orders=()),
+            AccountExecutionResult(accounts=(), orders=(), account_statuses=(view.status(),)),
         )
         services.accounts[owner.account_id] = account
         services.workers["first"] = _StableWorker()
@@ -2597,7 +2598,7 @@ class TestPaperServices:
             services._sample()
             assert not (diagnostics.root / "allow-reports").exists()
             assert account.seen_requests[0].action == "inspect"
-            assert account.seen_requests[0].projection == "accounts"
+            assert account.seen_requests[0].projection == "statuses"
             assert services.faulted_accounts == {owner.account_id}
             assert services.active == set()
             phase = cast(dict[str, object], services.account_phases[owner.account_id])

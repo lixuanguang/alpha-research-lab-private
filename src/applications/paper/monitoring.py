@@ -151,7 +151,7 @@ class PaperSourceMonitoring:
         clocks: list[PaperSourceClock] = []
         path = root / "deliveries.jsonl"
         for line in path.read_bytes().splitlines() if path.is_file() else ():
-            delivery = codec.decode_json(line, SharedBookDelivery)
+            delivery = SharedBookDelivery.decode(line, codec)
             clocks.append(
                 PaperSourceClock(
                     position=delivery.source.book.position,
@@ -371,7 +371,7 @@ def retain_public_paper_monitoring(
     observed_at: datetime,
     report: PaperAccountReport | None,
     decisions: tuple[PortfolioCommit, ...],
-    prior_trace_ids: frozenset[str],
+    prior_traces: int,
     summary: dict[str, object],
     processing_ns: int | None,
     delivered_count: int,
@@ -391,17 +391,15 @@ def retain_public_paper_monitoring(
             venue=request.config.venue,
             decisions=decisions,
         )
-        for trace in journal.paper_traces(account_id):
-            if trace.input_sha256 in prior_trace_ids:
-                continue
+        # The run's traces follow the history it started from, in commit order.
+        children = tuple(child for child in journal.orders() if child.account_id == account_id)
+        for trace in journal.iter_paper_traces(account_id, after=prior_traces - 1):
             events += projector.trace(
                 trace,
                 observed_at=observed_at,
                 source=request.identity,
                 venue=request.config.venue,
-                children=tuple(
-                    child for child in journal.orders() if child.account_id == account_id
-                ),
+                children=children,
             )
         source_events, clocks = PaperSourceMonitoring.project(
             root=root,

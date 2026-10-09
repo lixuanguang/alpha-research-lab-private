@@ -64,6 +64,74 @@ class DurableDirectory:
         return True
 
 
+class DurableLines:
+    """Append whole lines to one file, each durable before ``append`` returns.
+
+    The file is opened by path for every append, so a removed or obstructed parent
+    directory fails the append instead of writing elsewhere. Each durable append
+    synchronizes the parent directory until one such synchronization succeeds, so the
+    file's name is durable with its first durable record. An append that fails after
+    the file was opened is truncated back to the previous end, so every line stays
+    whole; if that truncation also fails, the log refuses every later append.
+    """
+
+    def __init__(self, path: Path) -> None:
+        """Bind the log path; nothing is created until the first append.
+
+        Args:
+            path: Absolute file that holds one record per line.
+
+        Raises:
+            ValueError: The path is not absolute.
+        """
+        if not path.is_absolute():
+            raise ValueError("durable line log path must be absolute")
+        self.path = path
+        self._broken = False
+        self._named = False
+
+    def append(self, line: bytes, *, sync: bool = True) -> None:
+        """Append one record and its newline, fsynced unless ``sync`` is false.
+
+        Args:
+            line: One record without a newline byte.
+            sync: Whether the record must be durable before this returns.
+
+        Raises:
+            ValueError: The record contains a newline, or an earlier failed append
+                could not be removed.
+            OSError: The record could not be written; the file is unchanged.
+        """
+        if b"\n" in line:
+            raise ValueError("durable line record contains a newline")
+        if self._broken:
+            raise ValueError("durable line log holds an incomplete record")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+        try:
+            end = os.fstat(descriptor).st_size
+            try:
+                view = memoryview(line + b"\n")
+                while view:
+                    written = os.write(descriptor, view)
+                    if written <= 0:
+                        raise OSError("durable line write made no progress")
+                    view = view[written:]
+                if sync:
+                    os.fsync(descriptor)
+            except BaseException:
+                try:
+                    os.ftruncate(descriptor, end)
+                except OSError:
+                    self._broken = True
+                raise
+        finally:
+            os.close(descriptor)
+        if sync and not self._named:
+            DurableDirectory.sync(self.path.parent)
+            self._named = True
+
+
 class SqliteLayout:
     """Refuse SQLite databases whose schema differs from the current layout."""
 

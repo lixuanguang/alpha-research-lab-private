@@ -4,7 +4,10 @@ Run this from the attempt's frozen consumers with the installed research interpr
 at least 72 hours after the day ended. Every source recording is replayed again from
 its retained records and must equal its source's retained live summary; occupied
 space is reported against the profile's ceilings, and the monitoring store's event
-count is projected to its seven-day window.
+count is projected to its seven-day window. The account journals beside the day
+(``<candidate>/target-<account>/state``, including retained service requests) are
+reported per account as their own class. No ceiling names them, so they are not
+graded and do not change the result.
 """
 
 from __future__ import annotations
@@ -134,6 +137,25 @@ class DayRetention:
             return "features_telemetry"
         return "scratch"
 
+    def account_journals(self) -> dict[str, object]:
+        """Report each sibling account-state directory's occupied bytes, ungraded."""
+        accounts: dict[str, dict[str, int]] = {}
+        for target in sorted(self.day.parent.glob("target-*")):
+            occupied, files = 0, 0
+            for path in (target / "state").rglob("*"):
+                if path.is_file() and not path.is_symlink():
+                    occupied += path.stat().st_blocks * 512
+                    files += 1
+            accounts[target.name.removeprefix("target-")] = {
+                "occupied_bytes": occupied,
+                "files": files,
+            }
+        return {
+            "accounts": accounts,
+            "occupied_bytes": sum(item["occupied_bytes"] for item in accounts.values()),
+            "status": "reported_ungraded",
+        }
+
     def telemetry(self) -> dict[str, object]:
         """Count the monitoring store's events and project them to its seven-day window."""
         stores = tuple(self.day.rglob("monitoring/telemetry.sqlite3"))
@@ -155,6 +177,7 @@ class DayRetention:
         """Retain every check; the attempt's retention passes only if all of them pass."""
         aged, recordings = self.aged(), self.recordings()
         occupied, telemetry = self.occupied(), self.telemetry()
+        journals = self.account_journals()
         passed = (
             aged["status"] == "pass"
             and bool(recordings)
@@ -171,6 +194,7 @@ class DayRetention:
             "aged": aged,
             "recordings": recordings,
             "occupied": occupied,
+            "account_journals": journals,
             "telemetry": telemetry,
             "passed": passed,
         }

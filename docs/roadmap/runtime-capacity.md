@@ -89,6 +89,46 @@ after dropping revisions fails.
 | Sustained (counted 2026-10-03) | About 50 minutes under one-hour grants: segment rollover in signed capture, an order-light mix, an injected owner death and four-owner recovery | Every latency target in every 300 s window; recovery progressed in 11.06 s | `logs/runtime-capacity/stage2a-counted/` |
 | Grant denial (2026-10-06) | Signed 26-hour grant form: a 10-minute grant after expiry, and a revoked 26-hour grant | New exposure and claims refused; protective stops applied; neither grant renewed | `~/AlphaResearchEvidence.noindex/runtime-capacity/stage2b-denial-2` |
 
+Every result above was measured while the shared paper observer matched only the
+grid-selected books: the first eligible book at or after each crossing or decision.
+Shared paper now matches every eligible priced book (step 2 of the paper remediation
+plan, `logs/audits/2026-10-08-paper-orders-accounts-recovery-remediation-plan.md`),
+which raises matching and account-transaction frequency. These results remain evidence
+for their own revisions, not for the current per-book path, which that plan's step 3
+measures; the budgets are unchanged. In this profile a "selected" book is one that
+decides a three-second grid instant; the per-book `market_selected` measurement now
+equals `market_eligible`, so selected economic books are the deciding books.
+
+**Step-3 development diagnostics (uncounted, 2026-10-09, not results).** One 300 s
+interval of the sustained input, including one 10 s burst at 100 messages a second a
+source, on the development host; then a synthetic day of account history.
+- **Per-book path.** A matched book is one fenced account command that resolves the
+  market identity, matches and observes the ask in one transaction: about 2.8 ms of
+  service time and 4 ms round trip at p50, against three requests and 25 ms before.
+  Every source took the burst at 100 books a second without a backlog, and no
+  account faulted. Receipt to durable (p99 2.4 ms) and durable to BBO (p99 28 ms)
+  passed; selected book to checkpoint (at most 63 ms) needs 1,000 checkpoints, more
+  than 300 s gives, so it stays unmeasured.
+- **Account journals** grew about 39 MB an account in 300 s (2.6 KB a trace), an
+  estimated 11 GB an account-day. `capacity_retention.py` reports them per account as
+  their own class; no ceiling names them, so they are not graded.
+- **A day of history** (2.2 million traces an account). Monitoring, facts and the
+  full inspection (which now states the trace history's count and hash chain) take
+  10–13 ms; full verification 21 s and the trace export 7 s, in bounded memory.
+  Account backup (87 s) and restore (83 s) of the 10 GB journal exceeded the 30 s the
+  installed account adapter waited. By owner decision the adapter now waits 300 s for
+  backup and restore only, within the signed launcher's own bound. Through the adapter
+  and launcher the same journal backed up in 87.0 s and restored in 83.1 s, verified
+  and quarantined. 300 s does not qualify a larger journal. The existing D-b trace-commit target
+  (p99 at most 5 ms) passed on this host at 2.96 ms (`qualified: true`).
+- **Retained scratch bytes.** About 28 MB a 300 s interval (492 MB before step 3),
+  an estimated 7.2 GiB a day: 89 % of the 8 GiB scratch ceiling, so within it but
+  above the 80 % investigation threshold, with the cost attributed. Request logs keep
+  each request's bytes once (the client keeps their SHA-256 and length) and an exact
+  repeated result once; protection reads omit the ledger, which grows with every
+  fill; the trial's timing copies are compressed. The owner services' request logs,
+  about 14 MB an account an interval, stay beside the journals.
+
 ## Day run
 
 The approved declaration (owner, 2026-10-07). Targets and budgets are the launch
