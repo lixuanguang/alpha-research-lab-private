@@ -58,7 +58,16 @@ class InstalledPaperAccount:
     signed configuration, journal, release identity or account risk. Requests are
     retained before dispatch. A failed/uncertain command is never retried here;
     inspect the same journal and reuse its original identity during recovery.
+
+    Each command waits at most ``command_seconds(action)``: 300 seconds for
+    ``backup`` and ``restore``, which copy, hash and verify the whole journal, and
+    30 seconds for every other action. The signed launcher keeps its own bound (the
+    signed service life plus 60 seconds, 180 seconds if undeclared), so the shorter
+    of the two applies. A timeout ends only the wait: the launched command may still
+    complete, so its outcome is uncertain.
     """
+
+    _whole_journal_actions = frozenset({"backup", "restore"})
 
     def __init__(
         self,
@@ -114,7 +123,7 @@ class InstalledPaperAccount:
             ],
             capture_output=True,
             check=False,
-            timeout=30,
+            timeout=self.command_seconds(request.action),
         )
         attempt = uuid4().hex
         receipt = self.requests / f"{request_path.stem}.{attempt}.result.json"
@@ -127,6 +136,11 @@ class InstalledPaperAccount:
         decoded = self._codec.decode_json(result.stdout, AccountExecutionResult)
         receipt.write_bytes(result.stdout)
         return decoded
+
+    @classmethod
+    def command_seconds(cls, action: str) -> int:
+        """Return how long one command of ``action`` is awaited before it is uncertain."""
+        return 300 if action in cls._whole_journal_actions else 30
 
     def _inspect(
         self,

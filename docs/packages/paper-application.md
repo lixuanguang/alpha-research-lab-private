@@ -249,6 +249,17 @@ account --request ...`. The launcher fixes signed configuration, current release
 and journal paths. The client retains exact request/result bytes and never
 retries a failed or uncertain command automatically.
 
+The client waits 300 seconds for `backup` and `restore`, which copy, hash and
+verify the whole journal, and 30 seconds for every other action. The signed
+launcher bounds the same run independently, by the signed service life plus 60
+seconds (180 seconds when the life is undeclared), so the shorter bound applies:
+the journey (3,000 s life) and day (90,000 s) configurations allow the full 300
+seconds. A day-scale journal (about 10 GB) took 83–92 s to back up or restore on
+the development host; 300 seconds does not qualify a larger journal. A timeout
+ends only the wait: the launched command may still complete, so the outcome is
+uncertain and the request is not retried. A completed backup publishes its
+directory, so check whether `backup_root` exists before choosing a new one.
+
 The deployment input digest is SHA-256 of
 `DomainCodec().encode_json((capture_config, requirements))`, where `requirements`
 are the projected book fields. The API checks that digest, the execution scenario,

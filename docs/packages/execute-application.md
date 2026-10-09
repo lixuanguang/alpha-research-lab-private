@@ -317,6 +317,9 @@ verifies config, state and bytes before publishing the new workspace. The result
 names the restored `journal_path`; it does not select that workspace for an
 installed service. Restored accounts stay stopped until missing facts are
 replayed and fresh independent reconciliation permits an explicit restart.
+Through `InstalledPaperAccount`, backup and restore are awaited up to 300 seconds
+and other actions 30, within the signed launcher's own bound; see the
+[signed account consumer](paper-application.md#signed-account-consumer).
 
 The [operating runbook](../governance/operations.md#local-paper-operations)
 owns startup, incident, restoration and signed rollback procedures. The
