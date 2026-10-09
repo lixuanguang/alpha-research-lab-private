@@ -24,6 +24,16 @@ modeled paper/shadow work only. A selected reference identity has
 `qualification == "referenced"` but venue rule freshness remains the caller's
 responsibility. Neither qualification grants executable authority.
 
+A decision never cancels the instance's open orders. This is the interim reading
+while plan decision D2 is deferred. A target or exposure decision made while any
+order is open is rejected as `pending_target`, and the open order keeps its
+reservation until a fill, cancellation or rejection ends it. Cancellation is a
+separate, explicitly requested operation. Research simulation instead replaces the
+plan at each decision: it cancels a resting order and enters the new one after the
+cancel and entry delays. Dedicated paper is therefore not research-parity evidence
+for a strategy whose resting orders or IOCs are still unfilled at the next
+decision; its fills and reservations can differ from research for those decisions.
+
 Paper matching claims each modeled quote identity with exact immutable bytes in
 the same transaction as its effects; shadow mode uses `claim_market` to record a
 quote before its step commits. `markets()` exposes claims in insertion order so a supervising

@@ -187,6 +187,17 @@ uv run --frozen alpha-governance-artifacts run \
    for reissue, while `cancelled` or `reconcile_cancelled` ends them. A parent whose
    outcome is `unknown` can only end them; a `venue_test` account accepts no
    `cancelled_on_request`.
+   An account cancel does not withdraw strategy intent. This is the interim
+   reading while plan decision D1 is deferred. The cancel requests cancellation of
+   the physical orders only. Each strategy child that a `cancelled_on_request`
+   parent keeps stays a reserved residual. Once the account is running, with no
+   fault or operator block, and reconciled at or after that parent's outcome,
+   `reissue_pending` or the account's next coordination sends it again under the
+   usual admission checks. A child whose decision is older than
+   `max_residual_age_us` is retired instead of sent. A child whose quote is stale,
+   whose limit drifted beyond the price bound, or that is a buy over a ceiling
+   stays a visible residual. To withdraw intent, also stop the instances with
+   `stop_instance`.
    These actions never imply liquidation. Managed paper reduction uses the
    separate `reduce_paper` request described below.
 4. **Recover:** replay missing identified fills, fees, transfers and order facts,
@@ -283,7 +294,10 @@ uv run --frozen alpha-governance-artifacts run \
    records an operational stop. Diagnostic failure does not retry execution.
 5. To **block new exposure**, send `control/stop`. To **request cancellation**,
    separately send `control/cancel`. Requested/acknowledged cancellation retains
-   commitments until the paper matcher produces its terminal outcome. Expiry
+   commitments until the paper matcher produces its terminal outcome. An account
+   cancel does not withdraw strategy intent (D1 deferred; see
+   [local paper operations](#local-paper-operations), step 3); stop the instances to
+   withdraw it. Expiry
    and revocation also leave existing obligations and reservations intact.
 6. To **request position reduction**, send `reduce_paper` with instance, quantity,
    a fresh observed quote, explicit sell limit and maximum fee. While a shared
