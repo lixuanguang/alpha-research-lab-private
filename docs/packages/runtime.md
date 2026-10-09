@@ -286,11 +286,23 @@ waits at most about one capture clock interval past its inputs' readiness,
 whatever the market's activity, and a study of the candidate should model at
 least that entry delay. An instant without a fresh market or complete inputs is
 skipped, and the candidate's gap rule (`pause`, `reset` or `continue`) governs it.
-`SharedBookDelivery` (`shared-eligible-book-delivery`) is persisted before effects
+`SharedBookDelivery` (`shared-compressed-book-delivery`) is persisted before effects
 with each decided instant's inputs, quote and coordination clock, and whether the
-book matched, which every eligible book does. Readers decode a retained line with
-`SharedBookDelivery.decode`, which reads the tag before any other field and refuses
-another format at its first line with "unsupported shared book delivery schema".
+book matched, which every eligible book does. `SharedBookDelivery.encode` writes the
+book row as the checksummed zstd frame (level 3, standard-library `compression.zstd`)
+of its exact JSON bytes, `source.book_zstd`; every other field is plain. Measured on
+the day rehearsal's OKX books (depth 400), a whole line averaged 2,591 bytes (p99
+8,963) instead of about 32 KB, about 5.8 GiB for a source-day of 2,400,750 books, and
+Bitfinex (R0 depth 25) 1,060 bytes, about 2.4 GiB. Both stay within the log's bound
+of four times the source chain's bytes (16 GiB for the counted chain). Readers decode
+a retained line with `SharedBookDelivery.decode`, which reads the tag before any
+other field and refuses another format at its first line with "unsupported shared
+book delivery schema", including the uncompressed `shared-eligible-book-delivery`
+log. It restores the row's exact bytes from one complete, checksummed frame of at
+most 64 MiB (a larger row is refused when written), requires them to be one JSON
+object, and then applies the same strict typed decode. The compressed bytes are
+reproducible only by the same zstd library, so a reader that re-encodes a delivery to
+compare lines does so within one installation.
 Replay recomputes the grid and each book's eligibility and refuses a retained
 delivery whose matching or decided inputs differ. Replay into the live journal is an
 exact retry: the paper account resolves each matched book's identity against its

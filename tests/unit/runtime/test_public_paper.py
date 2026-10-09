@@ -7,6 +7,7 @@ import asyncio
 import dataclasses
 import hashlib
 import time
+from compression import zstd
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -666,14 +667,19 @@ class TestSharedPublicPaper:
         assert len(lines) == len(records)
         decoded = [SharedBookDelivery.decode(line, codec) for line in lines]
         assert any(item.source.book.bids for item in decoded)
-        assert [codec.encode_json(item) for item in decoded] == lines
-        # The retention envelopes must keep exactly the retained schemas' fields.
+        assert [item.encode(codec) for item in decoded] == lines
+        # The retention envelopes keep exactly the retained schemas' fields, the row
+        # compressed, so the deepest row's line is smaller than its plain encoding.
         assert {field.name for field in msgspec.structs.fields(RetainedSharedBookDelivery)} == {
             field.name for field in msgspec.structs.fields(SharedBookDelivery)
         }
         assert {field.name for field in msgspec.structs.fields(RetainedLiveBookDelivery)} == {
-            field.name for field in msgspec.structs.fields(LiveBookDelivery)
+            "book_zstd" if field.name == "book" else field.name
+            for field in msgspec.structs.fields(LiveBookDelivery)
         }
+        depths = [len(item.source.book.bids) for item in decoded]
+        deepest = decoded[depths.index(max(depths))]
+        assert len(deepest.encode(codec)) < len(codec.encode_json(deepest))
 
     @pytest.mark.performance
     def test_runner_rows_are_validated_and_encoded_once(self, tmp_path: Path) -> None:
@@ -821,7 +827,8 @@ class TestSharedPublicPaper:
                 schema_version=delivery.schema_version,
             )
             assert codec.encode_json(observed_source) == codec.encode_json(delivery.source)
-            assert codec.encode_json(observed) == codec.encode_json(delivery) == payload
+            assert codec.encode_json(observed) == codec.encode_json(delivery)
+            assert observed.encode(codec) == delivery.encode(codec) == payload
         assert tuple(item.source.book.position for item in retained) == tuple(range(5))
         (group,) = retained[3].decisions
         assert group.at == self.at + timedelta(milliseconds=2500)
@@ -1753,19 +1760,31 @@ class TestSharedPublicPaper:
         observer, _ = self._matching(tmp_path / "live.sqlite3", deliveries, scenario=scenario)
         self._observe(observer, *deliveries)
         lines = (tmp_path / "live.jsonl").read_bytes().splitlines()
-        assert all(b'"schema_version":"shared-eligible-book-delivery"' in line for line in lines)
-        replaced = lines[0].replace(b"shared-eligible-book-delivery", b"shared-candidate-delivery")
-        earlier = msgspec.json.decode(lines[3], type=dict[str, object])
+        assert all(b'"schema_version":"shared-compressed-book-delivery"' in line for line in lines)
+        codec = DomainCodec()
+        # The previous layouts: plain rows (step 2) and the candidate-only log before it.
+        plain = codec.encode_json(SharedBookDelivery.decode(lines[0], codec))
+        replaced = plain.replace(b"shared-compressed-book-delivery", b"shared-candidate-delivery")
+        uncompressed = plain.replace(
+            b"shared-compressed-book-delivery", b"shared-eligible-book-delivery"
+        )
+        earlier = msgspec.json.decode(
+            codec.encode_json(SharedBookDelivery.decode(lines[3], codec)), type=dict[str, object]
+        )
         groups = cast(list[dict[str, object]], earlier["decisions"])
         assert groups
         for group in groups:
             del group["touch"]
         earlier["schema_version"] = "shared-book-delivery"
         layout = msgspec.json.encode(earlier)
-        codec = DomainCodec()
         with pytest.raises(ValueError, match="touch"):
             codec.decode_json(layout, SharedBookDelivery)
-        for line in (replaced, layout, b'{"schema_version":"shared-book-delivery"}'):
+        for line in (
+            replaced,
+            uncompressed,
+            layout,
+            b'{"schema_version":"shared-book-delivery"}',
+        ):
             with pytest.raises(ValueError, match="unsupported shared book delivery schema"):
                 SharedBookDelivery.decode(line, codec)
 
@@ -2005,15 +2024,61 @@ class TestSharedPublicPaper:
         assert observer.last_market is not None
         assert observer.last_market.at == self.at + timedelta(seconds=2)
 
+    def test_a_retained_row_must_be_one_bounded_complete_zstd_frame(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A corrupt, damaged, trailed, truncated, oversized or smuggling row is refused.
+
+        A row too large to restore is refused when written, so a written line is readable.
+        """
+        delivery = self._delivery(
+            0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
+        )
+        codec = DomainCodec()
+        line = delivery.encode(codec)
+        assert SharedBookDelivery.decode(line, codec) == delivery
+        retained = msgspec.json.decode(line, type=dict[str, object])
+        source = cast(dict[str, object], retained["source"])
+        frame = msgspec.json.decode(msgspec.json.encode(source["book_zstd"]), type=bytes)
+        row = codec.encode_json(delivery.source.book)
+        assert zstd.decompress(frame) == row
+        for altered, reason in (
+            (b"not a frame", "not a valid zstd frame"),
+            (frame + zstd.compress(b"{}"), "trailed"),
+            (frame[:-4], "truncated"),
+        ):
+            source["book_zstd"] = altered
+            with pytest.raises(ValueError, match=reason):
+                SharedBookDelivery.decode(msgspec.json.encode(retained), codec)
+        damaged = bytearray(frame)
+        damaged[len(damaged) // 2] ^= 0xFF
+        smuggled = zstd.compress(
+            row + b',"record":' + codec.encode_json(delivery.source.record), level=3
+        )
+        for altered, reason in (
+            (bytes(damaged), "not a valid zstd frame"),
+            (smuggled, "not one JSON object"),
+            (zstd.compress(b"[]"), "not one JSON object"),
+        ):
+            source["book_zstd"] = altered
+            with pytest.raises(ValueError, match=reason):
+                SharedBookDelivery.decode(msgspec.json.encode(retained), codec)
+        source["book_zstd"] = frame
+        monkeypatch.setattr(SharedBookDelivery, "_MAXIMUM_ROW_BYTES", len(row) - 1)
+        with pytest.raises(ValueError, match="oversized"):
+            SharedBookDelivery.decode(msgspec.json.encode(retained), codec)
+        with pytest.raises(ValueError, match="exceeds the retained row bound"):
+            delivery.encode(codec)
+
     def test_delivery_schema_and_decision_group_order(self, tmp_path: Path) -> None:
         """Deliveries name their schema; decided instants precede delivery and coordination."""
         delivery = self._delivery(
             0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
         )
         codec = DomainCodec()
-        encoded = codec.encode_json(delivery)
-        assert b'"matched":false' in encoded
-        assert b'"schema_version":"shared-eligible-book-delivery"' in encoded
+        encoded = delivery.encode(codec)
+        assert b'"matched":false' in encoded and b'"book_zstd":' in encoded
+        assert b'"schema_version":"shared-compressed-book-delivery"' in encoded
         assert SharedBookDelivery.decode(encoded, codec) == delivery
         observer, journal = self._observer(tmp_path / "groups.sqlite3", deciding=True)
         assert journal.reconcile(self._opening())

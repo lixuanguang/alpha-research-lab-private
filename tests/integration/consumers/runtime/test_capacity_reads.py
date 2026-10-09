@@ -10,6 +10,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Callable, Iterator
+from compression import zstd
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -81,7 +82,7 @@ class _DeliveryWriter:
 
     def append(self, delivery: SharedBookDelivery, *, indexed: bool = True) -> tuple[int, int]:
         """Durably append one delivery line and, unless deferred, its index row."""
-        payload = self.codec.encode_json(delivery) + b"\n"
+        payload = delivery.encode(self.codec) + b"\n"
         with self.source.delivery_path.open("ab") as stream:
             offset = stream.seek(0, os.SEEK_END)
             stream.write(payload)
@@ -484,7 +485,7 @@ class TestCapacityReads:
             delivery = SharedBookDelivery.decode(payload, codec)
             assert delivery.source.book.position == quote.position
             assert delivery.source.available_at == base + timedelta(milliseconds=quote.position + 1)
-            assert count == len(codec.encode_json(delivery)) + 1
+            assert count == len(delivery.encode(codec)) + 1
         before = index.depth(source.name, cutoff_ns=index._unix_ns(base))
         selected = index.depth(
             source.name, cutoff_ns=index._unix_ns(base + timedelta(milliseconds=4))
@@ -506,11 +507,21 @@ class TestCapacityReads:
     ) -> None:
         """Narrow indexing still rejects malformed full depth and envelope fields."""
         index, source, _ = self._index(tmp_path)
-        payload = source.delivery_path.read_bytes()
-        assert before in payload
-        source.delivery_path.write_bytes(payload.replace(before, after))
+        lines = source.delivery_path.read_bytes().splitlines()
+        edited = [self._replaced(line, before, after) for line in lines]
+        assert edited != lines
+        source.delivery_path.write_bytes(b"".join(line + b"\n" for line in edited))
         with pytest.raises(ValueError):
             index.poll()
+
+    @staticmethod
+    def _replaced(line: bytes, before: bytes, after: bytes) -> bytes:
+        """Replace bytes in a retained line's envelope and inside its compressed row."""
+        retained = msgspec.json.decode(line.replace(before, after), type=dict[str, object])
+        source = cast(dict[str, object], retained["source"])
+        frame = msgspec.json.decode(msgspec.json.encode(source["book_zstd"]), type=bytes)
+        source["book_zstd"] = zstd.compress(zstd.decompress(frame).replace(before, after))
+        return msgspec.json.encode(retained)
 
     def _next(
         self, delivery: SharedBookDelivery, position: int, base: datetime
@@ -562,7 +573,7 @@ class TestCapacityReads:
             source.delivery_path.read_bytes().splitlines()[-1], codec
         )
         fourth = self._next(latest, 3, base)
-        payload = codec.encode_json(fourth) + b"\n"
+        payload = fourth.encode(codec) + b"\n"
         offset = source.delivery_path.stat().st_size
         with source.delivery_path.open("ab") as stream:
             stream.write(payload[: len(payload) // 2])
@@ -587,9 +598,11 @@ class TestCapacityReads:
         """Index, replay-parity and result readers refuse another delivery format by its tag."""
         index, source, _ = self._index(tmp_path)
         payload = source.delivery_path.read_bytes()
-        assert payload.count(b'"shared-eligible-book-delivery"') == 3
+        assert payload.count(b'"shared-compressed-book-delivery"') == 3
         source.delivery_path.write_bytes(
-            payload.replace(b'"shared-eligible-book-delivery"', b'"shared-candidate-delivery"')
+            payload.replace(
+                b'"shared-compressed-book-delivery"', b'"shared-eligible-book-delivery"'
+            )
         )
         message = "unsupported shared book delivery schema"
         with pytest.raises(ValueError, match=message):

@@ -1526,7 +1526,7 @@ class PublicPaperWorkload:
             raise ValueError("retained public delivery log is empty or incomplete")
         for line in lines:
             delivery = SharedBookDelivery.decode(line, self.codec)
-            if self.codec.encode_json(delivery) != line:
+            if delivery.encode(self.codec) != line:
                 raise ValueError("retained public delivery differs from canonical event bytes")
             observer.deliver(delivery)
         after = self._journal_bytes(journal)
