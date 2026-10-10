@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import hashlib
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -170,6 +171,88 @@ class TestCapacityParity:
         assert "incomplete" in cast(str, failed["failure"])
         assert failed["signed"] is not None
         assert Path(cast(str, failed["replay_journal"])).is_file()
+
+    def test_fresh_replay_opens_at_the_opening_not_the_latest_reconciliation(
+        self, tmp_path: Path
+    ) -> None:
+        """A periodically reconciled signed account still replays from its opening clock.
+
+        The final account's ``reconciled_at`` is its latest reconciliation; opening the
+        replay journal there would refuse every earlier market as preceding knowledge.
+        """
+        root = tmp_path / "selection"
+        root.mkdir()
+        workload = CapacityWorkload(
+            opening_at=datetime(2026, 9, 27, 12, tzinfo=UTC),
+            socket_root=Path("/private/tmp/capacity-parity-sockets"),
+        )
+        workload.prepare(root / "preparation")
+        service = workload.service_configuration()
+        codec = DomainCodec()
+        trial = root / "trial"
+        trial.mkdir()
+        (trial / "configuration.json").write_bytes(codec.encode_json(service))
+        (trial / "summary.json").write_bytes(codec.encode_json({"implementation": "f" * 64}))
+        (trial / "operating/runs/single").mkdir(parents=True)
+        account = service.accounts[0]
+        source = next(
+            source
+            for source in service.sources
+            if any(
+                instance.account_id == account.account_id and instance.source == source.name
+                for instance in service.instances
+            )
+        )
+        venue = workload.venue_workload(source.capture.venue)
+        opening_at = datetime(2026, 9, 27, 13, tzinfo=UTC)
+        later = opening_at + timedelta(minutes=10)
+        signed = AccountJournal(tmp_path / "signed.sqlite3", account.configuration)
+        signed.observe(
+            AccountQuote(
+                price=venue.price("100", source.scenario.adverse.per),
+                at=opening_at - timedelta(microseconds=1),
+            )
+        )
+        opening = venue.opening_observation(account.account_id, opening_at)
+        assert signed.reconcile(opening)
+        assert signed.reconcile(replace(opening, identity="periodic", at=later))
+        final = AccountExecutionResult(accounts=signed.accounts(), orders=signed.orders())
+        assert final.accounts[0].reconciled_at == later
+
+        parity = CapacityEconomicParity(root, trial)
+        # Without a retained opening request, the final reconciliation is the fallback.
+        assert parity._opening_at(account, final) == later
+        admin = trial / "admin" / account.account_id
+        admin.mkdir(parents=True)
+
+        def retain(request: AccountExecutionRequest, *, receipt: bool = True) -> Path:
+            payload = codec.encode_json(request)
+            path = admin / f"{hashlib.sha256(payload).hexdigest()}.json"
+            path.write_bytes(payload)
+            if receipt:
+                (admin / f"{path.stem}.receipt.result.json").write_bytes(b"{}")
+            return path
+
+        retain(AccountExecutionRequest(action="reconcile", observation=opening))
+        assert parity._opening_at(account, final) == opening_at
+        fresh = parity._fresh_journal(account, source, final, tmp_path / "fresh.sqlite3")
+        assert fresh.accounts()[0].reconciled_at == opening_at
+
+        duplicate = retain(
+            AccountExecutionRequest(action="reconcile", observation=replace(opening, at=later))
+        )
+        with pytest.raises(ValueError, match="more than one opening reconciliation"):
+            parity._opening_at(account, final)
+        duplicate.unlink()
+        for receipt in admin.glob(f"{duplicate.stem}.*"):
+            receipt.unlink()
+        unconfirmed = retain(
+            AccountExecutionRequest(action="reconcile", observation=replace(opening, at=later)),
+            receipt=False,
+        )
+        with pytest.raises(ValueError, match="no completed receipt"):
+            parity._opening_at(account, final)
+        unconfirmed.unlink()
 
     def test_unmanaged_replay_reads_a_segment_chain_by_its_run_key(self, tmp_path: Path) -> None:
         """A chain's stream binds the whole-run request identity and replays every account."""
