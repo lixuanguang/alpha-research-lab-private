@@ -225,34 +225,38 @@ class TestCapacityParity:
         admin = trial / "admin" / account.account_id
         admin.mkdir(parents=True)
 
-        def retain(request: AccountExecutionRequest, *, receipt: bool = True) -> Path:
-            payload = codec.encode_json(request)
-            path = admin / f"{hashlib.sha256(payload).hexdigest()}.json"
-            path.write_bytes(payload)
-            if receipt:
-                (admin / f"{path.stem}.receipt.result.json").write_bytes(b"{}")
-            return path
-
-        retain(AccountExecutionRequest(action="reconcile", observation=opening))
+        self._retain(admin, AccountExecutionRequest(action="reconcile", observation=opening))
         assert parity._opening_at(account, final) == opening_at
         fresh = parity._fresh_journal(account, source, final, tmp_path / "fresh.sqlite3")
         assert fresh.accounts()[0].reconciled_at == opening_at
 
-        duplicate = retain(
-            AccountExecutionRequest(action="reconcile", observation=replace(opening, at=later))
+        duplicate = self._retain(
+            admin,
+            AccountExecutionRequest(action="reconcile", observation=replace(opening, at=later)),
         )
         with pytest.raises(ValueError, match="more than one opening reconciliation"):
             parity._opening_at(account, final)
         duplicate.unlink()
         for receipt in admin.glob(f"{duplicate.stem}.*"):
             receipt.unlink()
-        unconfirmed = retain(
+        unconfirmed = self._retain(
+            admin,
             AccountExecutionRequest(action="reconcile", observation=replace(opening, at=later)),
             receipt=False,
         )
         with pytest.raises(ValueError, match="no completed receipt"):
             parity._opening_at(account, final)
         unconfirmed.unlink()
+
+    @staticmethod
+    def _retain(admin: Path, request: AccountExecutionRequest, *, receipt: bool = True) -> Path:
+        """Retain an operator request as the trial does, with a receipt unless withheld."""
+        payload = DomainCodec().encode_json(request)
+        path = admin / f"{hashlib.sha256(payload).hexdigest()}.json"
+        path.write_bytes(payload)
+        if receipt:
+            (admin / f"{path.stem}.receipt.result.json").write_bytes(b"{}")
+        return path
 
     def test_unmanaged_replay_reads_a_segment_chain_by_its_run_key(self, tmp_path: Path) -> None:
         """A chain's stream binds the whole-run request identity and replays every account."""

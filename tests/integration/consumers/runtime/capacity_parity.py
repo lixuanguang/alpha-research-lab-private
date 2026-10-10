@@ -490,7 +490,12 @@ class CapacityEconomicParity:
             max_workers=len(self.service.accounts), mp_context=context
         ) as pool:
             futures = [
-                pool.submit(_replay_account, self._factory, account.account_id, replay_root)
+                pool.submit(
+                    CapacityEconomicParity._replay_account,
+                    self._factory,
+                    account.account_id,
+                    replay_root,
+                )
                 for account in self.service.accounts
             ]
             accounts = [future.result() for future in futures]
@@ -509,6 +514,15 @@ class CapacityEconomicParity:
         }
         output.write_bytes(self.codec.encode_json(report))
         return report
+
+    @staticmethod
+    def _replay_account(
+        factory: Callable[[], CapacityEconomicParity], account_id: str, replay_root: Path
+    ) -> dict[str, object]:
+        """Rebuild a replay in this worker process and replay one of its accounts."""
+        parity = factory()
+        account = next(item for item in parity.service.accounts if item.account_id == account_id)
+        return parity._account_result(account, replay_root)
 
     def _account_result(self, account: PaperServiceAccount, replay_root: Path) -> dict[str, object]:
         """Replay one account into a fresh journal and compare it with the signed facts."""
@@ -951,15 +965,6 @@ class _MeasuredInterval(msgspec.Struct, frozen=True):
 
     started_monotonic_ns: int
     scheduled_stop_monotonic_ns: int
-
-
-def _replay_account(
-    factory: Callable[[], CapacityEconomicParity], account_id: str, replay_root: Path
-) -> dict[str, object]:
-    """Rebuild a replay in this worker process and replay one of its accounts."""
-    parity = factory()
-    account = next(item for item in parity.service.accounts if item.account_id == account_id)
-    return parity._account_result(account, replay_root)
 
 
 def main() -> None:
