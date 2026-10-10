@@ -10,9 +10,12 @@ from __future__ import annotations
 # standard library imports
 import argparse
 import hashlib
+import multiprocessing
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import ClassVar
 
@@ -20,10 +23,10 @@ from typing import ClassVar
 import msgspec
 from capacity_inputs import CapacityWorkload
 from capacity_trial import TrialWorkload, TrialWorkloads
-from paper_services import PaperServiceWorkload
 
 # project library imports
 from accounting import AccountLedger, AccountState
+from applications.execute import PaperServiceCandidates
 from configuration import (
     BookRegistryConfiguration,
     BookSelection,
@@ -43,7 +46,6 @@ from market_data.adapters.sources import BookAdapters
 from market_data.books import BookRegistry
 from market_data.contracts import RecordingRequest
 from market_data.storage import CaptureRecording
-from portfolio import PortfolioContext
 from research.observations import LiveBookDecisionSource
 from runtime import (
     InstalledIdentity,
@@ -164,6 +166,12 @@ class CapacityEconomicParity:
         ):
             raise ValueError("trial has no installed implementation identity")
         self.replay_implementation = InstalledIdentity.sha256()
+        # A worker process rebuilds this exact replay from the same arguments.
+        self._factory: Callable[[], CapacityEconomicParity] = partial(
+            CapacityEconomicParity, root, trial
+        )
+        # Reference formulas only: no signed candidate bundle is read.
+        self.resolved = PaperServiceCandidates(self.service, None)
         runs_root = trial / "operating/runs"
         run_directories = tuple(path for path in runs_root.iterdir() if path.is_dir())
         if len(run_directories) != 1:
@@ -199,37 +207,16 @@ class CapacityEconomicParity:
         source: PaperServiceSource,
         instance: PaperServiceInstance,
     ) -> SharedStrategyBinding:
-        """Load the service's exact reference candidate in process, without a worker."""
-        venue = self.workload.venue_workload(source.capture.venue)
-        candidate = venue.candidates(source).load(
-            PaperServiceWorkload.reference(instance),
-            instance=instance.instance_id,
-            entity=str(source.scenario.instrument_id),
-            quantity=instance.quantity,
-            lot=instance.lot,
-            currency=source.scenario.adverse.currency,
-            tick=self.service.instance_limits(instance).tick,
-            source_identity=venue.input_identity(source),
-        )
-        return SharedStrategyBinding(
-            instance_id=instance.instance_id,
-            account_id=account.account_id,
-            entity=str(source.scenario.instrument_id),
-            candidate=candidate,
-            context=PortfolioContext(
-                portfolio_id="reference",
-                strategy_id=instance.instance_id,
-                model_revision="rule-only",
-                config_revision="paper-services",
-                horizon="capture",
-                reason="engineering-reference",
-                venue=source.capture.venue,
-                settlement="spot",
-                risk_bucket="cash",
-                authority_scope=account.configuration.mode,
-            ),
-            maximum_fee=instance.maximum_fee,
-        )
+        """Bind the instance exactly as the supervisor does, through the service's resolver.
+
+        The supervisor and every replay of its delivery logs bind through
+        ``PaperServiceCandidates.binding``, so the policy, candidate and portfolio
+        context identities match the signed run's.
+        """
+        binding = self.resolved.binding(instance)
+        if binding.account_id != account.account_id or self.resolved.source(instance) != source:
+            raise ValueError("capacity instance binds another account or source")
+        return binding
 
     def _streams(self, account_id: str, source: PaperServiceSource) -> tuple[_DeliveryStream, ...]:
         """Bind complete canonical logs to exact request/source identities, in start order.
@@ -303,10 +290,8 @@ class CapacityEconomicParity:
         path: Path,
     ) -> AccountJournal:
         """Recreate opening facts without copying final signed state or authority."""
-        if len(original.accounts) != 1 or original.accounts[0].reconciled_at is None:
-            raise ValueError("signed final account lacks an opening reconciliation")
+        initial_at = self._opening_at(account, original)
         journal = AccountJournal(path, account.configuration)
-        initial_at = original.accounts[0].reconciled_at
         venue = self.workload.venue_workload(source.capture.venue)
         journal.observe(
             AccountQuote(
@@ -317,6 +302,43 @@ class CapacityEconomicParity:
         if not journal.reconcile(venue.opening_observation(account.account_id, initial_at)):
             raise ValueError("fresh capacity replay opening reconciliation failed")
         return journal
+
+    def _opening_at(
+        self, account: PaperServiceAccount, original: AccountExecutionResult
+    ) -> datetime:
+        """Return the clock of the trial's opening reconciliation for ``account``.
+
+        The trial reconciles each account's opening facts once before its interval,
+        retained as an operator request with a successful receipt. Without periodic
+        reconciliation that is also the final account's ``reconciled_at``, which a trial
+        without the retained request falls back to.
+        """
+        if len(original.accounts) != 1 or original.accounts[0].reconciled_at is None:
+            raise ValueError("signed final account lacks an opening reconciliation")
+        retained = self._retained_opening(account)
+        return original.accounts[0].reconciled_at if retained is None else retained
+
+    def _retained_opening(self, account: PaperServiceAccount) -> datetime | None:
+        """Return the retained opening reconciliation's clock, or None when none is kept."""
+        root = self.trial / "admin" / account.account_id
+        clocks: list[datetime] = []
+        for path in sorted(root.glob("*.json")) if root.is_dir() else ():
+            if path.name.endswith(".result.json"):
+                continue
+            request = self.codec.decode_json(path.read_bytes(), AccountExecutionRequest)
+            observation = request.observation
+            if (
+                request.action == "reconcile"
+                and observation is not None
+                and observation.identity.startswith(f"{account.account_id}-")
+                and observation.identity.endswith("-opening")
+            ):
+                if not tuple(root.glob(f"{path.stem}.*.result.json")):
+                    raise ValueError("retained opening reconciliation has no completed receipt")
+                clocks.append(observation.at)
+        if len(clocks) > 1:
+            raise ValueError("trial retains more than one opening reconciliation")
+        return clocks[0] if clocks else None
 
     def _replay(
         self,
@@ -462,74 +484,21 @@ class CapacityEconomicParity:
         output.parent.mkdir(parents=True, exist_ok=True)
         replay_root = output.with_suffix("")
         replay_root.mkdir(parents=True, exist_ok=False)
-        accounts: list[dict[str, object]] = []
-        for account in self.service.accounts:
-            source = next(
-                source
-                for source in self.service.sources
-                if any(
-                    instance.account_id == account.account_id and instance.source == source.name
-                    for instance in self.service.instances
+        # Accounts replay independently, each in its own process; results keep their order.
+        context = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(
+            max_workers=len(self.service.accounts), mp_context=context
+        ) as pool:
+            futures = [
+                pool.submit(
+                    CapacityEconomicParity._replay_account,
+                    self._factory,
+                    account.account_id,
+                    replay_root,
                 )
-            )
-            expected: dict[str, object] | None = None
-            try:
-                original = self.codec.decode_json(
-                    (self.trial / f"final-{account.account_id}.json").read_bytes(),
-                    AccountExecutionResult,
-                )
-                signed_facts = self._signed_facts(account, original)
-                expected = signed_facts
-                actual, replayed, selections = self._replay(
-                    account, source, original, replay_root / f"{account.account_id}.sqlite3"
-                )
-                comparisons = self._compare(signed_facts, actual)
-                original_snapshot = AccountLedger(original.accounts[0].ledger).snapshot()
-                replay_ledger = actual["ledger"]
-                if not isinstance(replay_ledger, AccountState):
-                    raise TypeError("fresh replay lacks a typed account ledger")
-                actual_snapshot = AccountLedger(replay_ledger).snapshot()
-                oracle = self.workload.first_touch_oracle()[account.account_id]
-                oracle_equal = (
-                    original_snapshot.cash,
-                    original_snapshot.fees,
-                    original_snapshot.positions,
-                    actual_snapshot.cash,
-                    actual_snapshot.fees,
-                    actual_snapshot.positions,
-                ) == (
-                    (oracle[0],),
-                    (oracle[1],),
-                    oracle[2],
-                    (oracle[0],),
-                    (oracle[1],),
-                    oracle[2],
-                )
-                accounts.append(
-                    {
-                        "account": account.account_id,
-                        "source": source.name,
-                        "replayed_deliveries": replayed,
-                        "verified_source_selections": selections,
-                        "comparisons": comparisons,
-                        "oracle_equal": oracle_equal,
-                        "signed_snapshot": original_snapshot,
-                        "replay_snapshot": actual_snapshot,
-                        "qualified": oracle_equal
-                        and all(result["equal"] is True for result in comparisons.values()),
-                    }
-                )
-            except (OSError, ValueError, TypeError) as error:
-                accounts.append(
-                    {
-                        "account": account.account_id,
-                        "source": source.name,
-                        "qualified": False,
-                        "failure": f"{type(error).__name__}: {error}",
-                        "signed": expected,
-                        "replay_journal": str(replay_root / f"{account.account_id}.sqlite3"),
-                    }
-                )
+                for account in self.service.accounts
+            ]
+            accounts = [future.result() for future in futures]
         report: dict[str, object] = {
             "schema_version": "runtime-capacity-economic-parity",
             "evidence_class": "unmanaged_software_replay_of_signed_deliveries",
@@ -546,6 +515,80 @@ class CapacityEconomicParity:
         output.write_bytes(self.codec.encode_json(report))
         return report
 
+    @staticmethod
+    def _replay_account(
+        factory: Callable[[], CapacityEconomicParity], account_id: str, replay_root: Path
+    ) -> dict[str, object]:
+        """Rebuild a replay in this worker process and replay one of its accounts."""
+        parity = factory()
+        account = next(item for item in parity.service.accounts if item.account_id == account_id)
+        return parity._account_result(account, replay_root)
+
+    def _account_result(self, account: PaperServiceAccount, replay_root: Path) -> dict[str, object]:
+        """Replay one account into a fresh journal and compare it with the signed facts."""
+        source = next(
+            source
+            for source in self.service.sources
+            if any(
+                instance.account_id == account.account_id and instance.source == source.name
+                for instance in self.service.instances
+            )
+        )
+        expected: dict[str, object] | None = None
+        try:
+            original = self.codec.decode_json(
+                (self.trial / f"final-{account.account_id}.json").read_bytes(),
+                AccountExecutionResult,
+            )
+            signed_facts = self._signed_facts(account, original)
+            expected = signed_facts
+            actual, replayed, selections = self._replay(
+                account, source, original, replay_root / f"{account.account_id}.sqlite3"
+            )
+            comparisons = self._compare(signed_facts, actual)
+            original_snapshot = AccountLedger(original.accounts[0].ledger).snapshot()
+            replay_ledger = actual["ledger"]
+            if not isinstance(replay_ledger, AccountState):
+                raise TypeError("fresh replay lacks a typed account ledger")
+            actual_snapshot = AccountLedger(replay_ledger).snapshot()
+            oracle = self.workload.first_touch_oracle()[account.account_id]
+            oracle_equal = (
+                original_snapshot.cash,
+                original_snapshot.fees,
+                original_snapshot.positions,
+                actual_snapshot.cash,
+                actual_snapshot.fees,
+                actual_snapshot.positions,
+            ) == (
+                (oracle[0],),
+                (oracle[1],),
+                oracle[2],
+                (oracle[0],),
+                (oracle[1],),
+                oracle[2],
+            )
+            return {
+                "account": account.account_id,
+                "source": source.name,
+                "replayed_deliveries": replayed,
+                "verified_source_selections": selections,
+                "comparisons": comparisons,
+                "oracle_equal": oracle_equal,
+                "signed_snapshot": original_snapshot,
+                "replay_snapshot": actual_snapshot,
+                "qualified": oracle_equal
+                and all(result["equal"] is True for result in comparisons.values()),
+            }
+        except (OSError, ValueError, TypeError) as error:
+            return {
+                "account": account.account_id,
+                "source": source.name,
+                "qualified": False,
+                "failure": f"{type(error).__name__}: {error}",
+                "signed": expected,
+                "replay_journal": str(replay_root / f"{account.account_id}.sqlite3"),
+            }
+
 
 class CapacityRecoveryEconomicParity(CapacityEconomicParity):
     """Independently rebuild a baseline and replay its exact recovery suffix.
@@ -558,6 +601,7 @@ class CapacityRecoveryEconomicParity(CapacityEconomicParity):
     def __init__(self, root: Path, trial: Path, baseline: Path) -> None:
         """Require a prior compatible signed trial with immutable checkpoints."""
         super().__init__(root, trial)
+        self._factory = partial(CapacityRecoveryEconomicParity, root, trial, baseline)
         self.baseline = CapacityEconomicParity(root, baseline)
         if (
             self.baseline.implementation != self.implementation
@@ -830,6 +874,7 @@ class SustainedEconomicReplay(CapacityEconomicParity):
     def __init__(self, root: Path, trial: Path, workload: TrialWorkload, speed: float) -> None:
         """Bind the trial, its declared workload (for the oracle) and the required speed."""
         super().__init__(root, trial)
+        self._factory = partial(SustainedEconomicReplay, root, trial, workload, speed)
         self.workload = TrialWorkloads.trial_workload(
             workload,
             opening_at=self.service.accounts[0].configuration.opening_at,
@@ -847,6 +892,18 @@ class SustainedEconomicReplay(CapacityEconomicParity):
             self.pending.setdefault(reconciled.account, []).append(reconciled)
         for items in self.pending.values():
             items.sort(key=_Reconciled.order)
+
+    def _opening_at(
+        self, account: PaperServiceAccount, original: AccountExecutionResult
+    ) -> datetime:
+        """Require the retained opening: periodic reconciliation moves ``reconciled_at`` on."""
+        super()._opening_at(account, original)
+        retained = self._retained_opening(account)
+        if retained is None:
+            raise ValueError(
+                "sustained replay requires the trial's retained opening reconciliation"
+            )
+        return retained
 
     def _reconcile(self, journal: AccountJournal, item: _Reconciled) -> None:
         """Reconcile the replay journal's own facts under the retained identity and clock."""
