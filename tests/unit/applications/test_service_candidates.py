@@ -7,6 +7,8 @@ import fcntl
 import hashlib
 import os
 import socket
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -852,6 +854,235 @@ class TestPaperServiceCandidates:
         assert [rule.identity for rule in view.dashboard.alerts] == ["threshold:fold-net:<"]
         with pytest.raises(ValueError, match="paper or shadow"):
             MonitoringConfiguration.account(replace(query, mode="research"), events)
+
+    def test_candidate_telemetry_keeps_each_pages_newest_and_hourly_views(
+        self, tmp_path: Path
+    ) -> None:
+        """Superseded renders are pruned to each page's newest view and one per UTC hour.
+
+        Another label's views, a label sharing this one as a prefix, and hidden lock or
+        interrupted files stay; a pruned view's lock file goes with it.
+        """
+        definition = self._publish(tmp_path, runtime=True)
+        packaged = PackagedCandidate(
+            definition_sha256=definition.identity, extension=self.extension, starts_at=_ORIGIN
+        )
+        owner = PaperOwner(
+            account_id="shared",
+            deployment_sha256="a" * 64,
+            authorization_id="authorization",
+            release_identity="b" * 64,
+            owner_id="owner",
+            generation=1,
+        )
+        root = tmp_path / "monitoring"
+        telemetry = CandidateTelemetry(
+            self._configuration(packaged),
+            (owner,),
+            candidates=tmp_path / "candidates",
+            runs=tmp_path / "runs",
+            root=root,
+            started_at=_ORIGIN,
+        )
+        views = root / "dashboards" / "shared"
+        views.mkdir(parents=True)
+        stamps = (
+            "20261010T050000000000Z",
+            "20261010T050300000000Z",
+            "20261010T055900000000Z",
+            "20261010T060100000000Z",
+            "20261010T060400000000Z",
+        )
+        names = [f"{stamp}-account-{page}" for stamp in stamps for page in (1, 2)]
+        others = [f"{stamps[0]}-packaged-1", f"{stamps[1]}-account-extra-1"]
+        for name in (*names, *others):
+            (views / name).mkdir()
+            (views / name / "snapshot.json").write_bytes(b"{}")
+            (views / f".{name}.lock").write_bytes(b"")
+        (views / ".old.interrupted-1").mkdir()
+
+        telemetry._prune("shared", "account")
+
+        kept = sorted(path.name for path in views.iterdir() if not path.name.startswith("."))
+        expected = [
+            f"{stamp}-account-{page}"
+            for stamp in (stamps[0], stamps[3], stamps[4])
+            for page in (1, 2)
+        ]
+        assert kept == sorted([*expected, *others])
+        locks = {path.name for path in views.glob(".*.lock")}
+        assert locks == {f".{name}.lock" for name in (*expected, *others)}
+        assert (views / ".old.interrupted-1").is_dir()
+
+    @staticmethod
+    def _refuse_removal(path: Path) -> None:
+        """Stand in for a view directory that cannot be removed."""
+        raise PermissionError(f"cannot remove {path.name}")
+
+    def _pruning_telemetry(self, tmp_path: Path, root: Path) -> CandidateTelemetry:
+        """Bind a diagnostics telemetry writer to ``root`` for the shared account."""
+        definition = self._publish(tmp_path, runtime=True)
+        packaged = PackagedCandidate(
+            definition_sha256=definition.identity, extension=self.extension, starts_at=_ORIGIN
+        )
+        owner = PaperOwner(
+            account_id="shared",
+            deployment_sha256="a" * 64,
+            authorization_id="authorization",
+            release_identity="b" * 64,
+            owner_id="owner",
+            generation=1,
+        )
+        return CandidateTelemetry(
+            self._configuration(packaged),
+            (owner,),
+            candidates=tmp_path / "candidates",
+            runs=tmp_path / "runs",
+            root=root,
+            started_at=_ORIGIN,
+        )
+
+    def test_candidate_telemetry_pruning_rolls_over_hours_days_and_restarts(
+        self, tmp_path: Path
+    ) -> None:
+        """Hourly retention survives a date change, repeats, a restart, readers and writers.
+
+        A reader holding an open file of a pruned view keeps reading it whole, and a
+        writer holding a view's lock delays its removal until the lock is released.
+        """
+        root = tmp_path / "monitoring"
+        telemetry = self._pruning_telemetry(tmp_path, root)
+        views = root / "dashboards" / "shared"
+        views.mkdir(parents=True)
+        stamps = (
+            "20261010T230000000000Z",
+            "20261010T235900000000Z",
+            "20261011T000100000000Z",
+            "20261011T003000000000Z",
+            "20261011T005900000000Z",
+        )
+        for stamp in stamps:
+            (views / f"{stamp}-account-1").mkdir()
+            (views / f"{stamp}-account-1" / "provenance.jsonl").write_bytes(b"row\n" * 1000)
+        expected = sorted(f"{stamp}-account-1" for stamp in (stamps[0], stamps[2], stamps[4]))
+        reader = (views / f"{stamps[1]}-account-1" / "provenance.jsonl").open("rb")
+        held = (views / f".{stamps[3]}-account-1.lock").open("a+b")
+        fcntl.flock(held.fileno(), fcntl.LOCK_EX)
+        released = threading.Timer(0.3, held.close)
+        released.start()
+        started = time.monotonic()
+        try:
+            telemetry._prune("shared", "account")
+        finally:
+            released.join()
+        assert time.monotonic() - started >= 0.25
+        assert reader.read() == b"row\n" * 1000
+        reader.close()
+        kept = sorted(path.name for path in views.iterdir() if not path.name.startswith("."))
+        assert kept == expected
+        telemetry._prune("shared", "account")
+        self._pruning_telemetry(tmp_path / "restarted", root)._prune("shared", "account")
+        assert sorted(p.name for p in views.iterdir() if not p.name.startswith(".")) == expected
+
+    def test_candidate_telemetry_pruning_failure_never_costs_a_render_or_alert(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed removal is counted, while every page renders and its band is delivered.
+
+        The telemetry events and the alert journal are untouched by pruning; once the
+        removal can proceed, a restarted writer prunes the superseded view.
+        """
+        definition = self._publish(tmp_path, runtime=True)
+        packaged = PackagedCandidate(
+            definition_sha256=definition.identity, extension=self.extension, starts_at=_ORIGIN
+        )
+        address = Path(_SOCKET_ROOT) / f"m3p-{uuid4().hex[:8]}.sock"
+        configuration = replace(self._configuration(packaged), alert_socket=str(address))
+        owner = PaperOwner(
+            account_id="shared",
+            deployment_sha256="a" * 64,
+            authorization_id="authorization",
+            release_identity="b" * 64,
+            owner_id="owner",
+            generation=1,
+        )
+        root = tmp_path / "monitoring"
+        telemetry = CandidateTelemetry(
+            configuration,
+            (owner,),
+            candidates=tmp_path / "candidates",
+            runs=tmp_path / "runs",
+            root=root,
+            started_at=_ORIGIN,
+        )
+        fill, evidence = self._bought()
+        older = (evidence.cutoff - timedelta(hours=1)).strftime("%Y%m%dT%H")
+        views = root / "dashboards" / "shared"
+        views.mkdir(parents=True)
+        # The earlier hour's first and newest views are kept; the one between is not.
+        (views / f"{older}0000000000Z-account-1").mkdir()
+        superseded = views / f"{older}0000000001Z-account-1"
+        superseded.mkdir()
+        (views / f"{older}3000000000Z-account-1").mkdir()
+        state = AccountExecutionResult(
+            accounts=(),
+            orders=(),
+            paper_fills=(AccountPaperFill(instance_id="packaged", order_id="order", fill=fill),),
+        )
+        market = PaperMarket(
+            identity="market",
+            at=evidence.cutoff,
+            bid=evidence.mark if evidence.mark is not None else fill.reference,
+            ask=fill.reference,
+            bid_quantity=fill.quantity,
+            ask_quantity=fill.quantity,
+        )
+
+        monkeypatch.setattr(
+            "applications.execute.candidate_telemetry.shutil.rmtree", self._refuse_removal
+        )
+        receiver = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        try:
+            receiver.bind(str(address))
+            receiver.settimeout(2)
+            telemetry.sample(
+                InspectedPaperAccount(configuration.accounts[0].configuration, owner, state),
+                state,
+                (market,),
+                observed_at=evidence.cutoff,
+            )
+            assert b"account-control" in receiver.recv(4096)
+        finally:
+            receiver.close()
+            address.unlink(missing_ok=True)
+        assert telemetry.failures == 1
+        assert telemetry.last_error is not None and "cannot remove" in telemetry.last_error
+        rendered = {
+            path.name.partition("-")[2]
+            for path in views.iterdir()
+            if not path.name.startswith(".")
+            and path.name.partition("-")[0] == evidence.cutoff.strftime("%Y%m%dT%H%M%S%fZ")
+        }
+        assert any(name.startswith("packaged-") for name in rendered)
+        assert superseded.exists()
+        assert [item.status for item in OperationalAlerts(root / "alerts.sqlite3").read()] == [
+            "delivered"
+        ]
+        query = MonitoringQuery(
+            scope="account:shared:strategy:packaged",
+            mode="paper",
+            start=_ORIGIN,
+            end=evidence.cutoff + timedelta(seconds=1),
+            as_of=evidence.cutoff + timedelta(seconds=1),
+        )
+        events = TelemetryStore(root / "telemetry.sqlite3").query(query)
+        monkeypatch.undo()
+        self._pruning_telemetry(tmp_path / "restarted", root)._prune("shared", "account")
+        assert not superseded.exists()
+        assert TelemetryStore(root / "telemetry.sqlite3").query(query) == events
+        assert [item.status for item in OperationalAlerts(root / "alerts.sqlite3").read()] == [
+            "delivered"
+        ]
 
     def test_candidate_telemetry_exports_and_alerts_from_the_diagnostics(
         self, tmp_path: Path

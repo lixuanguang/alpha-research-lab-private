@@ -404,7 +404,13 @@ delays from the delivery logs and a learned candidate's predictions. Every 60 s 
 diagnostics process renders each paper account's pages under
 `monitoring/dashboards/<account>/`, with one alert rule per declared candidate
 warning band. A breach is delivered to `alert_socket` through the `alerts.sqlite3`
-journal and repeats once per rendering while it lasts.
+journal and repeats once per rendering while it lasts. Rendered views are bounded:
+each page keeps its newest view and the first view of each UTC hour, and older views
+are removed after every page has rendered, so pruning never skips a candidate page
+or its alert. A removed view can be rendered again while `telemetry.sqlite3` holds its
+events, for the configuration's telemetry retention (7 days in the day run). Each
+delivered alert's outcome stays in `alerts.sqlite3` regardless. A day keeps about 25
+views a page instead of one per rendering.
 Liveness, source quality and economic progress have separate observations. Failed
 or stale monitoring does not establish healthy execution and does not retry it.
 

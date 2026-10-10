@@ -6,8 +6,10 @@ its retained records and must equal its source's retained live summary; occupied
 space is reported against the profile's ceilings, and the monitoring store's event
 count is projected to its seven-day window. The account journals beside the day
 (``<candidate>/target-<account>/state``, including retained service requests) are
-reported per account as their own class. No ceiling names them, so they are not
-graded and do not change the result.
+reported per account as their own class, and so are the economic replay's rebuilt
+journals (``<candidate>/economic-replay-journals``). No ceiling names them, so they are
+not graded and do not change the result. ``attempt_occupied`` totals every retained
+file of the attempt, whatever its class.
 """
 
 from __future__ import annotations
@@ -156,6 +158,36 @@ class DayRetention:
             "status": "reported_ungraded",
         }
 
+    def replay_journals(self) -> dict[str, object]:
+        """Report the economic replay's rebuilt journals beside the day, ungraded."""
+        root = self.day.parent / "economic-replay-journals"
+        occupied, files = 0, 0
+        if root.is_dir():
+            for path in root.rglob("*"):
+                if path.is_file() and not path.is_symlink():
+                    occupied += path.stat().st_blocks * 512
+                    files += 1
+        return {
+            "root": str(root),
+            "occupied_bytes": occupied,
+            "files": files,
+            "status": "reported_ungraded",
+        }
+
+    def attempt_occupied(self) -> dict[str, object]:
+        """Total every retained file under the attempt's output directory.
+
+        That is the day's grandparent: the day, both journal sets, builds, installs,
+        logs and host samples.
+        """
+        root = self.day.parent.parent
+        occupied, files = 0, 0
+        for path in root.rglob("*"):
+            if path.is_file() and not path.is_symlink():
+                occupied += path.stat().st_blocks * 512
+                files += 1
+        return {"root": str(root), "occupied_bytes": occupied, "files": files}
+
     def telemetry(self) -> dict[str, object]:
         """Count the monitoring store's events and project them to its seven-day window."""
         stores = tuple(self.day.rglob("monitoring/telemetry.sqlite3"))
@@ -177,7 +209,7 @@ class DayRetention:
         """Retain every check; the attempt's retention passes only if all of them pass."""
         aged, recordings = self.aged(), self.recordings()
         occupied, telemetry = self.occupied(), self.telemetry()
-        journals = self.account_journals()
+        journals, replays = self.account_journals(), self.replay_journals()
         passed = (
             aged["status"] == "pass"
             and bool(recordings)
@@ -195,6 +227,9 @@ class DayRetention:
             "recordings": recordings,
             "occupied": occupied,
             "account_journals": journals,
+            "replay_journals": replays,
+            # Every byte under the attempt's output directory, whatever its class.
+            "attempt_occupied": self.attempt_occupied(),
             "telemetry": telemetry,
             "passed": passed,
         }

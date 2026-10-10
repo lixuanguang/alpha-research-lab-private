@@ -162,6 +162,19 @@ class TestCapacityParity:
             assert set(comparisons) == set(CapacityEconomicParity.fields)
             assert all(comparison["equal"] is True for comparison in comparisons.values())
 
+        # Rebuilt journals can live beside the trial instead of beside the report.
+        journaled = CapacityEconomicParity(root, trial).write(
+            tmp_path / "journaled.json", tmp_path / "journals"
+        )
+        journaled_accounts = cast(tuple[dict[str, object], ...], journaled["accounts"])
+        assert [item["qualified"] for item in journaled_accounts] == [
+            item["qualified"] for item in accounts
+        ]
+        assert not (tmp_path / "journaled").exists()
+        assert {path.name for path in (tmp_path / "journals").glob("*.sqlite3")} == {
+            f"{account.account_id}.sqlite3" for account in service.accounts
+        }
+
         stream = next(run.rglob("*-okx-shared.jsonl"))
         stream.write_bytes(stream.read_bytes().removesuffix(b"\n"))
         invalid = CapacityEconomicParity(root, trial).write(tmp_path / "invalid.json")

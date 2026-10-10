@@ -273,3 +273,13 @@ class TestDayRetention:
         assert journals["status"] == "reported_ungraded"
         occupied = cast(dict[str, int], retention.occupied()["occupied_bytes"])
         assert sum(occupied.values()) < 20_000
+        # The economic replay's rebuilt journals sit beside the day: reported, ungraded.
+        assert retention.replay_journals()["occupied_bytes"] == 0
+        replays = tmp_path / "candidate" / "economic-replay-journals"
+        replays.mkdir()
+        (replays / "okx-shared.sqlite3").write_bytes(b"r" * 40_000)
+        replayed = retention.replay_journals()
+        assert (replayed["files"], replayed["status"]) == (1, "reported_ungraded")
+        assert cast(int, replayed["occupied_bytes"]) >= 40_000
+        regraded = cast(dict[str, int], retention.occupied()["occupied_bytes"])
+        assert regraded == occupied
