@@ -1399,22 +1399,29 @@ class PaperServices:
                     "status": "failed",
                     "error": self.monitor.last_error,
                 }
-        # Diagnostic telemetry is retained every pass, or on its own declared cadence
-        # once every account's latest report was retained. Until then (for example
-        # before a held position has its first mark) it retries every pass.
-        if self.diagnostics is not None and (
-            not self._telemetry_retained() or time.monotonic() >= self._next_telemetry
-        ):
-            self._next_telemetry = time.monotonic() + self.config.telemetry_interval
-            self.diagnostics.submit(latest_markets)
+        # Every account's report runs on the declared cadence. An account whose latest
+        # report was not retained (for example before a held position has its first
+        # mark) is retried on every pass, alone and only once earlier batches have
+        # completed: its retries never repeat the other accounts' reports, so one
+        # failing account cannot multiply their telemetry, and never replace a
+        # pending batch.
+        if self.diagnostics is not None:
+            if time.monotonic() >= self._next_telemetry:
+                self._next_telemetry = time.monotonic() + self.config.telemetry_interval
+                self.diagnostics.submit(latest_markets)
+            else:
+                unretained = {
+                    account_id: markets
+                    for account_id, markets in latest_markets.items()
+                    if not self._report_retained(account_id)
+                }
+                if unretained and self.diagnostics.idle:
+                    self.diagnostics.submit(unretained)
 
-    def _telemetry_retained(self) -> bool:
-        """Report whether every account's latest diagnostic report was retained."""
-        return all(
-            isinstance(receipt := self.monitoring.get(account_id), DiagnosticReceipt)
-            and receipt.status == "retained"
-            for account_id in self.accounts
-        )
+    def _report_retained(self, account_id: str) -> bool:
+        """Report whether the account's latest diagnostic report was retained."""
+        receipt = self.monitoring.get(account_id)
+        return isinstance(receipt, DiagnosticReceipt) and receipt.status == "retained"
 
     def _collect_diagnostics(self) -> None:
         """Keep actual compact report receipts separate from synchronous phase protection."""

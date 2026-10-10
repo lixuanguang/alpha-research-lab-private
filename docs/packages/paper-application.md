@@ -400,8 +400,11 @@ delivery envelopes, socket requests/results, operational events and `status.json
 `monitoring/telemetry.sqlite3` uses the existing telemetry query/dashboard APIs. It
 also holds each deployed candidate's runtime metrics (its packaged metric component
 over the instance's attributed fills, opening and terminal marks), its decision
-delays from the delivery logs and a learned candidate's predictions. Every 60 s the
-diagnostics process renders each paper account's pages under
+delays from the delivery logs and a learned candidate's predictions. Account reports
+run every `telemetry_seconds` (45 in the capacity profile). An account whose latest
+report was not retained is retried alone on each supervisor pass, once the previous
+report batch completed, so one failing account never multiplies the others'
+telemetry. Every 60 s the diagnostics process renders each paper account's pages under
 `monitoring/dashboards/<account>/`, with one alert rule per declared candidate
 warning band. A breach is delivered to `alert_socket` through the `alerts.sqlite3`
 journal and repeats once per rendering while it lasts. Rendered views are bounded:

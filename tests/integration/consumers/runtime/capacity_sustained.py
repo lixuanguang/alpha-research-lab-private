@@ -194,8 +194,13 @@ class SustainedWorkload(CapacityWorkload):
             accounts=accounts,
             sources=sources,
             duration_seconds=self.supervisor_seconds,
-            # A one-hour dashboard window of 36 metrics stays inside 10,000 events.
-            telemetry_seconds=15,
+            # Each account's report carries 78 sampled metrics (36 account, 21 per
+            # strategy). At 45 s a day is about 0.83 M events with the per-decision
+            # delays, about 5.8 M over the store's 7 days, inside its 8 M ceiling
+            # (15 s gave about 14.2 M). Dashboards render with the sample they read,
+            # and 45 s stays within the metrics' 60 s freshness; a one-hour window of
+            # 36 metrics stays inside 10,000 events.
+            telemetry_seconds=45,
         )
         service.__post_init__()
         return service

@@ -1418,6 +1418,11 @@ class TestPaperServices:
                 """Return no completed receipts."""
                 return ()
 
+            @property
+            def idle(self) -> bool:
+                """Report every batch completed."""
+                return True
+
         counts: list[int] = []
         for selected in (config, replace(config, telemetry_seconds=15)):
             services = _SupervisorHarness(selected, self._owner(), tmp_path, self._socket_path())
@@ -1460,6 +1465,11 @@ class TestPaperServices:
                 self.submitted += 1
                 self.pending = True
 
+            @property
+            def idle(self) -> bool:
+                """Report whether the last batch's receipt was collected."""
+                return not self.pending
+
             def poll(self) -> tuple[DiagnosticReceipt, ...]:
                 """Return the scripted receipt for the last submitted batch."""
                 if not self.pending:
@@ -1481,6 +1491,99 @@ class TestPaperServices:
             services._sample()
         # Two failed reports retry at once; the retained third starts the cadence.
         assert diagnostics.submitted == 3
+
+    def test_a_failing_report_retries_alone_and_never_replaces_a_pending_batch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One account's unretained report cannot multiply the other's telemetry.
+
+        The healthy account is reported only on the declared cadence; the failing one
+        is retried by itself on each pass once the previous batch completed, never
+        while a batch is pending, and returns to the cadence once retained.
+        """
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = replace(self._config(self._socket_path()), telemetry_seconds=45)
+        now = datetime.now(UTC)
+
+        class _Unreadable:
+            """Refuse protection reads; the supervisor retains that as a phase failure."""
+
+            def account_statuses(self) -> tuple[AccountStatus, ...]:
+                """Fail the synchronous phase read."""
+                raise ValueError("unreadable in this test")
+
+        class _Diagnostics:
+            """Record each batch's accounts; receipts follow on a later pass."""
+
+            def __init__(self) -> None:
+                """Start with no batches; the failing account recovers after two retries."""
+                self.batches: list[tuple[str, ...]] = []
+                self.pending: tuple[str, ...] = ()
+                self.hold = 0
+                self.failures = 0
+
+            @property
+            def idle(self) -> bool:
+                """Report whether the last batch completed."""
+                return not self.pending
+
+            def submit(self, markets: dict[str, tuple[PaperMarket, ...]]) -> None:
+                """Record one batch of accounts."""
+                self.batches.append(tuple(sorted(markets)))
+                self.pending = tuple(sorted(markets))
+
+            def poll(self) -> tuple[DiagnosticReceipt, ...]:
+                """Complete the pending batch unless it is held for this pass."""
+                if not self.pending or self.hold:
+                    self.hold = max(0, self.hold - 1)
+                    return ()
+                receipts = []
+                for account_id in self.pending:
+                    failing = account_id == "failing" and self.failures < 3
+                    self.failures += failing
+                    receipts.append(
+                        DiagnosticReceipt(
+                            account_id=account_id,
+                            requested_at=now,
+                            observed_at=now,
+                            status="failed" if failing else "retained",
+                        )
+                    )
+                self.pending = ()
+                return tuple(receipts)
+
+        services = _SupervisorHarness(config, self._owner(), tmp_path, self._socket_path())
+        services.accounts.clear()
+        services.accounts["healthy"] = cast(SocketPaperAccount, _Unreadable())
+        services.accounts["failing"] = cast(SocketPaperAccount, _Unreadable())
+        diagnostics = _Diagnostics()
+        services.diagnostics = cast(PaperServiceDiagnostics, diagnostics)
+        # One pass a second: the cadence is due at 0 s and again at 45 s.
+        clock = _ScriptedClock((0.0,))
+        monkeypatch.setattr(time, "monotonic", clock)
+        clock.values = (0.0,)
+        services._sample()  # 0 s: both, on the cadence
+        diagnostics.hold = 1
+        clock.values, clock.index = (1.0,), 0
+        services._sample()  # 1 s: failing, but the first batch is still pending
+        assert diagnostics.batches == [("failing", "healthy")]
+        for second in range(2, 10):
+            clock.values, clock.index = (float(second),), 0
+            services._sample()
+        # Retried alone after each failure until its third retry is retained.
+        assert diagnostics.batches == [
+            ("failing", "healthy"),
+            ("failing",),
+            ("failing",),
+            ("failing",),
+        ]
+        for second in range(10, 50):
+            clock.values, clock.index = (float(second),), 0
+            services._sample()
+        # Both return to the 45 s cadence together.
+        assert diagnostics.batches[4:] == [("failing", "healthy")]
 
     def test_closing_a_source_releases_each_book_index_writer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
