@@ -612,6 +612,9 @@ class SustainedCohort(Cohort):
                 self.declaration.workload,
                 "--speed",
                 str(self.declaration.replay_speed),
+                # Beside the live account journals: reported, not counted as scratch.
+                "--journals",
+                str(self.root / "economic-replay-journals"),
             ],
         )
         report = msgspec.json.decode(output.read_bytes(), type=dict[str, object])

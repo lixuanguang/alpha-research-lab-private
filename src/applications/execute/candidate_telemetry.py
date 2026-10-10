@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 # standard library imports
+import fcntl
+import shutil
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -50,6 +52,12 @@ class CandidateTelemetry:
     the installed defaults, one panel per exported series and one alert rule per
     declared candidate warning band, delivered to ``alert_socket``. It holds no
     account authority: its only account call is a checkpoint inspection.
+
+    Rendered views are bounded: after each rendering, every page keeps its newest
+    view and the first view of each UTC hour, and older views are removed. A removed
+    view can be rendered again while the telemetry store still holds its events, for
+    the store's ``retention_days``. A delivered alert's outcome stays in the alert
+    journal regardless.
     """
 
     def __init__(
@@ -237,11 +245,18 @@ class CandidateTelemetry:
     def _dashboards(
         self, account_id: str, mode: Literal["paper", "shadow"], observed_at: datetime
     ) -> None:
-        """Render the account's page and each candidate's pages, delivering breached bands."""
+        """Render the account's page and each candidate's pages, delivering breached bands.
+
+        Superseded views are pruned only after every scope has rendered, so a pruning
+        failure can never skip a candidate page or its alert delivery.
+        """
         self._render(account_id, mode, observed_at, f"account:{account_id}", "account", ())
         for name in self._instances(account_id):
             exporter = self.exporters[name]
             self._render(account_id, mode, observed_at, exporter.scope, name, exporter.thresholds)
+        self._prune(account_id, "account")
+        for name in self._instances(account_id):
+            self._prune(account_id, name)
 
     def _render(
         self,
@@ -284,6 +299,43 @@ class CandidateTelemetry:
             snapshot.write(
                 self.root / "dashboards" / account_id / f"{stamp}-{label}-{page}", selection
             )
+
+    def _prune(self, account_id: str, label: str) -> None:
+        """Keep each of the label's pages' newest view and its first view of each UTC hour.
+
+        View names are ``<UTC stamp>-<label>-<page>``, so the stamp orders them and its
+        first eleven characters name the hour. A removed view's directory is deleted
+        under the same lock its writer takes; other files are never touched.
+        """
+        root = self.root / "dashboards" / account_id
+        if not root.is_dir():
+            return
+        pages: dict[str, list[tuple[str, Path]]] = {}
+        for path in root.iterdir():
+            stamp, _, rest = path.name.partition("-")
+            page = rest.removeprefix(f"{label}-")
+            if path.name.startswith(".") or not path.is_dir() or page == rest:
+                continue
+            if page.isdigit():
+                pages.setdefault(page, []).append((stamp, path))
+        for views in pages.values():
+            views.sort()
+            kept = {views[-1][1]}
+            hours: set[str] = set()
+            for stamp, path in views:
+                if stamp[:11] not in hours:
+                    hours.add(stamp[:11])
+                    kept.add(path)
+            for _, path in views:
+                if path in kept:
+                    continue
+                lock_path = path.with_name(f".{path.name}.lock")
+                with lock_path.open("a+b") as lock:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                    # Another pruner may have removed it while this one waited.
+                    if path.is_dir():
+                        shutil.rmtree(path)
+                lock_path.unlink(missing_ok=True)
 
     @staticmethod
     def _market_order(market: PaperMarket) -> datetime:

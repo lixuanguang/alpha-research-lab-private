@@ -72,6 +72,7 @@ class _Arguments(argparse.Namespace):
     baseline: Path | None
     sustained: TrialWorkload | None
     speed: float
+    journals: Path | None
 
 
 class _ObservationKind(msgspec.Struct, frozen=True):
@@ -477,12 +478,18 @@ class CapacityEconomicParity:
             }
         return results
 
-    def write(self, output: Path) -> dict[str, object]:
-        """Retain all comparisons and failures without granting any paper authority."""
+    def write(self, output: Path, journals: Path | None = None) -> dict[str, object]:
+        """Retain all comparisons and failures without granting any paper authority.
+
+        The rebuilt replay journals go to ``journals``, or beside ``output`` when it
+        is omitted.
+        """
         if not output.is_absolute() or output.exists():
             raise ValueError("capacity parity requires a fresh absolute output path")
+        if journals is not None and not journals.is_absolute():
+            raise ValueError("capacity parity requires an absolute journal directory")
         output.parent.mkdir(parents=True, exist_ok=True)
-        replay_root = output.with_suffix("")
+        replay_root = output.with_suffix("") if journals is None else journals
         replay_root.mkdir(parents=True, exist_ok=False)
         # Accounts replay independently, each in its own process; results keep their order.
         context = multiprocessing.get_context("spawn")
@@ -730,12 +737,14 @@ class CapacityRecoveryEconomicParity(CapacityEconomicParity):
         else:
             raise ValueError("retained recovery operator request is incomplete")
 
-    def write(self, output: Path) -> dict[str, object]:
+    def write(self, output: Path, journals: Path | None = None) -> dict[str, object]:
         """Retain full baseline/suffix comparisons and every original selection identity."""
         if not output.is_absolute() or output.exists():
             raise ValueError("capacity recovery parity requires a fresh absolute output path")
+        if journals is not None and not journals.is_absolute():
+            raise ValueError("capacity parity requires an absolute journal directory")
         output.parent.mkdir(parents=True, exist_ok=True)
-        replay_root = output.with_suffix("")
+        replay_root = output.with_suffix("") if journals is None else journals
         replay_root.mkdir(parents=True, exist_ok=False)
         accounts: list[dict[str, object]] = []
         for account in self.service.accounts:
@@ -937,10 +946,10 @@ class SustainedEconomicReplay(CapacityEconomicParity):
         while pending:
             self._reconcile(journal, pending.pop(0))
 
-    def write(self, output: Path) -> dict[str, object]:
+    def write(self, output: Path, journals: Path | None = None) -> dict[str, object]:
         """Replay every account, then require the declared speed over the recorded interval."""
         started = time.monotonic()
-        report = super().write(output)
+        report = super().write(output, journals)
         seconds = time.monotonic() - started
         interval = self.codec.decode_json(
             (self.trial / "reads/summary.json").read_bytes(), _MeasuredInterval
@@ -976,6 +985,7 @@ def main() -> None:
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--sustained", choices=("sustained", "day", "day-rehearsal"))
     parser.add_argument("--speed", type=float, default=4.0)
+    parser.add_argument("--journals", type=Path)
     args = parser.parse_args(namespace=_Arguments())
     replay = (
         SustainedEconomicReplay(args.root, args.trial, args.sustained, args.speed)
@@ -984,7 +994,7 @@ def main() -> None:
         if args.baseline is None
         else CapacityRecoveryEconomicParity(args.root, args.trial, args.baseline)
     )
-    report = replay.write(args.output)
+    report = replay.write(args.output, args.journals)
     print(
         DomainCodec()
         .encode_json({"qualified": report["qualified"], "output": str(args.output)})
