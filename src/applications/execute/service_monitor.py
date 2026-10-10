@@ -232,6 +232,12 @@ class PaperServiceDiagnostics:
             self.failures += 1
             self.last_error = f"diagnostic_request:{type(error).__name__}"
 
+    @property
+    def idle(self) -> bool:
+        """Report whether every submitted report batch has completed, as last read."""
+        completed = 0 if self._state is None else self._state.completed_sequence
+        return completed >= self._submitted
+
     def poll(self) -> tuple[DiagnosticReceipt, ...]:
         """Read completed compact receipts and expose a lost child without retrying it."""
         self._refresh_state()
