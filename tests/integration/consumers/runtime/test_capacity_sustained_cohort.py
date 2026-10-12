@@ -14,7 +14,9 @@ from typing import Literal, cast
 # third party library imports
 import msgspec
 import pytest
+from capacity_sustained import SustainedWorkload
 from capacity_sustained_cohort import (
+    SupervisorDelivery,
     SustainedCohort,
     SustainedDeclaration,
     SustainedGates,
@@ -40,6 +42,57 @@ class SustainedCohortFixture:
     def windows(status: str = "pass") -> dict[str, object]:
         """Author one rolling-window class summary."""
         return {"status": status, "windows": []}
+
+    @staticmethod
+    def delivery(phase: Literal["a", "b"]) -> dict[str, object]:
+        """Author the supervisor's final accounting, shaped like the 2026-10-03 run.
+
+        In phase A the killed ``bitfinex-isolated`` owner received an exact prefix of its
+        feed, the supervisor faulted it and recorded its loss; phase B is complete.
+        """
+        feeds = {
+            "okx-btc-book": "okx-shared",
+            "okx-eth-book": "okx-isolated",
+            "bitfinex-btc-book": "bitfinex-shared",
+            "bitfinex-eth-book": "bitfinex-isolated",
+        }
+        accounting: dict[str, object] = {}
+        for feed, account in feeds.items():
+            fenced = phase == "a" and account == "bitfinex-isolated"
+            delivered = 49523 if fenced else 49538
+            accounting[feed] = {
+                "status": "incomplete" if fenced else "complete",
+                "capture_finalization": "completed",
+                "result_retained": True,
+                "pipe_drained": True,
+                "source_exitcode": 0,
+                "durable_records": 49538,
+                "pipe_deliveries": 49538,
+                "error": None,
+                "accounts": {
+                    account: {
+                        "complete": not fenced,
+                        "observed_deliveries": delivered,
+                        "retained_deliveries": delivered,
+                    }
+                },
+            }
+        failures: list[object] = (
+            [
+                {"reason": "account_owner_lost", "subject": "bitfinex-isolated"},
+                {"reason": "source_delivery_incomplete", "subject": "bitfinex-eth-book"},
+                {"reason": "shutdown_failed", "subject": "bitfinex-isolated"},
+            ]
+            if phase == "a"
+            else []
+        )
+        return {
+            "readable": True,
+            "expected": {feed: [account] for feed, account in feeds.items()},
+            "accounting": accounting,
+            "failures": failures,
+            "faulted_accounts": ["bitfinex-isolated"] if phase == "a" else [],
+        }
 
     @staticmethod
     def evidence(
@@ -102,6 +155,7 @@ class SustainedCohortFixture:
                 account: {"attempts": interval // 60, "matched": interval // 60, "max_seconds": 0.1}
                 for account in accounts
             },
+            "supervisor_delivery": SustainedCohortFixture.delivery(phase),
         }
         observations = [
             _Observation(
@@ -206,7 +260,11 @@ class TestSustainedGates:
         assert self._mutated(base, "rejected") == ["checkpoints_commit_without_rejection"]
         assert self._mutated(base, "orders") == ["orders_only_at_opening"]
         assert self._mutated(base, "mismatch") == ["accounts_reconciled_on_cadence"]
-        assert self._mutated(base, "fence") == ["injected_owner_death_fenced"]
+        # A slow fence also withdraws the fenced owner's delivery exception.
+        assert self._mutated(base, "fence") == [
+            "supervisor_source_delivery_complete",
+            "injected_owner_death_fenced",
+        ]
         assert self._mutated(base, "segments") == ["segments_rolled_over"]
 
     def test_only_the_fenced_owner_may_end_with_an_undelivered_tail(self) -> None:
@@ -223,6 +281,163 @@ class TestSustainedGates:
         assert SustainedCohortFixture.failed("a", summary, results, sustained, observations) == [
             "native_delivery_parity_complete"
         ]
+
+    def test_valid_offline_replay_cannot_mask_an_incomplete_supervisor_verdict(self) -> None:
+        """Regression: verified captures and full parity still fail an incomplete verdict.
+
+        day-counted-2's supervisor marked every source incomplete (terminated, result not
+        retained, pipe not drained) and no gate read it.
+        """
+        for phase in ("a", "b"):
+            summary, results, sustained, observations = SustainedCohortFixture.evidence(phase)
+            delivery = cast(dict[str, object], sustained["supervisor_delivery"])
+            accounting = cast(dict[str, dict[str, object]], delivery["accounting"])
+            accounting["okx-btc-book"].update(
+                status="incomplete", result_retained=False, pipe_drained=False, source_exitcode=-15
+            )
+            cast(list[object], delivery["failures"]).append(
+                {"reason": "source_delivery_incomplete", "subject": "okx-btc-book"}
+            )
+            # Offline replay and native delivery parity still pass for every source.
+            assert SustainedCohortFixture.failed(
+                phase, summary, results, sustained, observations
+            ) == ["supervisor_source_delivery_complete"]
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            "missing",
+            "unreadable",
+            "no_accounting",
+            "missing_feed",
+            "extra_account",
+            "event",
+            "incomplete_without_event",
+            "no_retained_count",
+            "unconfigured_trades",
+        ],
+    )
+    def test_missing_malformed_or_incomplete_accounting_fails(self, change: str) -> None:
+        """Absent facts, a missing feed or account, or a stray incomplete event each fail."""
+        summary, results, sustained, observations = SustainedCohortFixture.evidence("b")
+        delivery = cast(dict[str, object], sustained["supervisor_delivery"])
+        accounting = cast(dict[str, dict[str, object]], delivery["accounting"])
+        if change == "missing":
+            del sustained["supervisor_delivery"]
+        elif change == "unreadable":
+            sustained["supervisor_delivery"] = {"readable": False, "reason": "status: DecodeError"}
+        elif change == "no_accounting":
+            delivery["accounting"] = None
+        elif change == "missing_feed":
+            del accounting["okx-eth-book"]
+        elif change == "extra_account":
+            cast(dict[str, object], accounting["okx-eth-book"]["accounts"])["okx-shared"] = {
+                "complete": True,
+                "observed_deliveries": 49538,
+                "retained_deliveries": 49538,
+            }
+        elif change == "event":
+            cast(list[object], delivery["failures"]).append(
+                {"reason": "source_delivery_incomplete", "subject": "okx-eth-book"}
+            )
+        elif change == "incomplete_without_event":
+            accounting["okx-eth-book"]["status"] = "incomplete"
+            account = cast(dict[str, dict[str, object]], accounting["okx-eth-book"]["accounts"])
+            account["okx-isolated"]["complete"] = False
+        elif change == "no_retained_count":
+            account = cast(dict[str, dict[str, object]], accounting["okx-eth-book"]["accounts"])
+            del account["okx-isolated"]["retained_deliveries"]
+        else:
+            # A trades feed that the configuration does not declare is never accepted.
+            accounting["okx-eth-book.trades"] = copy.deepcopy(accounting["okx-eth-book"])
+        assert SustainedCohortFixture.failed("b", summary, results, sustained, observations) == [
+            "supervisor_source_delivery_complete"
+        ]
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            "phase_b",
+            "no_fence",
+            "not_faulted",
+            "no_loss",
+            "other_account",
+            "lost_records",
+            "victim_source_killed",
+        ],
+    )
+    def test_only_the_evidenced_injected_owner_death_is_excepted(self, change: str) -> None:
+        """The fenced owner's prefix passes only in phase A with its evidence, nowhere else."""
+        phase: Literal["a", "b"] = "b" if change == "phase_b" else "a"
+        summary, results, sustained, observations = SustainedCohortFixture.evidence("a")
+        delivery = cast(dict[str, object], sustained["supervisor_delivery"])
+        accounting = cast(dict[str, dict[str, object]], delivery["accounting"])
+        failures = cast(list[dict[str, object]], delivery["failures"])
+        expected = ["supervisor_source_delivery_complete"]
+        if change == "phase_b":
+            observations[-1] = _Observation(
+                kind="all_replacement_instances_progressed",
+                values={"first_claim_to_progress_seconds": 31.2, "within_40_seconds": True},
+            )
+            for counts in cast(dict[str, dict[str, int]], sustained["commits"]).values():
+                counts.pop("committed:reserved", None)
+        elif change == "no_fence":
+            observations.pop()
+            expected = ["injected_owner_death_fenced", "supervisor_source_delivery_complete"]
+        elif change == "not_faulted":
+            delivery["faulted_accounts"] = []
+        elif change == "no_loss":
+            failures.pop(0)
+        elif change == "other_account":
+            account = cast(dict[str, dict[str, object]], accounting["okx-btc-book"]["accounts"])
+            account["okx-shared"].update(
+                complete=False, observed_deliveries=10, retained_deliveries=10
+            )
+            accounting["okx-btc-book"]["status"] = "incomplete"
+        elif change == "lost_records":
+            account = cast(
+                dict[str, dict[str, object]], accounting["bitfinex-eth-book"]["accounts"]
+            )
+            account["bitfinex-isolated"]["retained_deliveries"] = 49500
+        else:
+            # Even with full evidence, the victim's feed must itself seal and exit cleanly.
+            accounting["bitfinex-eth-book"]["source_exitcode"] = -15
+        failed = SustainedCohortFixture.failed(phase, summary, results, sustained, observations)
+        assert set(failed) == set(expected)
+
+    def test_a_death_recorded_as_a_failed_delivery_is_also_evidence(self) -> None:
+        """A checkpoint reaching the dead owner first records a delivery failure instead."""
+        summary, results, sustained, observations = SustainedCohortFixture.evidence("a")
+        delivery = cast(dict[str, object], sustained["supervisor_delivery"])
+        failures = cast(list[dict[str, object]], delivery["failures"])
+        failures[0] = {"reason": "account_or_delivery_failure", "subject": "bitfinex-isolated"}
+        assert SustainedCohortFixture.failed("a", summary, results, sustained, observations) == []
+
+    @pytest.mark.parametrize("victim", [False, True])
+    def test_a_declared_trades_feed_is_graded_when_present(self, victim: bool) -> None:
+        """A configured trades feed may be absent; when present it counts deliveries only.
+
+        The fenced owner's trades feed is excepted with a prefix in phase A; any other
+        account's short trades count fails.
+        """
+        summary, results, sustained, observations = SustainedCohortFixture.evidence("a")
+        delivery = cast(dict[str, object], sustained["supervisor_delivery"])
+        expected = cast(dict[str, list[str]], delivery["expected"])
+        accounting = cast(dict[str, dict[str, object]], delivery["accounting"])
+        failures = cast(list[dict[str, object]], delivery["failures"])
+        feed = "bitfinex-eth-book" if victim else "okx-btc-book"
+        account = "bitfinex-isolated" if victim else "okx-shared"
+        expected[f"{feed}.trades"] = [account]
+        # Configured but absent: a trades child starts only when a candidate reads trades.
+        assert SustainedCohortFixture.failed("a", summary, results, sustained, observations) == []
+        accounting[f"{feed}.trades"] = {
+            **accounting["okx-btc-book"],
+            "status": "incomplete",
+            "accounts": {account: {"complete": False, "observed_deliveries": 40000}},
+        }
+        failures.append({"reason": "source_delivery_incomplete", "subject": f"{feed}.trades"})
+        failed = SustainedCohortFixture.failed("a", summary, results, sustained, observations)
+        assert failed == ([] if victim else ["supervisor_source_delivery_complete"])
 
     def test_recovered_phase_places_no_further_orders(self) -> None:
         """After recovery the held target needs no order; any reserved commit fails."""
@@ -361,3 +576,40 @@ class TestSourceVerificationStep:
         with pytest.raises(FileNotFoundError, match="source verifier is absent"):
             SustainedCohort.verify_sources(cast(SustainedCohort, cohort), "day", trial)
         assert not tuple(trial.rglob(SourceVerification.RECORD))
+
+
+class TestSupervisorDelivery:
+    """Read the supervisor's final accounting against the deployed feeds."""
+
+    def test_expected_feeds_come_from_the_deployed_configuration(self, tmp_path: Path) -> None:
+        """Every configured feed and account is expected; an unreadable status is reported."""
+        workload = SustainedWorkload(
+            opening_at=datetime(2026, 10, 3, 12, tzinfo=UTC),
+            socket_root=Path("/private/tmp/capacity-supervisor-delivery"),
+        )
+        config = workload.service_configuration()
+        (tmp_path / "configuration.json").write_bytes(DomainCodec().encode_json(config))
+        missing = SupervisorDelivery(tmp_path).facts()
+        assert missing["readable"] is False and missing["reason"] == "status: FileNotFoundError"
+        expected = cast(dict[str, list[str]], missing["expected"])
+        assert sorted(expected) == sorted(source.name for source in config.sources)
+        assert all(len(accounts) == 1 for accounts in expected.values())
+        (tmp_path / "operating").mkdir()
+        (tmp_path / "operating/status.json").write_bytes(b"{")
+        assert SupervisorDelivery(tmp_path).facts()["reason"] == "status: DecodeError"
+        status = {
+            "schema_version": "paper-service-status",
+            "source_delivery_accounting": {"okx-btc-book": {"status": "complete"}},
+            "failures": [],
+            "faulted_accounts": [],
+        }
+        (tmp_path / "operating/status.json").write_bytes(DomainCodec().encode_json(status))
+        facts = SupervisorDelivery(tmp_path).facts()
+        assert facts["readable"] is True and facts["accounting"] == {
+            "okx-btc-book": {"status": "complete"}
+        }
+        (tmp_path / "configuration.json").unlink()
+        assert SupervisorDelivery(tmp_path).facts() == {
+            "readable": False,
+            "reason": "configuration: FileNotFoundError",
+        }

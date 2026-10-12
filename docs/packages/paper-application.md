@@ -354,7 +354,9 @@ every retained summary field); for a single journal, `SavedCapture` with its man
 and cursor digests and limits. It then requires the sealed result to equal what was
 verified and retains `source-verification.json` once, bound to the result's SHA-256.
 Only a verified record still bound to its result gives replay parity; a failure is
-retained as a failed record, and an existing record is never replaced.
+retained as a failed record, and an existing record is never replaced. The capacity
+cohort also grades the supervisor's own final `source_delivery_accounting` in
+`status.json`; a verified capture never stands in for an incomplete supervisor verdict.
 
 `fixed_clip`, `liquidity_clip` and `target_clip` are different engineering formulas,
 not profitability recommendations. The two clip formulas price on the tick grid of the
