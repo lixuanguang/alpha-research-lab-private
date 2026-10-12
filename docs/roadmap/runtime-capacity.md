@@ -191,7 +191,8 @@ A failed counted attempt is kept as it ended. Diagnostics on its data never regr
   delivery index (larger than the Bitfinex log), grading time (about 2 h 35 min
   after the trial ended, almost all of it collecting `results.json`), and the
   supervisor's own source-completeness verdict (`source_delivery_incomplete`), which no
-  cohort gate grades (review finding; it predates this attempt).
+  cohort gate graded (review finding; it predates this attempt; graded from the commit
+  after a939db5 by `supervisor_source_delivery_complete`).
 - Evidence: `~/AlphaResearchEvidence.noindex/runtime-capacity/day-counted-2/` (also
   `logs/runtime-capacity/day-counted-2/`), immutable, with `PRESERVATION.md` and SHA-256
   manifests. Diagnostics: `~/AlphaResearchEvidence.noindex/runtime-capacity/day-counted-2-diagnostic/`.
@@ -227,6 +228,12 @@ workload's, unchanged and not waived.
 **Gates.**
 - Every sustained phase gate:
   - run, inputs, parity and reads;
+  - the supervisor's own final source-delivery accounting
+    (`supervisor_source_delivery_complete`): every configured feed sealed, retained,
+    drained, exited cleanly and delivered every durable record to every configured
+    account, with no `source_delivery_incomplete` event. Offline verification never
+    stands in for it. Only the sustained profile's phase A excepts the declared,
+    fenced owner death, whose feed may end with that owner's exact retained prefix;
   - latency in every 300 s window;
   - checkpoints, reconciliation and orders.
 - Checkpoint percentiles: selected book to committed checkpoint at 250/750/2,000 ms over

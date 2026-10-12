@@ -35,7 +35,9 @@ from capacity_sustained_results import SustainedResults, WindowBudget
 from capacity_trial import TrialTimings, TrialWorkload, TrialWorkloads
 
 # project library imports
+from configuration import PaperServiceConfiguration
 from market_data.storage import CaptureRecording
+from serialization import DomainCodec
 
 _MS = 1_000_000
 # A source chain's explicit offline replay envelope: the largest SavedCaptureRun admits.
@@ -169,6 +171,54 @@ class _Observation(msgspec.Struct, frozen=True):
     values: object
 
 
+class SupervisorDelivery:
+    """Read one phase's final supervisor source-delivery accounting and its expected feeds.
+
+    The supervisor writes ``source_delivery_accounting`` and its failure events into the
+    final ``operating/status.json`` after shutdown. The deployed ``configuration.json``
+    names every feed and the accounts each feeds, so a missing entry cannot pass unseen.
+    """
+
+    def __init__(self, trial: Path) -> None:
+        """Bind one trial output directory."""
+        self.trial = trial
+        self.codec = DomainCodec()
+
+    def facts(self) -> dict[str, object]:
+        """Return the expected feeds and the retained accounting, or why either is unreadable."""
+        try:
+            config = self.codec.decode_json(
+                (self.trial / "configuration.json").read_bytes(), PaperServiceConfiguration
+            )
+        except (OSError, ValueError, msgspec.DecodeError) as error:
+            return {"readable": False, "reason": f"configuration: {type(error).__name__}"}
+        expected: dict[str, list[str]] = {}
+        for source in config.sources:
+            accounts = sorted(
+                {item.account_id for item in config.instances if item.source == source.name}
+            )
+            expected[source.name] = accounts
+            if source.trades is not None:
+                expected[f"{source.name}.trades"] = accounts
+        try:
+            status = msgspec.json.decode(
+                (self.trial / "operating/status.json").read_bytes(), type=dict[str, object]
+            )
+        except (OSError, msgspec.DecodeError) as error:
+            return {
+                "readable": False,
+                "expected": expected,
+                "reason": f"status: {type(error).__name__}",
+            }
+        return {
+            "readable": True,
+            "expected": expected,
+            "accounting": status.get("source_delivery_accounting"),
+            "failures": status.get("failures"),
+            "faulted_accounts": status.get("faulted_accounts"),
+        }
+
+
 class SustainedGates:
     """Judge one sustained phase's evidence against its declaration."""
 
@@ -228,6 +278,11 @@ class SustainedGates:
                     results, declaration.inject_owner_death if phase == "a" else None
                 ),
                 cls._delivery_statuses(results),
+            ),
+            cls._supervisor_delivery(
+                sustained.get("supervisor_delivery"),
+                declaration.inject_owner_death if phase == "a" else None,
+                cls._fenced(observations, declaration) if phase == "a" else False,
             ),
         ]
         if phase in ("a", "day"):
@@ -317,15 +372,11 @@ class SustainedGates:
         if phase == "day":
             gates.extend(cls._day(recordings, latencies, observations, declaration))
         elif phase == "a":
-            fence = cls._values(observations, "injected_owner_death")
             gates.append(
                 Gate(
                     "injected_owner_death_fenced",
-                    fence is not None
-                    and fence.get("account") == declaration.inject_owner_death
-                    and isinstance(fence.get("fence_seconds"), float)
-                    and cast(float, fence["fence_seconds"]) <= 2,
-                    fence,
+                    cls._fenced(observations, declaration),
+                    cls._values(observations, "injected_owner_death"),
                 )
             )
         else:
@@ -422,6 +473,159 @@ class SustainedGates:
                 ).items():
                     statuses[f"{source}/{key}/{account}"] = _Tree.get(parity, "status")
         return statuses
+
+    @classmethod
+    def _fenced(
+        cls, observations: tuple[_Observation, ...], declaration: SustainedDeclaration
+    ) -> bool:
+        """Report the declared owner death fenced within two seconds, as retained."""
+        fence = cls._values(observations, "injected_owner_death")
+        return (
+            fence is not None
+            and fence.get("account") == declaration.inject_owner_death
+            and isinstance(fence.get("fence_seconds"), float)
+            and cast(float, fence["fence_seconds"]) <= 2
+        )
+
+    @classmethod
+    def _supervisor_delivery(cls, facts: object, fenced: str | None, evidenced: bool) -> Gate:
+        """Grade the supervisor's final verdict for every expected feed and account.
+
+        Offline capture verification never substitutes for it. Every feed must be complete:
+        sealed, result retained, pipe drained, exit 0, every durable record delivered and
+        every expected account complete. Only in phase A, and only with the fence
+        evidenced, the supervisor faulting exactly the declared owner and that owner's
+        loss recorded, may a feed of that owner end incomplete, and then only because
+        that owner received an exact retained prefix.
+        """
+        name = "supervisor_source_delivery_complete"
+        if not isinstance(facts, dict):
+            return Gate(name, False, {"reasons": ["missing"]})
+        values = cast(dict[str, object], facts)
+        if values.get("readable") is not True:
+            return Gate(name, False, {"reasons": [str(values.get("reason"))]})
+        expected = cls._mapping(values.get("expected"))
+        accounting = cls._mapping(values.get("accounting"))
+        failures = cls._events(values.get("failures"))
+        reasons: list[str] = []
+        excepted: list[str] = []
+        if not expected:
+            reasons.append("no expected feeds")
+        elif accounting is None:
+            reasons.append("accounting missing or malformed")
+        else:
+            books = {feed for feed in expected if not feed.endswith(".trades")}
+            # A trades child starts only when a candidate reads trades, so a configured
+            # trades feed may be absent; a present one is graded like every other feed.
+            if not books <= set(accounting) or not set(accounting) <= set(expected):
+                reasons.append(f"feeds {sorted(accounting)} differ from {sorted(expected)}")
+            # The supervisor records the killed owner as lost, or as a failed delivery
+            # when a checkpoint commit reaches the dead socket first.
+            losses = {
+                item.get("subject")
+                for item in failures or ()
+                if item.get("reason") in ("account_owner_lost", "account_or_delivery_failure")
+            }
+            exception = (
+                fenced is not None
+                and evidenced
+                and values.get("faulted_accounts") == [fenced]
+                and fenced in losses
+            )
+            for feed in sorted(set(accounting) & set(expected)):
+                problem = cls._feed_problem(
+                    accounting[feed],
+                    expected[feed],
+                    fenced if exception else None,
+                    trades=feed.endswith(".trades"),
+                )
+                if problem == "excepted":
+                    excepted.append(feed)
+                elif problem:
+                    reasons.append(f"{feed}: {problem}")
+        if failures is None:
+            reasons.append("failure events missing or malformed")
+        else:
+            reasons.extend(
+                f"unexpected source_delivery_incomplete: {item.get('subject')}"
+                for item in failures
+                if item.get("reason") == "source_delivery_incomplete"
+                and item.get("subject") not in excepted
+            )
+        return Gate(
+            name,
+            not reasons,
+            {"reasons": reasons, "excepted_fenced_owner_feeds": excepted, "fenced": fenced},
+        )
+
+    @staticmethod
+    def _mapping(value: object) -> dict[str, object] | None:
+        """Return a decoded JSON object, or None for anything else."""
+        return cast(dict[str, object], value) if isinstance(value, dict) else None
+
+    @classmethod
+    def _events(cls, value: object) -> list[dict[str, object]] | None:
+        """Return decoded failure events, or None unless every item is an object."""
+        if not isinstance(value, list):
+            return None
+        items = cast(list[object], value)
+        events = [cls._mapping(item) for item in items]
+        return (
+            None
+            if any(event is None for event in events)
+            else cast(list[dict[str, object]], events)
+        )
+
+    @classmethod
+    def _feed_problem(
+        cls, entry: object, accounts: object, fenced: str | None, *, trades: bool
+    ) -> str:
+        """Return why one feed's accounting is not complete, "excepted", or "".
+
+        A book account retains every delivery; a trades account only counts them.
+        """
+        values = cls._mapping(entry)
+        if values is None or not isinstance(accounts, list):
+            return "accounting entry malformed"
+        configured = sorted(str(item) for item in cast(list[object], accounts))
+        durable = values.get("durable_records")
+        if (
+            values.get("capture_finalization") != "completed"
+            or values.get("result_retained") is not True
+            or values.get("pipe_drained") is not True
+            or values.get("source_exitcode") != 0
+            or values.get("error") is not None
+            or not isinstance(durable, int)
+            or values.get("pipe_deliveries") != durable
+        ):
+            return "source did not seal, retain, drain, exit cleanly and deliver every record"
+        delivered = cls._mapping(values.get("accounts"))
+        if delivered is None or sorted(delivered) != configured:
+            return "accounts differ from the configured accounts"
+        incomplete: list[str] = []
+        for account, item in delivered.items():
+            counts = cls._mapping(item)
+            if counts is None:
+                return f"account {account} malformed"
+            observed = counts.get("observed_deliveries")
+            retained = observed if trades else counts.get("retained_deliveries")
+            if counts.get("complete") is True and retained == observed == durable:
+                continue
+            if (
+                account == fenced
+                and counts.get("complete") is False
+                and isinstance(observed, int)
+                and observed == retained
+                and 0 <= observed <= durable
+            ):
+                incomplete.append(account)
+                continue
+            return f"account {account} incomplete"
+        if values.get("status") == "complete" and not incomplete:
+            return ""
+        if values.get("status") == "incomplete" and incomplete == [fenced]:
+            return "excepted"
+        return f"status {values.get('status')} inconsistent with its accounts"
 
     @classmethod
     def _delivery_complete(cls, results: dict[str, object], fenced: str | None) -> bool:
@@ -572,6 +776,8 @@ class SustainedCohort(Cohort):
             budgets=declaration.budgets,
             fixture=declaration.fixture,
         ).collect()
+        # The supervisor's own final verdict is graded beside offline verification.
+        sustained["supervisor_delivery"] = SupervisorDelivery(output).facts()
         (output / "sustained-results.json").write_bytes(self.codec.encode_json(sustained))
         summary = msgspec.json.decode(
             (output / "summary.json").read_bytes(), type=dict[str, object]

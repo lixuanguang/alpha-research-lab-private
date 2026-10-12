@@ -37,6 +37,8 @@ class DayFixture:
     ) -> _Evidence:
         """Scale phase-A evidence to the declared day and add per-account checkpoints."""
         summary, results, sustained, observations = SustainedCohortFixture.evidence("a")
+        # An ordinary day's supervisor verdict is complete; only phase A excepts a death.
+        sustained["supervisor_delivery"] = SustainedCohortFixture.delivery("b")
         assert declaration.day is not None
         interval = declaration.day.interval_seconds
         recordings = cast(dict[str, list[dict[str, object]]], sustained["recordings"])
@@ -159,6 +161,15 @@ class TestDayDayGates:
         else:
             recordings["okx-btc-book"][0]["segments"] = 47
         assert gate in DayFixture.failed(declaration, evidence)
+
+    def test_a_fenced_prefix_verdict_fails_a_day(self) -> None:
+        """The injected-death exception never applies to a day phase."""
+        declaration = SustainedDeclaration.counted_day()
+        summary, results, sustained, observations = DayFixture.day(declaration)
+        sustained["supervisor_delivery"] = SustainedCohortFixture.delivery("a")
+        assert DayFixture.failed(declaration, (summary, results, sustained, observations)) == [
+            "supervisor_source_delivery_complete"
+        ]
 
     def test_rehearsal_reports_checkpoint_percentiles_without_grading(self) -> None:
         """A rehearsal's percentiles are retained but never fail it."""
