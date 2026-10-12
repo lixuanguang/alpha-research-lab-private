@@ -160,7 +160,10 @@ profitability.
 3. Day-run rehearsal (2 hours) on the static host. Its fixes come back as commits. Code
    freezes when the counted day run passes.
 4. A full uncounted journey rehearsal on the development laptop, on the frozen commit.
-5. The counted day run (about 25 hours) with its 4× replay.
+5. The counted day run (about 25 hours) with its 4× replay. `day-counted-2` failed on
+   2026-10-12 on source replay parity at shutdown; the next attempt needs that fix, a
+   check of the shutdown path, and an owner booking
+   ([failed attempts](runtime-capacity.md#failed-attempts)).
 6. The 72-hour retention check.
 7. The counted onboarding journey (owner approval; the owner chooses the host). It may
    overlap step 6.

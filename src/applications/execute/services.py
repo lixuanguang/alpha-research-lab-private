@@ -21,7 +21,7 @@ from multiprocessing.connection import Connection, wait
 from multiprocessing.process import BaseProcess
 from multiprocessing.synchronize import Event
 from pathlib import Path
-from typing import Literal, cast
+from typing import ClassVar, Literal, cast
 from uuid import uuid4
 
 # project library imports
@@ -176,7 +176,14 @@ class PaperServices:
     complete cohort once.
     No uncertain account operation is retried. Operator recovery uses retained
     facts and the separate signed account command, then a new explicit launch.
+    At shutdown each source seals its capture within the drain budget; replay
+    parity is verified afterwards by ``SourceVerification``, never during the stop.
     """
+
+    # Most seconds a stopping source may take to drain its pipe and exit before it is
+    # terminated; a stop at the service's own end of life has only its drain reserve.
+    # A source's stop costs only its seal; a chain's seal does not grow with the run.
+    source_drain_seconds: ClassVar[float] = 10.0
 
     def __init__(
         self,
@@ -499,7 +506,7 @@ class PaperServices:
         self._join_observations()
         self.is_stopping = True
         drain_deadline = min(
-            time.monotonic() + 10.0,
+            time.monotonic() + self.source_drain_seconds,
             float("inf") if deadline is None else deadline,
         )
         if self.diagnostics is not None:

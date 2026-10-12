@@ -21,6 +21,7 @@ from capacity_inputs import FixtureReceipts
 from capacity_sustained import SustainedNativeFixture
 
 # project library imports
+from applications.execute import SourceVerification
 from market_data.storage import CaptureRecording
 
 
@@ -365,25 +366,38 @@ class SustainedResults:
         return dict(result)
 
     def recordings(self) -> dict[str, object]:
-        """Report every source's recordings, segments and the source child's replay parity."""
+        """Report every source's recordings, segments and explicitly verified replay parity."""
         result: dict[str, object] = {}
         for run in sorted((self.trial / "operating/runs").iterdir()):
             for source in sorted(path for path in run.iterdir() if path.is_dir()):
                 entries: list[dict[str, object]] = []
                 for recording in CaptureRecording.discover(source):
-                    summary_path = recording.root.parent / "source-result.json"
+                    verification = SourceVerification(recording.root.parent)
+                    summary_path = verification.root / SourceVerification.RESULT
+                    record_path = verification.root / SourceVerification.RECORD
                     summary = (
                         msgspec.json.decode(summary_path.read_bytes(), type=dict[str, object])
                         if summary_path.is_file()
                         else {}
                     )
+                    try:
+                        record = (
+                            msgspec.json.decode(record_path.read_bytes(), type=dict[str, object])
+                            if record_path.is_file()
+                            else {}
+                        )
+                    except msgspec.DecodeError:
+                        record = {"status": "unreadable"}
                     entries.append(
                         {
                             "key": recording.key,
                             "completed": recording.completed,
                             "segments": len(recording.cursor().segments),
                             "durable_records": recording.cursor().records,
-                            "replay_parity": summary.get("replay_parity") is True,
+                            # Parity comes only from an explicit verification record
+                            # bound to this sealed result, never from the result itself.
+                            "replay_parity": verification.verified(),
+                            "verification": record.get("status", "missing"),
                             "stop_reason": summary.get("stop_reason"),
                         }
                     )

@@ -321,6 +321,12 @@ Through `InstalledPaperAccount`, backup and restore are awaited up to 300 second
 and other actions 30, within the signed launcher's own bound; see the
 [signed account consumer](paper-application.md#signed-account-consumer).
 
+`source-verification --root <source result directory> --max-seconds N` replays one
+stopped paper source's sealed capture after its deployment ends and retains
+`source-verification.json` beside `source-result.json`. It never contacts a venue
+or account and never replaces an existing record; a mismatch exits 2 with the
+failure retained. See [source shutdown and verification](paper-application.md).
+
 The [operating runbook](../governance/operations.md#local-paper-operations)
 owns startup, incident, restoration and signed rollback procedures. The
 [operational consumer](../../tests/integration/consumers/runtime/account_operations.py)

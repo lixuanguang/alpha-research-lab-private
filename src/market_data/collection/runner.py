@@ -69,9 +69,31 @@ class CaptureChainResult:
     summary: dict[str, object]
 
 
+@dataclass(frozen=True, slots=True)
+class SealedCapture:
+    """Expose a durably sealed recording or chain and its live summary, not yet verified.
+
+    Sealing retains every acknowledged record, the terminal boundary and the live
+    summary. It claims no replay parity: a caller that needs parity replays the
+    saved input explicitly afterwards (``SavedCapture`` or ``SavedCaptureRun``).
+    """
+
+    request: CaptureRequest | CaptureRunRequest
+    root: Path
+    summary: dict[str, object]
+
+
 # Offline chain replay is a liveness bound only; the service's stop budget is declared
 # separately. It is the largest envelope SavedCaptureRun admits.
 _CHAIN_VERIFICATION_SECONDS = 7200
+# The sealed single-recording fields a verified summary carries after its replay summary.
+_SEALED_RECORDING_FIELDS = (
+    "request_identity",
+    "saved_input_identity",
+    "saved_bytes",
+    "capture_directory",
+    "stop_reason",
+)
 
 
 class _Journal:
@@ -132,6 +154,10 @@ class _SegmentChain:
 
 class CaptureRunner:
     """Own finite receipt, durable application, retry and terminal replay parity.
+
+    ``run`` and ``run_chain`` verify the saved input before returning; ``seal`` and
+    ``seal_chain`` stop at the durable seal and claim no parity, for a finite service
+    whose stop budget cannot cover a whole replay.
 
     The application supplies native adapters and subscription policy. The optional
     observer sees the exact same canonical boundary as the journal replay only
@@ -202,6 +228,50 @@ class CaptureRunner:
             ValueError: Source, callback, replay or resource admission fails.
             OSError: Persistence or transport fails outside recoverable feed loss.
         """
+        journal, replay, root, reason = await self._record(request, output, stop_requested)
+        return await self._finalize(
+            asyncio.to_thread(self._finish, journal, replay, root, request, reason)
+        )
+
+    async def seal(
+        self,
+        request: CaptureRequest,
+        output: Path,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> SealedCapture:
+        """Capture a unique request and seal it without replaying the saved input.
+
+        A finite service uses this so its stop costs only the seal; the saved
+        recording is verified explicitly afterwards.
+
+        Args:
+            request: Explicit prebound recording identity; no ID is regenerated.
+            output: Parent directory for this request's new recording directory.
+            stop_requested: Optional finite-service stop signal; accepted receipts drain first.
+
+        Returns:
+            Sealed recording directory and its live summary, without a parity claim.
+
+        Raises:
+            ValueError: Source, callback or resource admission fails, or a canonical
+                book prefix is requested (its check needs the live replay).
+            OSError: Persistence or transport fails outside recoverable feed loss.
+        """
+        if self._snapshot_records is not None:
+            raise ValueError("a canonical book prefix is verified only by run")
+        journal, replay, root, reason = await self._record(request, output, stop_requested)
+        return await self._finalize(
+            asyncio.to_thread(self._seal, journal, replay, root, request, reason)
+        )
+
+    async def _record(
+        self,
+        request: CaptureRequest,
+        output: Path,
+        stop_requested: Callable[[], bool] | None,
+    ) -> tuple[CaptureJournal, CaptureReplay, Path, str]:
+        """Start one finite journal and capture it until its terminal boundary."""
         request.__post_init__()
         config = request.config
         root = output / request.recording_id
@@ -221,9 +291,7 @@ class CaptureRunner:
             config.max_messages,
             stop_requested,
         )
-        return await self._finalize(
-            asyncio.to_thread(self._finish, journal, replay, root, request, reason)
-        )
+        return journal, replay, root, reason
 
     async def run_chain(
         self,
@@ -249,6 +317,34 @@ class CaptureRunner:
 
         Raises:
             ValueError: Source, callback, chain replay or resource admission fails.
+            OSError: Persistence, including sealing or provisioning a segment, fails.
+        """
+        sealed = await self.seal_chain(request, output, stop_requested=stop_requested)
+        return await self._finalize(asyncio.to_thread(self._verify_chain, sealed))
+
+    async def seal_chain(
+        self,
+        request: CaptureRunRequest,
+        output: Path,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> SealedCapture:
+        """Capture one run through rolled-over segments and seal it without replaying it.
+
+        The run journal retains the live summary as ``run-summary.json``;
+        ``SavedCaptureRun`` verifies the saved chain against it explicitly afterwards.
+        A finite service uses this so its stop costs only the seal.
+
+        Args:
+            request: Immutable source, window and implementation for a new run directory.
+            output: Parent directory for the run's new directory, named by its run ID.
+            stop_requested: Optional finite-service stop signal; accepted receipts drain first.
+
+        Returns:
+            Sealed run directory and its live summary, without a parity claim.
+
+        Raises:
+            ValueError: Source, callback or resource admission fails.
             OSError: Persistence, including sealing or provisioning a segment, fails.
         """
         request.__post_init__()
@@ -277,7 +373,7 @@ class CaptureRunner:
                 stop_requested,
             )
             return await self._finalize(
-                asyncio.to_thread(self._finish_chain, run, writer, replay, root, request, reason)
+                asyncio.to_thread(self._seal_chain, run, writer, replay, root, request, reason)
             )
         finally:
             run.close()
@@ -621,7 +717,7 @@ class CaptureRunner:
         reason: str,
     ) -> CaptureRunResult:
         """Close original bytes and independently verify whole-message parity."""
-        descriptor = journal.finish(replay.started_ns or replay.finished_ns or 1)
+        sealed = self._seal(journal, replay, root, request, reason)
         offline = SavedCapture.read(root, book_factory=self._book_factory)
         if isinstance(replay, BookCapture):
             replay.verify(root)
@@ -629,18 +725,34 @@ class CaptureRunner:
             raise ValueError("saved-input replay differs from captured message-boundary state")
         summary = {
             **offline.summary(),
-            "request_identity": request.identity,
-            "saved_input_identity": descriptor.sha256,
-            "saved_bytes": descriptor.size_bytes,
-            "capture_directory": str(root.absolute()),
-            "stop_reason": reason,
+            **{key: sealed.summary[key] for key in _SEALED_RECORDING_FIELDS},
             "replay_parity": True,
             "canonical_parity": isinstance(replay, BookCapture),
         }
         (root / "summary.json").write_bytes(self._codec.encode_json(summary))
         return CaptureRunResult(request=request, root=root, summary=summary)
 
-    def _finish_chain(
+    def _seal(
+        self,
+        journal: CaptureJournal,
+        replay: CaptureReplay,
+        root: Path,
+        request: CaptureRequest,
+        reason: str,
+    ) -> SealedCapture:
+        """Close original bytes and return the live summary without replaying them."""
+        descriptor = journal.finish(replay.started_ns or replay.finished_ns or 1)
+        summary = {
+            **replay.summary(),
+            "request_identity": request.identity,
+            "saved_input_identity": descriptor.sha256,
+            "saved_bytes": descriptor.size_bytes,
+            "capture_directory": str(root.absolute()),
+            "stop_reason": reason,
+        }
+        return SealedCapture(request=request, root=root, summary=summary)
+
+    def _seal_chain(
         self,
         run: CaptureRunJournal,
         writer: CaptureSegmentWriter,
@@ -648,8 +760,8 @@ class CaptureRunner:
         root: Path,
         request: CaptureRunRequest,
         reason: str,
-    ) -> CaptureChainResult:
-        """Seal the last segment, retain the live summary, then replay the whole chain."""
+    ) -> SealedCapture:
+        """Seal the last segment and durably retain the live summary, without replay."""
         run.sealed(writer.current, writer.first_received_ns or replay.started_ns or 1)
         segment = writer.current.request.segment
         live = {
@@ -661,13 +773,15 @@ class CaptureRunner:
             "segments": 0 if segment is None else segment.ordinal + 1,
         }
         run.finish(live)
+        summary = {**live, "capture_directory": str(root.absolute())}
+        return SealedCapture(request=request, root=root, summary=summary)
+
+    def _verify_chain(self, sealed: SealedCapture) -> CaptureChainResult:
+        """Replay the whole sealed chain against its retained live summary."""
+        if not isinstance(sealed.request, CaptureRunRequest):
+            raise ValueError("chain verification requires a whole-run request")
         offline = SavedCaptureRun.read(
-            root, book_factory=self._book_factory, max_seconds=_CHAIN_VERIFICATION_SECONDS
+            sealed.root, book_factory=self._book_factory, max_seconds=_CHAIN_VERIFICATION_SECONDS
         )
-        summary = {
-            **live,
-            **offline.summary(),
-            "capture_directory": str(root.absolute()),
-            "replay_parity": True,
-        }
-        return CaptureChainResult(request=request, root=root, summary=summary)
+        summary = {**sealed.summary, **offline.summary(), "replay_parity": True}
+        return CaptureChainResult(request=sealed.request, root=sealed.root, summary=summary)

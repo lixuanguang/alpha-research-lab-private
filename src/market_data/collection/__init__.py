@@ -10,6 +10,7 @@ from market_data.collection.runner import (
     CaptureRunner,
     CaptureRunResult,
     CaptureTransport,
+    SealedCapture,
 )
 from market_data.collection.segments import CaptureSegmentWriter
 
@@ -25,4 +26,5 @@ __all__ = [
     "CaptureTransport",
     "ReceiptClock",
     "ReceiptStream",
+    "SealedCapture",
 ]

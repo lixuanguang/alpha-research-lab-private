@@ -1,8 +1,10 @@
 # Runtime capacity
 
 Owner: quant development. Status: **open.** The baseline and sustained runs are
-qualified. The counted day run, its 4× replay and its 72-hour retention remain, on a
-static host ([remaining work](overview.md#remaining-work-before-qr-onboarding)).
+qualified. The counted day attempt `day-counted-2` failed on 2026-10-12
+([failed attempts](#failed-attempts)). The counted day run, its 4× replay and its
+72-hour retention remain, on a static host
+([remaining work](overview.md#remaining-work-before-qr-onboarding)).
 
 This record holds the integrated paper/shadow capacity targets, the accepted results
 and the declaration of the day run. The
@@ -138,6 +140,62 @@ source, on the development host; then a synthetic day of account history.
   source-day, within the counted chain's 16 GiB bound and the 120 GiB canonical
   ceiling. The rehearsal is repeated before the counted run.
 
+## Failed attempts
+
+A failed counted attempt is kept as it ended. Diagnostics on its data never regrade it.
+
+**`day-counted-2` (2026-10-11 to 2026-10-12): failed.**
+- Candidate 72a74e3 (#120) on the development host, with the owner's recorded iCloud
+  waiver (`icloud_criterion: waived_by_owner`). Launched 01:22:11 GMT+8 on 11 October
+  after a 300 s preflight (idle 0.26 cores); the measured day ran from 01:30 on
+  11 October to 01:30 on 12 October.
+- The day step failed at 06:18:43 GMT+8 on 12 October. 19 of its 20 gates passed: the
+  trial, fixture slots, native delivery parity, segment rollover, every latency window
+  (receipt to durable, durable to BBO, feature durable to available, feature
+  retrieval, dashboard and depth/BBO reads), complete reads, checkpoints without
+  rejection, committed checkpoints and checkpoint percentiles per account,
+  reconciliation cadence, orders (opening only, within the grant and the daily target)
+  and receipt volume (9,504,484 messages, 25% a source).
+  `recordings_complete_with_replay_parity` failed: every source's `replay_parity` was
+  false. The cleanup audit passed. The host gate, the resource gate and the 4×
+  economic replay did not run.
+- Cause, confirmed by regression tests: no source retained `source-result.json`. All
+  four sources sealed their chains and wrote `run-summary.json` within the same second
+  of the stop (01:30:09), then replayed the whole chain before writing the result. A
+  day chain takes 33 s (Bitfinex) to 78 s (OKX) to replay; the supervisor's drain gives
+  a stopping source up to 10 s and then terminated all four (its shutdown ended at
+  01:30:18 to 01:30:19). The counted sustained run's 50-minute chains replayed inside
+  that budget. Two regressions fail on 72a74e3 and pass on the fix: an in-process stop
+  whose chain replay raises, and a spawned source under the real supervisor shutdown
+  whose replay outlasts the drain.
+- Fix: a source's stop only seals. `source-result.json` keeps the live summary with
+  verification pending and no parity claim; `alpha-execute source-verification`
+  replays the capture explicitly after the run and retains `source-verification.json`
+  bound to that result; the recordings gate reads parity only from that record
+  ([paper application](../packages/paper-application.md)).
+- Diagnostics on the preserved data (not counted): the unchanged `SavedCaptureRun`
+  verified all four chains (complete, terminal, within limits, every summary field
+  equal) in 33.1 to 77.5 s. With each source's sealed result reconstructed from its
+  `run-summary.json`, `source-verification` verified all four in 78.6 s in parallel and
+  refused a summary mismatch, one corrupted segment byte and a chain without its final
+  summary.
+- Storage at the end of the day (diagnostic, not a retention result): raw capture
+  2.02 GiB of 160; canonical 28.5 of 120; features and telemetry 25.6 of 32; scratch
+  7.07 of 8 (88%, above the 80% investigation threshold); account journals 56.8 GiB,
+  about 14.2 an account, ungraded; the whole attempt 120.6 GiB. Telemetry held 821,878
+  events, 5.75 million projected over 7 days against 8,000,000. Each delivery log
+  matched its estimate (5.74 GiB an OKX book, 2.36 a Bitfinex book); each delivery
+  index held 3.08 GiB.
+- Separate findings, not fixed with this cause: account-journal growth (each per-book
+  paper trace repeats its quote and the unchanged scenario, under four indexes), the
+  delivery index (larger than the Bitfinex log), grading time (about 2 h 35 min
+  after the trial ended, almost all of it collecting `results.json`), and the
+  supervisor's own source-completeness verdict (`source_delivery_incomplete`), which no
+  cohort gate grades (review finding; it predates this attempt).
+- Evidence: `~/AlphaResearchEvidence.noindex/runtime-capacity/day-counted-2/` (also
+  `logs/runtime-capacity/day-counted-2/`), immutable, with `PRESERVATION.md` and SHA-256
+  manifests. Diagnostics: `~/AlphaResearchEvidence.noindex/runtime-capacity/day-counted-2-diagnostic/`.
+
 ## Day run
 
 The approved declaration (owner, 2026-10-07). Targets and budgets are the launch
@@ -175,7 +233,8 @@ workload's, unchanged and not waived.
   the whole counted run, and in every window with at least 1,000 samples. Each account
   needs at least 1,000 committed checkpoints. Rehearsals report this and do not grade
   it.
-- Segments: at least 48 a source (counted), with exact chained replay.
+- Segments: at least 48 a source (counted), with exact chained replay, verified
+  explicitly after the day; a source's stop only seals.
 - Receipt: at least 7,000,000 messages, no source below 20%.
 - Resources: total RSS at most 24 GiB, mean CPU at most 7 cores and p95 at most 9;
   disk written and fsync cost reported.
@@ -201,7 +260,9 @@ workload's, unchanged and not waived.
 
 **Running it.** `capacity_sustained_cohort.py --stage day|day-rehearsal` runs freeze,
 candidate, quiet host, grants, the day, cleanup audit, host gate, resource gate and the
-economic replay. `capacity_retention.py` runs the retention check. A counted attempt runs
+economic replay. Within the day step, after the trial, every source recording is
+replayed by `alpha-execute source-verification` (in parallel, about 80 s for a day)
+before the day's gates read it. `capacity_retention.py` runs the retention check. A counted attempt runs
 once and stops at its first failure. It needs an owner-booked slot.
 
 ## Static-host handoff checklist

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import asyncio
+import hashlib
 import multiprocessing
 from datetime import UTC, datetime, timedelta
 from multiprocessing.connection import Connection
@@ -17,12 +18,23 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from applications.execute.source_service import SourceDelivery, capture_service
+from applications.execute.source_service import (
+    SourceDelivery,
+    SourceVerification,
+    capture_service,
+)
 from configuration import CaptureConfig, CaptureRunConfig
 from market_data.adapters.sources import BookAdapters, SourceAdapters
 from market_data.adapters.transport import VenueSubscriptions, VenueTransport
 from market_data.collection import CaptureRunner
-from market_data.contracts import BookObservation, CaptureRecord, CaptureRunRequest, FeedSocket
+from market_data.contracts import (
+    BookObservation,
+    CaptureRecord,
+    CaptureRequest,
+    CaptureRunRequest,
+    FeedSocket,
+    RecordingRequest,
+)
 from market_data.replay import SavedCaptureRun
 from market_data.storage import CaptureJournal, CaptureRunJournal
 from serialization import DomainCodec
@@ -364,20 +376,71 @@ class TestCaptureChain:
         assert not (tmp_path / request.run_id).exists()
 
     def test_source_service_forwards_a_chain_and_retains_its_result(self, tmp_path: Path) -> None:
-        """The paper source child sends each durable row once and keeps the chain summary."""
+        """The paper source child sends each durable row once and keeps the sealed summary."""
         request = CaptureChainFixture.request()
+        deliveries = SourceFixture.serve(request, tmp_path)
+        root = tmp_path / request.run_id
+        assert tuple(delivery.record for delivery in deliveries) == CaptureChainFixture.durable(
+            root, request
+        )
+        assert [delivery.book.position for delivery in deliveries] == list(range(len(deliveries)))
+        summary = msgspec.json.decode(
+            (tmp_path / "source-result.json").read_bytes(), type=dict[str, object]
+        )
+        assert summary["segments"] == 2 and summary["run_identity"] == request.identity
+        # The seal makes no parity claim; only the explicit verification record does.
+        assert summary["verification"] == "pending" and "replay_parity" not in summary
+
+    def test_source_stop_seals_without_replaying_its_chain(self, tmp_path: Path) -> None:
+        """Regression: a source's stop never waits on the whole-chain replay.
+
+        day-counted-2 sources were terminated during this replay, which outlasted the
+        supervisor's drain budget, so none retained its result.
+        """
+        request = CaptureChainFixture.request()
+        root = tmp_path / request.run_id
+        with patch.object(
+            SavedCaptureRun, "read", side_effect=AssertionError("source stop replayed its chain")
+        ):
+            SourceFixture.serve(request, root)
+        assert (root / "source-result.json").is_file()
+        verification = SourceVerification(root)
+        assert not verification.verified()
+        record = verification.verify(max_seconds=30)
+        assert record["status"] == "verified" and record["kind"] == "chain"
+        assert record["identity"] == request.identity and verification.verified()
+
+    def test_run_chain_still_verifies_its_chain_before_returning(self, tmp_path: Path) -> None:
+        """Callers of run_chain keep the inline replay; only seal_chain defers it."""
+        request = CaptureChainFixture.request()
+        runner = CaptureChainFixture.runner(_Transport(request.config))
+        with (
+            patch.object(SavedCaptureRun, "read", side_effect=ValueError("replay differs")),
+            pytest.raises(ValueError, match="replay differs"),
+        ):
+            asyncio.run(runner.run_chain(request, tmp_path))
+        sealed = asyncio.run(
+            CaptureChainFixture.runner(_Transport(request.config)).seal_chain(
+                request, tmp_path / "sealed"
+            )
+        )
+        assert "replay_parity" not in sealed.summary
+        assert (sealed.root / "run-summary.json").is_file()
+
+
+class SourceFixture:
+    """Run the paper source child in-process and seal one recording under its key."""
+
+    @staticmethod
+    def serve(request: RecordingRequest, root: Path) -> list[SourceDelivery]:
+        """Capture one request into ``root`` and return every delivered row."""
+        root.mkdir(parents=True, exist_ok=True)
         receiver, sender = cast(
             "tuple[Connection[bytes, bytes], Connection[bytes, bytes]]",
             multiprocessing.Pipe(duplex=False),
         )
         asyncio.run(
-            capture_service(
-                request,
-                tmp_path,
-                sender,
-                HealthMetrics(),
-                _Transport(request.config),
-            )
+            capture_service(request, root, sender, HealthMetrics(), _Transport(request.config))
         )
         codec = DomainCodec()
         deliveries: list[SourceDelivery] = []
@@ -388,13 +451,151 @@ class TestCaptureChain:
                 except EOFError:
                     break
                 deliveries.append(codec.decode_json(payload, SourceDelivery))
-        root = tmp_path / request.run_id
-        assert tuple(delivery.record for delivery in deliveries) == CaptureChainFixture.durable(
-            root, request
+        return deliveries
+
+    @staticmethod
+    def single() -> CaptureRequest:
+        """Declare one finite journal that ends at its message limit."""
+        chain = CaptureChainFixture.request()
+        return CaptureRequest(
+            config=replace(chain.config, max_messages=len(_FRAMES)),
+            recording_id="00000000-0000-4000-8000-000000000042",
+            implementation_identity="a" * 64,
         )
-        assert [delivery.book.position for delivery in deliveries] == list(range(len(deliveries)))
-        summary = msgspec.json.decode(
-            (tmp_path / "source-result.json").read_bytes(), type=dict[str, object]
+
+    @staticmethod
+    def sealed(tmp_path: Path, *, single: bool = False) -> SourceVerification:
+        """Seal one chain or single recording under a key-named result directory."""
+        request: RecordingRequest = (
+            SourceFixture.single() if single else CaptureChainFixture.request()
         )
-        assert summary["segments"] == 2 and summary["replay_parity"] is True
-        assert summary["run_identity"] == request.identity
+        root = tmp_path / request.recording_key
+        SourceFixture.serve(request, root)
+        return SourceVerification(root)
+
+    @staticmethod
+    def rewrite(path: Path, key: str, value: object) -> None:
+        """Change one retained summary field, keeping the file otherwise identical."""
+        fields = msgspec.json.decode(path.read_bytes(), type=dict[str, object])
+        path.write_bytes(DomainCodec().encode_json({**fields, key: value}))
+
+
+class TestSourceVerification:
+    """Prove explicit verification grants parity only for an exact, complete seal."""
+
+    @pytest.mark.parametrize("single", [False, True])
+    def test_a_complete_seal_verifies_once_and_binds_its_result(
+        self, tmp_path: Path, single: bool
+    ) -> None:
+        """A verified record names its kind and the exact sealed result it checked."""
+        verification = SourceFixture.sealed(tmp_path, single=single)
+        result = verification.root / SourceVerification.RESULT
+        record = verification.verify(max_seconds=30)
+        assert record["kind"] == ("recording" if single else "chain")
+        assert record["replay_parity"] is True and verification.verified()
+        retained = msgspec.json.decode(
+            (verification.root / SourceVerification.RECORD).read_bytes(), type=dict[str, object]
+        )
+        assert retained["source_result_sha256"] == hashlib.sha256(result.read_bytes()).hexdigest()
+        # The record is retained once; a repeat never replaces it.
+        with pytest.raises(FileExistsError, match="already has a verification record"):
+            verification.verify(max_seconds=30)
+        # A sealed result changed after verification is no longer verified.
+        SourceFixture.rewrite(result, "stop_reason", "edited")
+        assert not verification.verified()
+
+    @pytest.mark.parametrize(
+        ("single", "field"),
+        [(False, "saved_records"), (False, "run_identity"), (True, "saved_bytes"), (True, "gaps")],
+    )
+    def test_a_sealed_summary_mismatch_fails_and_is_retained(
+        self, tmp_path: Path, single: bool, field: str
+    ) -> None:
+        """Every replayed or sealed identity field must equal the retained result."""
+        verification = SourceFixture.sealed(tmp_path, single=single)
+        SourceFixture.rewrite(verification.root / SourceVerification.RESULT, field, 999)
+        with pytest.raises(ValueError, match=f"sealed source result at {field}"):
+            verification.verify(max_seconds=30)
+        self._assert_failed(verification)
+
+    def test_an_incomplete_chain_fails(self, tmp_path: Path) -> None:
+        """A chain without its retained final summary is not a sealed capture."""
+        verification = SourceFixture.sealed(tmp_path)
+        recording = verification.root / verification.root.name
+        (recording / "run-summary.json").unlink()
+        with pytest.raises(ValueError, match="not sealed"):
+            verification.verify(max_seconds=30)
+        self._assert_failed(verification)
+
+    @pytest.mark.parametrize("single", [False, True])
+    def test_corrupt_saved_bytes_fail(self, tmp_path: Path, single: bool) -> None:
+        """A changed byte in sealed input fails its digest before any parity claim."""
+        verification = SourceFixture.sealed(tmp_path, single=single)
+        recording = verification.root / verification.root.name
+        (journal,) = (
+            (recording / "journal.jsonl",)
+            if single
+            else tuple(sorted(recording.glob("segments/*/journal.jsonl")))[:1]
+        )
+        # One changed timestamp digit keeps valid JSON but breaks the sealed digest.
+        payload = bytearray(journal.read_bytes())
+        digit = payload.index(b'"received_ns":1') + len(b'"received_ns":')
+        payload[digit] = ord("2")
+        journal.write_bytes(bytes(payload))
+        with pytest.raises(ValueError):
+            verification.verify(max_seconds=30)
+        self._assert_failed(verification)
+
+    def test_a_chain_request_changed_after_its_seal_fails(self, tmp_path: Path) -> None:
+        """The retained run summary binds the original request, window and limits."""
+        verification = SourceFixture.sealed(tmp_path)
+        recording = verification.root / verification.root.name
+        request = DomainCodec().decode_json(
+            (recording / "run-request.json").read_bytes(), CaptureRunRequest
+        )
+        widened = replace(request, window=replace(request.window, max_messages=100))
+        (recording / "run-request.json").write_bytes(DomainCodec().encode_json(widened))
+        with pytest.raises(ValueError, match=r"differs from (its original request|retained run)"):
+            verification.verify(max_seconds=30)
+        self._assert_failed(verification)
+
+    def test_a_result_already_claiming_parity_is_refused(self, tmp_path: Path) -> None:
+        """Only a seal pending verification is verified; a summary cannot assert parity."""
+        verification = SourceFixture.sealed(tmp_path)
+        result = verification.root / SourceVerification.RESULT
+        SourceFixture.rewrite(result, "verification", "verified")
+        with pytest.raises(ValueError, match="pending verification"):
+            verification.verify(max_seconds=30)
+        self._assert_failed(verification)
+        other = SourceVerification(tmp_path / "other")
+        other.root.mkdir()
+        with pytest.raises(ValueError, match="no verification claim"):
+            other.retain_sealed({"replay_parity": True})
+
+    @pytest.mark.parametrize("limit", [0, 7201])
+    def test_the_replay_envelope_is_validated_for_every_kind(
+        self, tmp_path: Path, limit: int
+    ) -> None:
+        """An out-of-range limit is refused before any record exists, chain or journal."""
+        for single in (False, True):
+            verification = SourceFixture.sealed(tmp_path / str(single), single=single)
+            with pytest.raises(ValueError, match=r"1\.\.7200-second limit"):
+                verification.verify(max_seconds=limit)
+            assert not (verification.root / SourceVerification.RECORD).exists()
+
+    def test_an_unreadable_record_is_never_verified(self, tmp_path: Path) -> None:
+        """A torn record reads as not verified; a publish leaves no temporary file."""
+        verification = SourceFixture.sealed(tmp_path)
+        verification.verify(max_seconds=30)
+        assert not tuple(verification.root.glob(".*.pending"))
+        (verification.root / SourceVerification.RECORD).write_bytes(b"")
+        assert not verification.verified()
+
+    @staticmethod
+    def _assert_failed(verification: SourceVerification) -> None:
+        """A failure is retained as a failed record and never reads as verified."""
+        retained = msgspec.json.decode(
+            (verification.root / SourceVerification.RECORD).read_bytes(), type=dict[str, object]
+        )
+        assert retained["status"] == "failed" and "replay_parity" not in retained
+        assert not verification.verified()
