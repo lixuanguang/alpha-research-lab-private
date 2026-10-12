@@ -163,7 +163,10 @@ profitability.
 5. The counted day run (about 25 hours) with its 4× replay. `day-counted-2` failed on
    2026-10-12 on source replay parity at shutdown; the next attempt needs that fix, a
    check of the shutdown path, and an owner booking
-   ([failed attempts](runtime-capacity.md#failed-attempts)).
+   ([failed attempts](runtime-capacity.md#failed-attempts)). The fix and the supervisor
+   delivery gate are merged, and uncounted sustained and natural-expiry checks passed on
+   candidate `d91d7cd` ([integration checks](runtime-capacity.md#uncounted-integration-checks));
+   the counted day run awaits the owner's booking.
 6. The 72-hour retention check.
 7. The counted onboarding journey (owner approval; the owner chooses the host). It may
    overlap step 6.

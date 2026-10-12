@@ -197,6 +197,25 @@ A failed counted attempt is kept as it ended. Diagnostics on its data never regr
   `logs/runtime-capacity/day-counted-2/`), immutable, with `PRESERVATION.md` and SHA-256
   manifests. Diagnostics: `~/AlphaResearchEvidence.noindex/runtime-capacity/day-counted-2-diagnostic/`.
 
+## Uncounted integration checks
+
+These checks qualify the source shutdown and verification path for the next counted day
+attempt. They do not replace the day's resource gate, its 4× economic replay or its
+72-hour retention, and they change nothing about `day-counted-2`, which stays failed.
+
+Candidate `d91d7cd` (merge of #122, installed identity `1e938579…4abf`), prepared at
+`~/AlphaResearchCandidates/d91d7cd/` and run on the development host on 2026-10-12 with
+the owner's recorded iCloud waiver; every other limit unchanged.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| `sustained-integration-1`: `--stage sustained`, signed launch, two phases with the injected owner death and four-owner recovery, explicit shutdown | Passed: every step; phase A 19/19 gates, phase B 18/18; both cleanup audits; host gate. Sources sealed in the stop's second; 8/8 explicit verifications passed (exit 0). `supervisor_source_delivery_complete` excepted only the declared, fenced (0.117 s) owner's feed, an exact prefix; phase B complete with no failure events | `~/AlphaResearchEvidence.noindex/runtime-capacity/sustained-integration-1/` |
+| `natural-expiry-2`: one 300 s sustained-profile trial whose supervisor reached its own 360 s life with no shutdown request (diagnostic driver over the unchanged consumers) | Passed: 7/7 gates; supervisor exit 0 at life end; all four sources sealed (`supervisor_stop`) within 24 ms, inside the end-of-life drain reserve; supervisor accounting complete; 4/4 explicit verifications passed; cleanup audit and host gate passed | `~/AlphaResearchEvidence.noindex/runtime-capacity/natural-expiry-2/`, driver in `natural-expiry-tools/` |
+| `natural-expiry-1` | Failed on a defect in the diagnostic driver (spawned children re-ran its argument parsing), not the product; fixed and rerun as `natural-expiry-2` | `~/AlphaResearchEvidence.noindex/runtime-capacity/natural-expiry-1/` |
+
+Remaining before QR onboarding: the counted day run on this or a later candidate, with its
+resource gate and 4× replay, and its 72-hour retention, at an owner-booked slot.
+
 ## Day run
 
 The approved declaration (owner, 2026-10-07). Targets and budgets are the launch
@@ -312,7 +331,8 @@ the counted day run passes, and fixes found by the rehearsal come back as commit
    ```
 
    Fixes go back to the laptop as commits, then step 4 again.
-6. **Counted run** (owner-booked, about 25 hours): the same command with
+6. **Counted run** (owner-booked, about 25 hours; latest prepared candidate `d91d7cd`, see
+   [uncounted integration checks](#uncounted-integration-checks)): the same command with
    `--stage day --label day-counted --output <root>/evidence/day-counted`. The driver
    runs the 4× replay after the day.
 7. **Retention**, at least 72 hours after the counted day ends:
