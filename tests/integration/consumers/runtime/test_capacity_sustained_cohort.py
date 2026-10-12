@@ -3,14 +3,34 @@
 from __future__ import annotations
 
 # standard library imports
+import asyncio
 import copy
+import sys
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Literal, cast
 
 # third party library imports
 import msgspec
 import pytest
-from capacity_sustained_cohort import SustainedDeclaration, SustainedGates, _Observation
+from capacity_sustained_cohort import (
+    SustainedCohort,
+    SustainedDeclaration,
+    SustainedGates,
+    _Observation,
+)
 from capacity_trial import TrialTimings
+from msgspec.structs import replace
+
+# project library imports
+from applications.execute import SourceVerification
+from configuration import CaptureConfig, CaptureRunConfig
+from market_data.adapters.sources import BookAdapters
+from market_data.adapters.transport import VenueSubscriptions, VenueTransport
+from market_data.collection import CaptureRunner
+from market_data.contracts import CaptureRunRequest, FeedSocket
+from serialization import DomainCodec
 
 
 class SustainedCohortFixture:
@@ -219,3 +239,125 @@ class TestSustainedGates:
         retained: dict[str, object] = {"kind": "startup", "at": "x", "monotonic": 1.0, "values": {}}
         row = msgspec.json.decode(msgspec.json.encode(retained), type=_Observation)
         assert row.kind == "startup"
+
+
+_BITFINEX_FRAMES: tuple[bytes, ...] = (
+    b'{"event":"conf","status":"OK","flags":65536}',
+    b'{"event":"subscribed","chanId":7,"channel":"book","symbol":"tBTCUSD","prec":"R0","freq":"F0","len":"25"}',
+    b"[7,[[1,100,2],[2,101,-1]],2]",
+    b"[7,[1,100,0.25],3]",
+)
+
+
+class _ScriptedBitfinexSocket:
+    """Deliver one authored Bitfinex R0 connection, then hold it until the message limit."""
+
+    def __init__(self) -> None:
+        """Bind the exact native frames."""
+        self.frames = iter(_BITFINEX_FRAMES)
+
+    async def recv(self) -> bytes:
+        """Yield authored frames, then wait for the runner's limit."""
+        await asyncio.sleep(0)
+        frame = next(self.frames, None)
+        if frame is None:
+            await asyncio.sleep(3600)
+            raise AssertionError("runner failed to enforce its message limit")
+        return frame
+
+    async def send(self, message: str) -> None:
+        """Accept the subscription."""
+
+    async def close(self) -> None:
+        """Nothing external is held."""
+
+
+class _ScriptedBitfinexTransport(VenueTransport):
+    """Replace only public routing; the installed parser and journals stay real."""
+
+    async def open(self, timeout: float) -> FeedSocket:
+        """Open the authored connection."""
+        return _ScriptedBitfinexSocket()
+
+
+class SealedSourceFixture:
+    """Seal real source chains exactly as a stopping paper source does."""
+
+    @staticmethod
+    def trial(tmp_path: Path, sources: tuple[str, ...]) -> Path:
+        """Seal one chain per source under ``operating/runs/run/<source>/<key>``."""
+        trial = tmp_path / "trial"
+        config = replace(
+            CaptureConfig.read(Path(__file__).parents[4] / "configs/live/bitfinex-btc-usd.json"),
+            max_messages=2,
+            max_bytes=32768,
+            max_frame_bytes=8192,
+            queue_capacity=16,
+            retries=0,
+        )
+        now = datetime.now(UTC)
+        for index, name in enumerate(sources):
+            request = CaptureRunRequest(
+                config=config,
+                window=CaptureRunConfig(
+                    start_at=now - timedelta(seconds=1),
+                    ready_by=now + timedelta(seconds=60),
+                    stop_at=now + timedelta(seconds=60),
+                    max_messages=len(_BITFINEX_FRAMES),
+                    max_bytes=1_048_576,
+                    max_segments=8,
+                    max_reconnects=0,
+                ),
+                run_id=f"00000000-0000-4000-8000-{index:012d}",
+                implementation_identity="a" * 64,
+            )
+            root = trial / "operating/runs/run" / name / request.run_id
+            root.mkdir(parents=True)
+            runner = CaptureRunner(
+                book_factory=BookAdapters.create,
+                transport=_ScriptedBitfinexTransport(config),
+                subscriptions=VenueSubscriptions(),
+            )
+            sealed = asyncio.run(runner.seal_chain(request, root))
+            SourceVerification(root).retain_sealed(sealed.summary)
+        return trial
+
+
+class TestSourceVerificationStep:
+    """Prove the cohort verifies every sealed source and retains each exit status."""
+
+    def test_every_source_is_verified_and_every_status_retained(self, tmp_path: Path) -> None:
+        """A changed sealed result fails with exit 2 while its sibling verifies with 0."""
+        trial = SealedSourceFixture.trial(tmp_path, ("good", "edited"))
+        (edited,) = trial.glob("operating/runs/run/edited/*/source-result.json")
+        fields = msgspec.json.decode(edited.read_bytes(), type=dict[str, object])
+        edited.write_bytes(DomainCodec().encode_json({**fields, "saved_records": 999}))
+        (tmp_path / "attempt").mkdir()
+        cohort = SimpleNamespace(
+            python=Path(sys.executable), output=tmp_path / "attempt", codec=DomainCodec()
+        )
+        statuses = SustainedCohort.verify_sources(cast(SustainedCohort, cohort), "day", trial)
+        assert sorted(statuses.values()) == [0, 2]
+        retained = msgspec.json.decode(
+            (tmp_path / "attempt/logs/source-verification-day.json").read_bytes(),
+            type=dict[str, int],
+        )
+        assert retained == statuses
+        (good,) = trial.glob("operating/runs/run/good/*")
+        assert SourceVerification(good).verified()
+        assert not SourceVerification(edited.parent).verified()
+        failed = msgspec.json.decode(
+            (edited.parent / SourceVerification.RECORD).read_bytes(), type=dict[str, object]
+        )
+        assert failed["status"] == "failed" and "saved_records" in str(failed["error"])
+        assert not tuple(trial.rglob(".*.pending"))
+
+    def test_an_absent_verifier_starts_nothing(self, tmp_path: Path) -> None:
+        """Without the installed verifier the step fails before any source is touched."""
+        trial = SealedSourceFixture.trial(tmp_path, ("good",))
+        cohort = SimpleNamespace(
+            python=tmp_path / "missing/bin/python", output=tmp_path / "attempt", codec=DomainCodec()
+        )
+        with pytest.raises(FileNotFoundError, match="source verifier is absent"):
+            SustainedCohort.verify_sources(cast(SustainedCohort, cohort), "day", trial)
+        assert not tuple(trial.rglob(SourceVerification.RECORD))

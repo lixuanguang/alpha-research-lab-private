@@ -19,6 +19,7 @@ from multiprocessing.process import BaseProcess
 from multiprocessing.synchronize import Event
 from pathlib import Path
 from typing import Literal, cast
+from unittest.mock import patch
 from uuid import uuid4
 
 # third party library imports
@@ -44,7 +45,11 @@ from applications.execute.services import (
     PaperServices,
     SourceChild,
 )
-from applications.execute.source_service import ReceivedSourceDelivery, SourceDelivery
+from applications.execute.source_service import (
+    ReceivedSourceDelivery,
+    SourceDelivery,
+    SourceVerification,
+)
 from configuration import (
     AccountConfiguration,
     CaptureConfig,
@@ -85,6 +90,7 @@ from market_data.contracts import (
     Order,
     RecordingRequest,
 )
+from market_data.replay import SavedCaptureRun
 from market_data.storage import CaptureRecording
 from reference_data.instruments import InstrumentId
 from research.observations import InputRequirement, LiveTradeDecisionSource, NumericField
@@ -166,6 +172,48 @@ class _SpawnedBookTransport:
     def snapshot(self) -> bytes:
         """The OKX book feed carries its own snapshot."""
         raise AssertionError("OKX capture does not fetch a REST snapshot")
+
+
+class _HoldingBookSocket(_ScriptedBookSocket):
+    """Deliver the scripted frames, then hold the connection open until the source stops."""
+
+    async def recv(self) -> bytes:
+        """Return the next frame, then wait for the runner's own stop."""
+        await asyncio.sleep(0)
+        frame = next(self.frames, None)
+        if frame is None:
+            await asyncio.sleep(3600)
+            raise AssertionError("the source ignored its stop")
+        return frame
+
+
+class _SlowChainReplay:
+    """Stand in for a whole-chain replay that outlasts the drain, leaving a marker."""
+
+    def __init__(self, marker: Path, seconds: float) -> None:
+        """Bind the file a replay leaves behind and how long it would take."""
+        self.marker, self.seconds = marker, seconds
+
+    def __call__(self, *arguments: object, **keywords: object) -> object:
+        """Mark that the replay ran, take its time, then refuse to report parity."""
+        self.marker.touch()
+        time.sleep(self.seconds)
+        raise AssertionError("whole-chain replay ran inside the source")
+
+
+class _SlowReplayTransport(_SpawnedBookTransport):
+    """Hold the feed open; in the child, make any whole-chain replay outlast the drain budget."""
+
+    def __init__(self, marker: Path, seconds: float) -> None:
+        """Bind the file a replay leaves behind and how long it would take."""
+        self.marker, self.seconds = marker, seconds
+
+    async def open(self, timeout: float) -> FeedSocket:
+        """Install the slow replay in this spawned child, then serve a held session."""
+        patch.object(SavedCaptureRun, "read", _SlowChainReplay(self.marker, self.seconds)).start()
+        return _HoldingBookSocket(
+            (_ReconnectingBookTransport._ack, _ReconnectingBookTransport._snapshot)
+        )
 
 
 class _SpawnedTradesTransport:
@@ -1245,8 +1293,11 @@ class TestPaperServices:
         summary = msgspec.json.decode(
             (source_root / key / "source-result.json").read_bytes(), type=dict[str, object]
         )
-        assert summary["replay_parity"] is True
+        assert summary["verification"] == "pending" and "replay_parity" not in summary
         assert summary["segments"] == len(recording.cursor().segments)
+        verification = SourceVerification(source_root / key)
+        assert verification.verify(max_seconds=30)["status"] == "verified"
+        assert verification.verified()
         measured = services.measurement_root / services.run_id / definition.name
         assert (measured / f"{key}.capture.jsonl").is_file()
 
@@ -1258,6 +1309,125 @@ class TestPaperServices:
         assert accounting["cursor_sha256"] == recording.cursor().sha256
         assert accounting["capture_segments"] == len(recording.cursor().segments)
         child.receiver.close()
+
+    def test_a_stopped_source_seals_within_the_drain_budget(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression (day-counted-2): a stop seals and exits within the drain budget.
+
+        The child's chain replay is made to outlast the supervisor's budget, as a
+        day-length chain does. The source must not run it while stopping; the parent
+        verifies parity explicitly afterwards.
+        """
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._config(self._socket_path())
+        definition = replace(
+            config.sources[0],
+            chain=PaperSourceChain(max_messages=1000, max_bytes=64 * 1024**2, max_segments=8),
+        )
+        services = _SupervisorHarness(config, self._owner(), tmp_path, self._socket_path())
+        marker = tmp_path / "chain-replayed-during-stop"
+        services.transports[definition.name] = _SlowReplayTransport(
+            marker, 3 * PaperServices.source_drain_seconds
+        )
+        services._start_source(definition)
+        child = services.sources[definition.name]
+        assert isinstance(child.request, CaptureRunRequest) and child.stop is not None
+        deliveries: list[ReceivedSourceDelivery] = []
+        try:
+            while len(deliveries) < 2:
+                assert child.receiver.poll(30), "the source delivered no durable book"
+                deliveries.append(
+                    services.codec.decode_json(child.receiver.recv_bytes(), ReceivedSourceDelivery)
+                )
+            stopped_at = time.monotonic()
+            child.stop.set()
+            # The supervisor's own drain: read to end of pipe, then join, within the budget.
+            deadline = stopped_at + PaperServices.source_drain_seconds
+            while child.receiver.poll(max(0.0, deadline - time.monotonic())):
+                try:
+                    payload = child.receiver.recv_bytes()
+                except EOFError:
+                    child.pipe_drained = True
+                    break
+                deliveries.append(services.codec.decode_json(payload, ReceivedSourceDelivery))
+            child.process.join(max(0.0, deadline - time.monotonic()))
+            elapsed = time.monotonic() - stopped_at
+        finally:
+            if child.process.is_alive():
+                child.process.kill()
+                child.process.join()
+        assert not marker.exists(), "the stopping source replayed its whole chain"
+        assert child.pipe_drained and child.process.exitcode == 0
+        assert elapsed < PaperServices.source_drain_seconds
+        child.received_count = len(deliveries)
+        key = child.request.run_id
+        verification = SourceVerification(
+            tmp_path / "runs" / services.run_id / definition.name / key
+        )
+        assert not verification.verified()
+        record = verification.verify(max_seconds=30)
+        assert record["status"] == "verified" and verification.verified()
+        services._account_source_delivery(definition.name, child)
+        accounting = cast(dict[str, object], services.delivery_accounting[definition.name])
+        assert accounting["status"] == "complete" and accounting["result_retained"] is True
+        child.receiver.close()
+
+    def test_supervisor_shutdown_retains_a_sealed_source_within_its_drain(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The real supervisor shutdown fences a spawned source with its seal retained.
+
+        The installed source runs in its own process while its chain replay would
+        outlast the drain. ``_shutdown`` stops, drains, joins and accounts for it; the
+        source exits cleanly with a pending result, and explicit verification then passes.
+        """
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._config(self._socket_path())
+        definition = replace(
+            config.sources[0],
+            chain=PaperSourceChain(max_messages=1000, max_bytes=64 * 1024**2, max_segments=8),
+        )
+        services = _SupervisorHarness(config, self._owner(), tmp_path, self._socket_path())
+        marker = tmp_path / "chain-replayed-during-stop"
+        services.transports[definition.name] = _SlowReplayTransport(
+            marker, 3 * PaperServices.source_drain_seconds
+        )
+        services._start_source(definition)
+        child = services.sources[definition.name]
+        # No account service runs here; a closing stand-in records the final account stop.
+        events: list[str] = []
+        services.accounts["shared"] = _ClosingAccount(events)
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            assert child.receiver.poll(30), "the source delivered no durable book"
+            started = time.monotonic()
+            services._shutdown(listener)
+            elapsed = time.monotonic() - started
+        finally:
+            listener.close()
+            if child.process.is_alive():
+                child.process.kill()
+                child.process.join()
+        assert not marker.exists(), "the stopping source replayed its whole chain"
+        assert elapsed < PaperServices.source_drain_seconds
+        accounting = cast(dict[str, object], services.delivery_accounting[definition.name])
+        assert accounting["result_retained"] is True and accounting["pipe_drained"] is True
+        assert accounting["source_exitcode"] == 0
+        assert accounting["capture_finalization"] == "completed"
+        assert accounting["status"] == "complete" and services.failures == []
+        assert events == ["account"]
+        assert isinstance(child.request, CaptureRunRequest)
+        verification = SourceVerification(
+            tmp_path / "runs" / services.run_id / definition.name / child.request.run_id
+        )
+        assert not verification.verified()
+        assert verification.verify(max_seconds=30)["status"] == "verified"
+        assert verification.verified()
 
     def test_trade_reading_source_starts_a_trades_child_sharing_its_observers(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

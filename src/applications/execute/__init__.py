@@ -27,7 +27,7 @@ if TYPE_CHECKING:
         PaperServiceOwners,
         run_paper_services,
     )
-    from applications.execute.source_service import DecodedBookObservation
+    from applications.execute.source_service import DecodedBookObservation, SourceVerification
 
 
 def __getattr__(name: str) -> object:
@@ -58,11 +58,14 @@ def __getattr__(name: str) -> object:
 
         exports = {"PaperServiceCandidates": service_candidates.PaperServiceCandidates}
         return exports[name]
-    if name in {"DecodedBookObservation"}:
+    if name in {"DecodedBookObservation", "SourceVerification"}:
         # project library imports
         from applications.execute import source_service
 
-        exports = {"DecodedBookObservation": source_service.DecodedBookObservation}
+        exports = {
+            "DecodedBookObservation": source_service.DecodedBookObservation,
+            "SourceVerification": source_service.SourceVerification,
+        }
         return exports[name]
     raise AttributeError(name)
 
@@ -81,6 +84,7 @@ __all__ = [
     "PaperServiceCandidates",
     "PaperServiceControl",
     "PaperServiceOwners",
+    "SourceVerification",
     "VenueApplicationResult",
     "VenueExecutionApplication",
     "main",

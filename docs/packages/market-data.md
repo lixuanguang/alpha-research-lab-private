@@ -70,6 +70,15 @@ propagates and leaves an inspectable interrupted journal. `alpha-collect` alone
 adds optional snapshot publication; another consumer can reuse the collection
 service without importing that application.
 
+`run` and `run_chain` replay the saved input before returning (`SavedCapture`, or
+`SavedCaptureRun` for a chain) and report `replay_parity`. `seal` and `seal_chain`
+stop at the durable seal: they publish the journal or last segment and return a
+`SealedCapture` with the live summary, which claims no parity. A chain retains that
+summary as `run-summary.json`; for a single journal the caller retains it. A finite
+service whose stop budget cannot cover a whole replay uses them and verifies the
+saved input explicitly afterwards; a day-length chain takes tens of seconds to
+replay, while its seal took under one second in the failed day run.
+
 Receipts in a recording never move backwards. Both runners stamp every record on
 one `ReceiptClock`. A received message stamped before the previous receipt (a
 wall-clock step back) ends its session with the visible gap

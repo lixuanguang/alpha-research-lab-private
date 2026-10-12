@@ -13,6 +13,7 @@ from __future__ import annotations
 # standard library imports
 import argparse
 import os
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -33,7 +34,12 @@ from capacity_sustained import (
 from capacity_sustained_results import SustainedResults, WindowBudget
 from capacity_trial import TrialTimings, TrialWorkload, TrialWorkloads
 
+# project library imports
+from market_data.storage import CaptureRecording
+
 _MS = 1_000_000
+# A source chain's explicit offline replay envelope: the largest SavedCaptureRun admits.
+_SOURCE_VERIFICATION_SECONDS = 7200
 
 # Interactive processes a quiet host must not run: browsers, editors, desktop
 # assistants, the Docker VM and document tools seen on the declared host.
@@ -556,6 +562,7 @@ class SustainedCohort(Cohort):
                 ),
             ],
         )
+        self.verify_sources(name, output)
         results = CapacityResultsCollector(
             output / "operating", output / "measurements", output / "reads"
         ).write(output / "results.json")
@@ -579,6 +586,64 @@ class SustainedCohort(Cohort):
         )
         (output / "gate-assessment.json").write_bytes(self.codec.encode_json(gates))
         return gates
+
+    def verify_sources(self, name: str, output: Path) -> dict[str, int]:
+        """Replay every sealed source recording explicitly, in parallel, after the trial.
+
+        Each outcome, verified or failed, is retained beside its source result by the
+        installed ``alpha-execute source-verification``; the recordings gate reads only
+        verified records, so a failure here is graded there, never hidden. Every exit
+        status is retained in ``logs/source-verification-<name>.json`` and returned.
+
+        Raises:
+            FileNotFoundError: The installed verifier is absent; nothing was started.
+        """
+        roots = [
+            recording.root.parent
+            for run in sorted(
+                path for path in (output / "operating/runs").iterdir() if path.is_dir()
+            )
+            for source in sorted(path for path in run.iterdir() if path.is_dir())
+            for recording in CaptureRecording.discover(source)
+        ]
+        verifier = self.python.with_name("alpha-execute")
+        if not verifier.is_file():
+            raise FileNotFoundError(f"installed source verifier is absent: {verifier}")
+        logs = self.output / "logs"
+        logs.mkdir(exist_ok=True)
+        started: list[tuple[Path, subprocess.Popen[bytes]]] = []
+        statuses: dict[str, int] = {}
+        try:
+            for root in roots:
+                started.append(
+                    (
+                        root,
+                        subprocess.Popen(  # nosec B603  # [owner=runtime; rationale=explicit absolute argv of the installed source verifier; expires=2027-03-01]
+                            [
+                                str(verifier),
+                                "source-verification",
+                                "--root",
+                                str(root),
+                                "--max-seconds",
+                                str(_SOURCE_VERIFICATION_SECONDS),
+                            ],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                        ),
+                    )
+                )
+        finally:
+            for root, process in started:
+                stdout, stderr = process.communicate()
+                key = f"{root.parent.name}/{root.name}"
+                statuses[key] = process.returncode
+                stem = f"source-verification-{name}-{root.parent.name}-{root.name}"
+                (logs / f"{stem}.stdout").write_bytes(stdout)
+                (logs / f"{stem}.stderr").write_bytes(stderr)
+            (logs / f"source-verification-{name}.json").write_bytes(
+                self.codec.encode_json(statuses)
+            )
+        return statuses
 
     def host(self, rows: Path) -> tuple[Gate, ...]:
         """Grade the whole attempt's non-trial host load against the declared ceiling."""

@@ -17,6 +17,7 @@ from capacity_sustained import SustainedNativeFixture, SustainedWorkload
 from capacity_sustained_results import RollingPercentiles, SustainedResults, WindowBudget
 
 # project library imports
+from applications.execute import SourceVerification
 from configuration import CaptureRunConfig
 from market_data.collection import CaptureSegmentWriter
 from market_data.contracts import CaptureRecord, CaptureRunRequest
@@ -48,9 +49,18 @@ class SustainedResultsFixture:
 
     @staticmethod
     def phase(
-        tmp_path: Path, *, slots: int, drop: int | None = None, late: int | None = None
+        tmp_path: Path,
+        *,
+        slots: int,
+        drop: int | None = None,
+        late: int | None = None,
+        verified: bool = True,
     ) -> Path:
-        """Author one sustained phase: a real chain, its fixture trace, probes and reads."""
+        """Author one sustained phase: a real chain, its fixture trace, probes and reads.
+
+        The source result is sealed with verification pending; ``verified`` adds the
+        explicit verification record bound to it, standing in for the installed verifier.
+        """
         trial = tmp_path / "phase"
         workload = SustainedWorkload(
             opening_at=datetime(2026, 10, 3, 12, tzinfo=UTC),
@@ -104,10 +114,16 @@ class SustainedResultsFixture:
             run.finish({"run_identity": request.identity})
         finally:
             run.close()
-        result: dict[str, object] = {"replay_parity": True, "stop_reason": "duration_limit"}
-        (source_root / request.run_id / "source-result.json").write_bytes(
-            msgspec.json.encode(result)
-        )
+        verification = SourceVerification(source_root / request.run_id)
+        verification.retain_sealed({"stop_reason": "duration_limit"})
+        if verified:
+            result = (verification.root / SourceVerification.RESULT).read_bytes()
+            record: dict[str, object] = {
+                "status": "verified",
+                "replay_parity": True,
+                "source_result_sha256": hashlib.sha256(result).hexdigest(),
+            }
+            (verification.root / SourceVerification.RECORD).write_bytes(msgspec.json.encode(record))
         emitted = [
             (index, received, hashlib.sha256(raw).hexdigest())
             for index, received, raw in frames
@@ -247,6 +263,40 @@ class TestSustainedResults:
         recordings = cast(dict[str, list[dict[str, object]]], results["recordings"])
         (entries,) = recordings.values()
         assert entries[0]["completed"] is True and entries[0]["replay_parity"] is True
+        assert entries[0]["verification"] == "verified"
+
+    def test_parity_comes_only_from_a_bound_verification_record(self, tmp_path: Path) -> None:
+        """A sealed result, a parity claim or a stale record never reads as verified."""
+        trial = SustainedResultsFixture.phase(tmp_path, slots=100, verified=False)
+        (entries,) = cast(
+            dict[str, list[dict[str, object]]], SustainedResults(trial).collect()["recordings"]
+        ).values()
+        assert entries[0]["completed"] is True and entries[0]["replay_parity"] is False
+        assert entries[0]["verification"] == "missing"
+        (result,) = trial.glob("operating/runs/*/*/*/source-result.json")
+        # The day-counted-2 shape: a result asserting parity with no verification record.
+        claim: dict[str, object] = {"replay_parity": True}
+        result.write_bytes(msgspec.json.encode(claim))
+        (entries,) = cast(
+            dict[str, list[dict[str, object]]], SustainedResults(trial).collect()["recordings"]
+        ).values()
+        assert entries[0]["replay_parity"] is False
+        record: dict[str, object] = {
+            "status": "verified",
+            "replay_parity": True,
+            "source_result_sha256": "0" * 64,
+        }
+        (result.parent / SourceVerification.RECORD).write_bytes(msgspec.json.encode(record))
+        (entries,) = cast(
+            dict[str, list[dict[str, object]]], SustainedResults(trial).collect()["recordings"]
+        ).values()
+        assert entries[0]["replay_parity"] is False and entries[0]["verification"] == "verified"
+        (result.parent / SourceVerification.RECORD).write_bytes(b"{")
+        (entries,) = cast(
+            dict[str, list[dict[str, object]]], SustainedResults(trial).collect()["recordings"]
+        ).values()
+        assert entries[0]["replay_parity"] is False
+        assert entries[0]["verification"] == "unreadable"
 
     @pytest.mark.parametrize(("drop", "late"), ((17, None), (None, 23)))
     def test_a_missing_or_late_slot_fails_the_proof(

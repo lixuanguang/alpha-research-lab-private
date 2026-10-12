@@ -338,6 +338,24 @@ accounts, eight source processes (a trades capture counts as one) and sixteen
 candidate instances. Invocations
 are bounded by each account configuration's signed service life (120 seconds unless
 declared). These resource ceilings are not throughput qualification.
+
+A source process seals its capture when it stops and retains `source-result.json`
+beside its recording: the live summary with `"verification": "pending"` and no
+parity claim. The supervisor gives a stopping source up to
+`PaperServices.source_drain_seconds` (10 s), or less when the service is already at its
+own end of life and only its drain reserve remains, to drain its pipe and exit before
+terminating it. No source replays its saved input while stopping. A chain's seal
+publishes only its last segment, so its cost does not grow with the run; a single
+journal's seal compresses the whole journal. Parity is
+verified afterwards and explicitly, by `alpha-execute source-verification --root
+<source result directory> --max-seconds N` (`SourceVerification`). For a chain it
+runs `SavedCaptureRun` (completed segments, terminal boundary, window limits and
+every retained summary field); for a single journal, `SavedCapture` with its manifest
+and cursor digests and limits. It then requires the sealed result to equal what was
+verified and retains `source-verification.json` once, bound to the result's SHA-256.
+Only a verified record still bound to its result gives replay parity; a failure is
+retained as a failed record, and an existing record is never replaced.
+
 `fixed_clip`, `liquidity_clip` and `target_clip` are different engineering formulas,
 not profitability recommendations. The two clip formulas price on the tick grid of the
 instrument limits in the instance's installed account: the opening clip bids 200 bps

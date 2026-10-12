@@ -39,6 +39,7 @@ class ExecuteArguments(argparse.Namespace):
     root: Path
     socket: Path
     candidates: Path | None
+    max_seconds: int
 
 
 def main() -> None:
@@ -58,6 +59,9 @@ def main() -> None:
     publisher_parser.add_argument("--config", type=Path, required=True)
     publisher_parser.add_argument("--candidates", type=Path, required=True)
     publisher_parser.add_argument("--root", type=Path, required=True)
+    source_parser = actions.add_parser("source-verification")
+    source_parser.add_argument("--root", type=Path, required=True)
+    source_parser.add_argument("--max-seconds", type=int, required=True)
     service_control = actions.add_parser("deployment-control")
     service_control.add_argument("--socket", type=Path, required=True)
     service_control.add_argument("--request", type=Path, required=True)
@@ -145,6 +149,11 @@ def main() -> None:
                 arguments.config.read_bytes(), PaperServiceConfiguration
             )
             result = FeaturePublisher(selected, arguments.candidates, arguments.root).run()
+        elif arguments.action == "source-verification":
+            # project library imports
+            from applications.execute.source_service import SourceVerification
+
+            result = SourceVerification(arguments.root).verify(max_seconds=arguments.max_seconds)
         elif arguments.action == "deployment-control":
             # project library imports
             from applications.execute.services import control_paper_services
