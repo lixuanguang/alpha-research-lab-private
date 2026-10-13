@@ -1,8 +1,8 @@
 # QR onboarding acceptance
 
 Owner: quant development. Status: **open.** The journey passes in fault-injection
-development runs up to rehearsal-135 (`c4a5f78`); later changes need one more
-fault-injection preflight. The counted attempt waits for the frozen candidate and its
+development runs; the preflight after the remaining work passed every J1–J7 criterion on
+`b05cfca` (rehearsal-136 and rehearsal-137, below). The counted attempt waits for the frozen candidate and its
 day rehearsal, and J8 for the day run's retention
 ([remaining work](overview.md#remaining-work-before-qr-onboarding)).
 
@@ -336,3 +336,5 @@ can reuse earlier J2 or J3–J5 outputs. Its fault-injection mode runs a 30-minu
 | rehearsal-127 (2026-10-07) | `8c25636`, QR `7a7f28e` | J1–J5 passed every criterion; all eight captures completed with no gap. At 07:44 UTC, during J6, the source checkout was switched to `main` outside the run, so the J6 shadow and J7 upgrade builds used different code from the packaged candidates and were refused (`installed environment differs`). Not a code defect: the development harness now snapshots the working tree instead of linking it |
 | rehearsal-128 (2026-10-07) | `2ec69a1`, QR `7a7f28e` | J1–J7: all 293 criteria passed, on the renamed driver with the working tree snapshotted; the frozen collector completed with no gap |
 | rehearsal-135 (2026-10-10) | `c4a5f78` | J1–J7: every criterion passed, including the six `candidate_metric_on_dashboards` checks. It predates the later telemetry, source shutdown, supervisor delivery and paper decision-lifecycle changes, so one more preflight is required after the remaining work lands |
+| rehearsal-136 (2026-10-13) | `5723ac3` (storage #124, D2 #125), QR `7a7f28e` | Fault injection: 30-minute J2 with 300 s segments, the OKX BTC-USDT book collector frozen for 40 s. J1–J7: 292 of 293. J2 27/27, J3 47/47, J4 16/16, J5 15/15, J7 85/85. J6 failed only `P-A:race_admitted_once_and_refused_once`: the check read refusals from decision-time batch results, but under D2 a contender is refused at its modelled arrival (the okx-shared journal held 111 arrival-time `holding_limit` refusals). Harness defect, fixed in #126 |
+| rehearsal-137 (2026-10-14) | `b05cfca` (#126; shipped code identical to `5723ac3`), QR `7a7f28e` | J2 and J3–J5 reused from rehearsal-136; J1 19/19, J2 reopen 5/5, J6 84/84 (the race passed: `reference-okx-btc` refused at arrival while `rule-okx-btc` held a reservation), J7 85/85. With rehearsal-136 this covers every J1–J7 criterion on the delivered code; J8 not run |

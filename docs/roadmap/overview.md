@@ -166,9 +166,10 @@ final candidate will very likely supersede.
    [efficiency measurements](runtime-capacity.md#efficiency-measurements) before
    any final acceptance run.
 2. **Development preflight.** One fault-injection J1–J7
-   [development run](qr-onboarding.md#development-runs) after those changes land. The
-   last one, rehearsal-135 on `c4a5f78`, predates the telemetry, shutdown, supervisor
-   and paper decision-lifecycle changes, so it does not cover them.
+   [development run](qr-onboarding.md#development-runs) after those changes land.
+   Done (uncounted, diagnostic): rehearsal-136 on `5723ac3` with the injected faults and
+   rehearsal-137 on `b05cfca`, whose shipped code is identical, together passed every
+   J1–J7 criterion after #126 fixed the journey's race check for D2.
 3. **Freeze one candidate** before either counted run, and verify it: the commit, the
    built artifacts and installed identity, and the configuration and evidence identities
    ([day-run host checklist](runtime-capacity.md#day-run-host-checklist)). Both counted
