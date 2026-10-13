@@ -216,6 +216,54 @@ the owner's recorded iCloud waiver; every other limit unchanged.
 Remaining before QR onboarding: the counted day run on this or a later candidate, with its
 resource gate and 4× replay, and its 72-hour retention, at an owner-booked slot.
 
+## Storage efficiency measurements
+
+Uncounted developer measurements on the development host, 2026-10-13, of the storage
+changes made after `day-counted-2`'s separate findings; they change no target, budget,
+ceiling or gate, and `day-counted-2` stays failed. Inputs are read-only copies of
+`sustained-integration-1`'s retained journal, delivery indexes and phase-A evidence;
+baseline `c1d9c0b`. Record, tools and raw results:
+`~/AlphaResearchEvidence.noindex/runtime-capacity/storage-efficiency-1/`.
+
+| Change | Measured on the same inputs | Equivalence |
+| --- | --- | --- |
+| Account journal: each paper trace is a zstd frame against the journal's first trace; the market index is dropped (the unique key leads with the market) | 65,519 real traces: 4,432 → 513 bytes a trace (−88 %); commit p50 183 → 173 µs; verify 0.71 → 0.63 s; export 0.22 → 0.36 s | Export byte-identical; hash chain over the same bytes |
+| Delivery index: a carried market is stored as its boundary's position; boundaries are frames against the first market; lookups binary-search the position key | 49,604 OKX / 49,602 Bitfinex rows: 1,391 → 153 / 151 bytes a row (−89 %); lookup p50 351 → 369 µs | 4,002 lookups each identical; covered bytes equal |
+| `results.json` collection: one process per source; streamed rows, records and digests; no second validation of a decoded delivery | 198,399 deliveries: 188 → 78 s; peak RSS 742 MiB → at most 116 MiB a process | Output byte-identical |
+
+At day size (`account_history_capacity.py`, 2,376,000 traces, whose synthetic traces
+overstate compression, so read it for time): journal 10.77 → 1.41 GB, verify 22.3 →
+21.8 s, export 7.7 → 11.9 s, account backup 91 → 51 s, restore 85 → 67 s, trace commit
+p99 2.30 → 0.39 ms, retry lookup p99 625 → 729 µs.
+
+Storage by category, per book and per account (one bound book source). Bytes a book
+are measured on `sustained-integration-1`'s retained okx-shared account (65,518 books)
+before, and by replaying its traces after; day values multiply by the declared
+2,376,000 books and are projections, not observations:
+
+| Category | Before, bytes a book | After, bytes a book | Before, GiB a day | After, GiB a day |
+| --- | --- | --- | --- | --- |
+| Trace table and indexes | 4,431 measured | 513 measured | 9.81 | 1.14 |
+| Complete account journal | 4,706 measured | 788 (traces measured, other history assumed unchanged at 275) | 10.41 | 1.74 |
+| Owner-service request logs | 1,730 measured | unchanged | 3.83 | 3.83 |
+| Account state (`target-<account>/state`: journal and request logs) | 6,436 | 2,518 | 14.24 | 5.57 |
+
+`day-counted-2` observed 14.2 GiB of account state an account, the same category: the
+method reproduces it from the baseline bytes, so 5.57 GiB is the comparable
+projection. A delivery index projects to about 0.34 GiB a source-day against the 3.08
+observed, and collection to about 62 minutes against about 2 h 35 min.
+
+Still open:
+- the owner-service request logs, now the largest account-state class: their exact
+  bytes are the operator's lookup by SHA-256, so a compact form is a procedure change;
+- collection's remaining cost: the shared delivery decoder validates each full book
+  three times;
+- device writes, real-market framing (the fixture books repeat few prices), and the
+  account-journal and request-log storage classes, which no ceiling names.
+
+The next candidate contains these changes, so its 2-hour day rehearsal is required
+before a counted run.
+
 ## Day run
 
 The approved declaration (owner, 2026-10-07). Targets and budgets are the launch

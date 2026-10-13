@@ -24,6 +24,40 @@ from serialization import DomainCodec
 class TestCapacityResults:
     """Verify that retained probe evidence cannot inflate a latency claim."""
 
+    def test_rows_stream_in_order_and_a_partial_final_row_is_refused_before_any(
+        self, tmp_path: Path
+    ) -> None:
+        """A day-sized file is read one row at a time; a torn tail fails before the first row."""
+        rows = tmp_path / "rows.jsonl"
+        rows.write_bytes(b'{"a":1}\n\n{"b":2}\n')
+        assert list(CapacityResultsCollector._read_lines(rows)) == [b'{"a":1}', b"", b'{"b":2}']
+        assert list(CapacityResultsCollector._read_lines(tmp_path / "absent.jsonl")) == []
+        (tmp_path / "empty.jsonl").write_bytes(b"")
+        assert list(CapacityResultsCollector._read_lines(tmp_path / "empty.jsonl")) == []
+        torn = tmp_path / "torn.jsonl"
+        torn.write_bytes(b'{"a":1}\n{"b":')
+        stream = CapacityResultsCollector._read_lines(torn)
+        with pytest.raises(ValueError, match="incomplete capacity measurement row"):
+            next(stream)
+        assert (
+            CapacityResultsCollector._sha256(rows) == hashlib.sha256(rows.read_bytes()).hexdigest()
+        )
+
+    def test_only_a_final_interrupted_tail_is_left_out_of_durable_records(self) -> None:
+        """An interrupted unknown tail is dropped only when last and only when trimming."""
+        tail = CaptureRecord(
+            kind="gap", epoch=0, received_ns=3, reason="interrupted_persistence_unknown_tail"
+        )
+        records = (
+            CaptureRecord(kind="session", epoch=0, received_ns=1),
+            CaptureRecord(kind="frame", epoch=0, received_ns=2, raw=b"{}"),
+        )
+        durable = CapacityResultsCollector._durable
+        assert tuple(durable(iter((*records, tail)), trim=True)) == records
+        assert tuple(durable(iter((*records, tail)), trim=False)) == (*records, tail)
+        assert tuple(durable(iter((tail, *records)), trim=True)) == (tail, *records)
+        assert tuple(durable(iter(()), trim=True)) == ()
+
     def test_nearest_rank_requires_one_thousand_in_one_group(self) -> None:
         """Leave sparse groups unmeasured and count an adverse p99 without interpolation."""
         series = _LatencySeries((50, 250, 1000))

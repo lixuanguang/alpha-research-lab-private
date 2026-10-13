@@ -13,6 +13,7 @@ from typing import cast
 
 # third party library imports
 import pytest
+from msgspec.structs import replace
 from paper_books import PaperBooks
 from test_account_paper_matching import TestAccountPaperMatching as _Matching
 
@@ -27,7 +28,7 @@ from execution import (
 )
 from execution.account_state import AccountStateStore, FirmHead, FirmState, SavedDecision
 from execution.records import ORDER_EVENT_KINDS
-from serialization import DomainCodec
+from serialization import DomainCodec, ReferenceFrames
 
 
 class AccountHistoryFixture:
@@ -82,6 +83,34 @@ class AccountHistoryFixture:
         """Apply one out-of-band change to a stored journal."""
         with closing(sqlite3.connect(path)) as connection:
             connection.execute(statement)
+            connection.commit()
+
+    @staticmethod
+    def frames(path: Path) -> tuple[ReferenceFrames, list[tuple[int, bytes]]]:
+        """Read the reference trace's frames and every stored trace frame, in order."""
+        with closing(sqlite3.connect(path)) as connection:
+            reference = cast(
+                tuple[bytes],
+                connection.execute("SELECT payload FROM paper_trace_reference").fetchone(),
+            )[0]
+            rows = cast(
+                list[tuple[int, bytes]],
+                connection.execute("SELECT seq, frame FROM paper_traces ORDER BY seq").fetchall(),
+            )
+        frames = ReferenceFrames(reference, maximum_bytes=1 << 26, label="test trace")
+        return frames, rows
+
+    @staticmethod
+    def retrace(path: Path, seq: int, old: bytes, new: bytes) -> None:
+        """Replace text inside one stored trace, re-framed against the same reference."""
+        frames, rows = AccountHistoryFixture.frames(path)
+        payload = frames.decode(dict(rows)[seq])
+        assert old in payload
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute(
+                "UPDATE paper_traces SET frame=? WHERE seq=?",
+                (frames.encode(payload.replace(old, new)), seq),
+            )
             connection.commit()
 
     @staticmethod
@@ -333,11 +362,7 @@ class TestBoundedTraceReads:
         )
         with pytest.raises(ValueError, match="absent absolute destination"):
             journal.export_paper_traces(destination, "shared")
-        AccountHistoryFixture.execute(
-            path,
-            "UPDATE paper_traces SET payload=CAST(replace(CAST(payload AS TEXT), "
-            "'\"matched\"', '\"matcheD\"') AS BLOB) WHERE seq=1",
-        )
+        AccountHistoryFixture.retrace(path, 1, b'"matched"', b'"matcheD"')
         altered = tmp_path / "altered.json"
         with pytest.raises(ValueError, match="history differs"):
             AccountJournal(path, _Matching._config()).export_paper_traces(altered, "shared")
@@ -355,3 +380,105 @@ class TestBoundedTraceReads:
         AccountHistoryFixture.execute(path, "UPDATE paper_traces SET filled=1-filled WHERE seq=0")
         with pytest.raises(ValueError, match="history differs"):
             AccountJournal.verify(path, _Matching._config())
+
+
+class TestTraceFrames:
+    """Store each trace as a frame of its exact bytes against the journal's first trace."""
+
+    def test_rows_are_frames_of_the_exact_encodings_and_the_chain_covers_those_bytes(
+        self, tmp_path: Path
+    ) -> None:
+        """The reference is the first trace; frames decode to every trace's exact encoding."""
+        path = tmp_path / "frames.sqlite3"
+        AccountHistoryFixture.operate(path)
+        journal = AccountJournal(path, _Matching._config())
+        codec = DomainCodec()
+        encoded = [codec.encode_json(trace) for trace in journal.iter_paper_traces()]
+        frames, rows = AccountHistoryFixture.frames(path)
+        assert frames.reference == encoded[0]
+        assert [seq for seq, _ in rows] == list(range(len(encoded)))
+        assert [frames.decode(frame) for _, frame in rows] == encoded
+        assert all(len(frame) < len(payload) for (_, frame), payload in zip(rows, encoded))
+        chain = HistoryDigest(count=0, sha256="")
+        for payload in encoded:
+            chain = chain.extend(payload)
+        assert journal.paper_trace_history() == chain
+
+    def test_a_damaged_frame_or_a_missing_or_other_reference_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """A frame must decode against the journal's own reference to the chained bytes."""
+        path = tmp_path / "damaged.sqlite3"
+        AccountHistoryFixture.operate(path)
+        config = _Matching._config()
+        AccountJournal.verify(path, config)
+        _, rows = AccountHistoryFixture.frames(path)
+        frame = rows[1][1]
+        damaged = frame[:-5] + bytes([frame[-5] ^ 1]) + frame[-4:]
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute("UPDATE paper_traces SET frame=? WHERE seq=1", (damaged,))
+            connection.commit()
+        with pytest.raises(ValueError, match="paper trace frame is malformed"):
+            AccountJournal.verify(path, config)
+        with pytest.raises(ValueError, match="paper trace frame is malformed"):
+            tuple(AccountJournal(path, config).iter_paper_traces())
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute("UPDATE paper_traces SET frame=? WHERE seq=1", (frame,))
+            connection.execute(
+                "UPDATE paper_trace_reference SET payload=CAST(replace(CAST(payload AS TEXT), "
+                "'shared', 'sharEd') AS BLOB)"
+            )
+            connection.commit()
+        with pytest.raises(ValueError, match=r"paper trace frame is malformed|history differs"):
+            AccountJournal.verify(path, config)
+        AccountHistoryFixture.execute(path, "DELETE FROM paper_trace_reference")
+        with pytest.raises(ValueError, match="paper trace reference is missing"):
+            AccountJournal.verify(path, config)
+        with pytest.raises(ValueError, match="paper trace reference is missing"):
+            AccountJournal(path, config).paper_trace("shared", "book-0")
+
+    def test_verification_requires_the_reference_to_be_the_first_trace(
+        self, tmp_path: Path
+    ) -> None:
+        """A reference that is not the first trace's exact bytes fails verification."""
+        path = tmp_path / "reference.sqlite3"
+        AccountHistoryFixture.operate(path)
+        config = _Matching._config()
+        frames, rows = AccountHistoryFixture.frames(path)
+        second = frames.decode(rows[1][1])
+        with closing(sqlite3.connect(path)) as connection:
+            # Re-frame every row against the second trace, so every frame still decodes.
+            other = ReferenceFrames(second, maximum_bytes=1 << 26, label="test trace")
+            for seq, frame in rows:
+                connection.execute(
+                    "UPDATE paper_traces SET frame=? WHERE seq=?",
+                    (other.encode(frames.decode(frame)), seq),
+                )
+            connection.execute("UPDATE paper_trace_reference SET payload=?", (second,))
+            connection.commit()
+        with pytest.raises(ValueError, match="reference differs from its first trace"):
+            AccountJournal.verify(path, config)
+
+    def test_a_rolled_back_first_trace_leaves_no_reference_behind(self, tmp_path: Path) -> None:
+        """The reference commits with its first trace; a later first trace writes its own."""
+        scenario = _Matching._scenario()
+        at = _Matching.opening_at + timedelta(seconds=1)
+        source = _Matching._ready(tmp_path / "source.sqlite3", scenario)
+        trace = PaperBooks.apply(source, "shared", _Matching._market("book-0", at), scenario)
+        path = tmp_path / "rollback.sqlite3"
+        _Matching._ready(path, scenario)
+        store = AccountStateStore(path, _Matching._config(), DomainCodec())
+        altered = replace(trace, reason="matched-again")
+        with pytest.raises(RuntimeError, match="abandon"), store.write() as transaction:
+            transaction.append_trace(altered)
+            raise RuntimeError("abandon the first trace")
+        assert AccountHistoryFixture.count(path, "paper_trace_reference") == 0
+        assert AccountHistoryFixture.count(path, "paper_traces") == 0
+        with store.write() as transaction:
+            transaction.append_trace(trace)
+        store.close()
+        frames, rows = AccountHistoryFixture.frames(path)
+        assert frames.reference == DomainCodec().encode_json(trace)
+        assert [seq for seq, _ in rows] == [0]
+        assert frames.decode(rows[0][1]) == frames.reference
+        AccountJournal.verify(path, _Matching._config())

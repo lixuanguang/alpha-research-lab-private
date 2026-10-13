@@ -239,6 +239,16 @@ the selected market. It never evicts history. The owner appends only after a
 delivery is durable, so the index can lag its log but not lead it; `covered_bytes()`
 reports the described prefix.
 
+A carried market is always a boundary the index already holds (its own row's, or the
+one the previous row carried), so a row stores that boundary's position, not a second
+copy of the quote; `append` refuses any other market. Each boundary is a checksummed
+zstd frame against the first market the log carried (`boundary_reference`, written
+with that row); rows before it are plain frames. Availability never decreases with
+position, so `lookup` finds the last available row by binary search on the position
+key and no availability index is kept. On the sustained run's OKX and Bitfinex books
+a row takes about 150 bytes instead of 1,391, and lookups return the same results.
+An index in any other layout is refused as an unsupported book as-of index schema.
+
 `BookLookup` retains the selected source, latest known boundary, eligible original
 quote or refusal reason. A consolidated result retains every selected lookup and
 its reason, `selected_keys`, `eligible_keys` and `partial`. Empty or one-sided

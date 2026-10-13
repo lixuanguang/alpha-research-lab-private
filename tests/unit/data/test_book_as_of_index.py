@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 # standard library imports
+import sqlite3
+from contextlib import closing
 from pathlib import Path
+from typing import cast
 
 # third party library imports
 import pytest
@@ -77,6 +80,124 @@ class TestBookAsOfIndex:
         with pytest.raises(ValueError, match="not open"):
             index.append(_Scenario._quote(selection, 1, 110), None, offset=8, length=4)
         assert BookAsOfIndex(index.path).covered_bytes() == 8
+
+    def test_rows_before_the_first_market_and_after_it_resolve_like_the_registry(
+        self, tmp_path: Path
+    ) -> None:
+        """Rows before the reference market stay plain; later rows decode against it."""
+        selection = _Scenario._selection("okx", _Scenario._IDS[0], max_age_ns=50)
+        registry = BookRegistry(_Scenario._configuration(selection, equivalent=False, capacity=100))
+        index = BookAsOfIndex.create(tmp_path / "late.index.sqlite3")
+        quotes = (
+            _Scenario._quote(selection, 0, 90, outcome="session", status="unavailable"),
+            _Scenario._quote(selection, 1, 95, outcome="acknowledgement", status="unavailable"),
+            _Scenario._quote(
+                selection, 2, 100, bid=_Scenario._side("1", "2"), ask=_Scenario._side("2", "1")
+            ),
+            _Scenario._quote(
+                selection, 3, 100, bid=_Scenario._side("1", "3"), ask=_Scenario._side("2", "1")
+            ),
+        )
+        offset = 0
+        for quote in quotes:
+            registry.accept(quote)
+            latest = registry.latest(selection.key)
+            assert latest is not None
+            index.append(*latest, offset=offset, length=7)
+            offset += 7
+        index.close()
+        with closing(sqlite3.connect(index.path)) as connection:
+            reference = cast(
+                list[tuple[int]],
+                connection.execute("SELECT position FROM boundary_reference").fetchall(),
+            )
+            carried = cast(
+                list[tuple[int, int | None]],
+                connection.execute(
+                    "SELECT position, market_position FROM boundaries ORDER BY position"
+                ).fetchall(),
+            )
+        assert reference == [(2,)]
+        assert carried == [(0, None), (1, None), (2, 2), (3, 3)]
+        reader = BookAsOfIndex(index.path)
+        for cutoff in range(85, 160):
+            lookup, selected = reader.lookup(selection, cutoff_ns=cutoff)
+            assert lookup == registry.lookup(selection.key, cutoff_ns=cutoff)
+            target = lookup.quote if lookup.quote is not None else lookup.boundary
+            assert selected == (None if target is None else (7 * target.position, 7))
+        # Equal availability: the later of the two boundaries is the one available.
+        tied, _ = reader.lookup(selection, cutoff_ns=100)
+        assert tied.boundary is not None and tied.boundary.position == 3
+
+    def test_a_market_that_is_not_a_retained_boundary_is_refused(self, tmp_path: Path) -> None:
+        """A row names its carried market by position, so the market must be one it holds."""
+        selection = _Scenario._selection("okx", _Scenario._IDS[0])
+        index = BookAsOfIndex.create(tmp_path / "carried.index.sqlite3")
+        first = _Scenario._quote(selection, 0, 100, bid=_Scenario._side("1", "1"))
+        other = _Scenario._quote(selection, 0, 100, bid=_Scenario._side("1", "2"))
+        with pytest.raises(ValueError, match="boundary it retains"):
+            index.append(first, other, offset=0, length=4)
+        index.append(first, first, offset=0, length=4)
+        later = _Scenario._quote(selection, 1, 110, outcome="heartbeat")
+        unretained = _Scenario._quote(selection, 1, 110, bid=_Scenario._side("1", "1"))
+        for market in (other, unretained):
+            with pytest.raises(ValueError, match="boundary it retains"):
+                index.append(later, market, offset=4, length=4)
+        index.append(later, first, offset=4, length=4)
+        lookup, selected = index.lookup(selection, cutoff_ns=110)
+        assert lookup.quote == first and selected == (0, 4)
+        index.close()
+
+    def test_an_earlier_layout_or_damaged_rows_are_refused(self, tmp_path: Path) -> None:
+        """An index in another layout is unsupported; a damaged frame is not decoded."""
+        selection = _Scenario._selection("okx", _Scenario._IDS[0])
+        earlier = tmp_path / "earlier.index.sqlite3"
+        with closing(sqlite3.connect(earlier)) as connection:
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS boundaries (position INTEGER PRIMARY KEY, "
+                "available_ns INTEGER NOT NULL, boundary BLOB NOT NULL, market BLOB, "
+                "offset INTEGER NOT NULL, length INTEGER NOT NULL)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS boundaries_available "
+                "ON boundaries(available_ns, position)"
+            )
+        with pytest.raises(ValueError, match="unsupported book as-of index schema"):
+            BookAsOfIndex(earlier).covered_bytes()
+        with pytest.raises(ValueError, match="unsupported book as-of index schema"):
+            BookAsOfIndex(earlier).lookup(selection, cutoff_ns=1)
+        index = BookAsOfIndex.create(tmp_path / "damaged.index.sqlite3")
+        first = _Scenario._quote(selection, 0, 100, bid=_Scenario._side("1", "1"))
+        index.append(first, first, offset=0, length=4)
+        index.close()
+        with closing(sqlite3.connect(index.path)) as connection:
+            connection.execute("UPDATE boundaries SET boundary = substr(boundary, 1, 8)")
+            connection.commit()
+        with pytest.raises(ValueError, match="frame is malformed"):
+            BookAsOfIndex(index.path).lookup(selection, cutoff_ns=100)
+
+    def test_a_refused_append_leaves_the_index_continuing_from_its_last_row(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed write rolls back and never advances the next expected position or range."""
+        selection = _Scenario._selection("okx", _Scenario._IDS[0])
+        index = BookAsOfIndex.create(tmp_path / "rollback.index.sqlite3")
+        first = _Scenario._quote(selection, 0, 100, bid=_Scenario._side("1", "1"))
+        monkeypatch.setattr(BookAsOfIndex, "_maximum_quote_bytes", 8)
+        with pytest.raises(ValueError, match="exceeds its bound"):
+            index.append(first, first, offset=0, length=4)
+        monkeypatch.undo()
+        assert index.covered_bytes() == 0
+        with closing(sqlite3.connect(index.path)) as connection:
+            count = cast(
+                tuple[int], connection.execute("SELECT count(*) FROM boundary_reference").fetchone()
+            )
+        assert count == (0,)
+        index.append(first, first, offset=0, length=4)
+        index.append(_Scenario._quote(selection, 1, 101), None, offset=4, length=4)
+        assert index.covered_bytes() == 8
+        assert index.lookup(selection, cutoff_ns=100)[0].quote == first
+        index.close()
 
 
 class BookAsOfFixture:

@@ -13,7 +13,7 @@ from contextlib import closing, contextmanager
 from datetime import datetime
 from itertools import chain, compress
 from pathlib import Path
-from typing import BinaryIO, Literal, NamedTuple, cast
+from typing import BinaryIO, ClassVar, Literal, NamedTuple, cast
 
 # third party library imports
 import msgspec
@@ -46,7 +46,7 @@ from execution.account_reduction import PaperReductionResult
 from execution.paper_authority import PaperActivation
 from execution.records import ORDER_EVENT_KINDS, OrderEvent, OrderState, StepCommit
 from reference_data.instruments import InstrumentId
-from serialization import DomainCodec, SqliteLayout, WireRecord
+from serialization import DomainCodec, ReferenceFrames, SqliteLayout, WireRecord
 
 
 class SavedDecision(WireRecord, frozen=True):
@@ -485,15 +485,20 @@ _HISTORY_TABLES = (
     "CREATE INDEX decisions_instance ON decisions(instance_id, seq)",
     "CREATE TABLE portfolio_batches (seq INTEGER PRIMARY KEY, "
     "batch_identity TEXT NOT NULL UNIQUE, payload BLOB NOT NULL)",
+    # A trace row holds its exact bytes as a frame against the journal's reference
+    # trace. The unique key leads with the market identity, so it also serves
+    # history-wide market lookups.
     "CREATE TABLE paper_traces (seq INTEGER PRIMARY KEY, account_id TEXT NOT NULL, "
     "venue TEXT NOT NULL, instrument_id TEXT NOT NULL, market_identity TEXT NOT NULL, "
     "filled INTEGER NOT NULL CHECK(filled IN (0, 1)), "
-    "payload BLOB NOT NULL, UNIQUE(account_id, venue, instrument_id, market_identity))",
-    "CREATE INDEX paper_traces_market ON paper_traces(market_identity, seq)",
+    "frame BLOB NOT NULL, UNIQUE(market_identity, account_id, venue, instrument_id))",
     "CREATE INDEX paper_traces_account ON paper_traces(account_id, seq)",
     "CREATE INDEX paper_traces_instrument ON paper_traces(account_id, instrument_id, seq)",
     # Only the few traces that posted fills: report facts never decode the rest.
     "CREATE INDEX paper_traces_filled ON paper_traces(account_id, seq) WHERE filled=1",
+    # The first committed trace's exact bytes, written with it and never changed.
+    "CREATE TABLE paper_trace_reference (id INTEGER PRIMARY KEY CHECK(id=1), "
+    "payload BLOB NOT NULL)",
 )
 
 
@@ -551,19 +556,18 @@ _TABLE_STATEMENTS: dict[str, tuple[str, str]] = {
     ),
     "paper_traces": (
         "INSERT INTO paper_traces (seq, account_id, venue, instrument_id, market_identity, "
-        "filled, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        "SELECT seq, account_id, venue, instrument_id, market_identity, filled, payload "
+        "filled, frame) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "SELECT seq, account_id, venue, instrument_id, market_identity, filled, frame "
         "FROM paper_traces ORDER BY seq",
     ),
 }
 # Repeating the partial index's filled=1 term lets SQLite read only fill-bearing rows.
 _FILLED_TRACES_AFTER = (
-    "SELECT seq, payload FROM paper_traces "
-    "WHERE account_id=? AND filled=1 AND seq>? ORDER BY seq ASC"
+    "SELECT seq, frame FROM paper_traces WHERE account_id=? AND filled=1 AND seq>? ORDER BY seq ASC"
 )
 # Optional trace keys match any value when their parameter is NULL.
 _FIND_TRACE = (
-    "SELECT payload FROM paper_traces WHERE market_identity=?1 "
+    "SELECT frame FROM paper_traces WHERE market_identity=?1 "
     "AND (?2 IS NULL OR account_id=?2) AND (?3 IS NULL OR venue=?3) "
     "AND (?4 IS NULL OR instrument_id=?4) ORDER BY seq LIMIT 1"
 )
@@ -571,38 +575,33 @@ _FIND_TRACE = (
 # first), so SQLite can use paper_traces_account or paper_traces_instrument. An
 # "?1 IS NULL OR account_id=?1" parameter would force a full scan of every account.
 _ITER_TRACES = {
-    (False, False, False): "SELECT payload FROM paper_traces ORDER BY seq ASC",
-    (False, False, True): "SELECT payload FROM paper_traces ORDER BY seq DESC",
-    (True, False, False): "SELECT payload FROM paper_traces WHERE account_id=? ORDER BY seq ASC",
-    (True, False, True): "SELECT payload FROM paper_traces WHERE account_id=? ORDER BY seq DESC",
-    (False, True, False): (
-        "SELECT payload FROM paper_traces WHERE instrument_id=? ORDER BY seq ASC"
-    ),
-    (False, True, True): (
-        "SELECT payload FROM paper_traces WHERE instrument_id=? ORDER BY seq DESC"
-    ),
+    (False, False, False): "SELECT frame FROM paper_traces ORDER BY seq ASC",
+    (False, False, True): "SELECT frame FROM paper_traces ORDER BY seq DESC",
+    (True, False, False): "SELECT frame FROM paper_traces WHERE account_id=? ORDER BY seq ASC",
+    (True, False, True): "SELECT frame FROM paper_traces WHERE account_id=? ORDER BY seq DESC",
+    (False, True, False): "SELECT frame FROM paper_traces WHERE instrument_id=? ORDER BY seq ASC",
+    (False, True, True): "SELECT frame FROM paper_traces WHERE instrument_id=? ORDER BY seq DESC",
     (True, True, False): (
-        "SELECT payload FROM paper_traces WHERE account_id=? AND instrument_id=? ORDER BY seq ASC"
+        "SELECT frame FROM paper_traces WHERE account_id=? AND instrument_id=? ORDER BY seq ASC"
     ),
     (True, True, True): (
-        "SELECT payload FROM paper_traces WHERE account_id=? AND instrument_id=? ORDER BY seq DESC"
+        "SELECT frame FROM paper_traces WHERE account_id=? AND instrument_id=? ORDER BY seq DESC"
     ),
 }
 
 
 # Committed traces after a position, in commit order, every account's or one's.
 _TRACE_PAGE = {
-    False: "SELECT seq, payload FROM paper_traces WHERE seq>? ORDER BY seq ASC LIMIT ?",
+    False: "SELECT seq, frame FROM paper_traces WHERE seq>? ORDER BY seq ASC LIMIT ?",
     True: (
-        "SELECT seq, payload FROM paper_traces WHERE account_id=? AND seq>? "
-        "ORDER BY seq ASC LIMIT ?"
+        "SELECT seq, frame FROM paper_traces WHERE account_id=? AND seq>? ORDER BY seq ASC LIMIT ?"
     ),
 }
 # Every committed trace in commit order, for an export that checks the whole chain.
-_EXPORT_TRACES = "SELECT account_id, payload FROM paper_traces ORDER BY seq ASC"
+_EXPORT_TRACES = "SELECT account_id, frame FROM paper_traces ORDER BY seq ASC"
 # The newest trace of one account instrument, read for its market clock alone.
 _LATEST_TRACE = (
-    "SELECT payload FROM paper_traces WHERE account_id=? AND instrument_id=? "
+    "SELECT frame FROM paper_traces WHERE account_id=? AND instrument_id=? "
     "ORDER BY seq DESC LIMIT 1"
 )
 
@@ -695,8 +694,43 @@ class _TraceKey(msgspec.Struct, frozen=True):
         )
 
 
+class _TraceReferences:
+    """Keep the frames of the journal's reference trace, keyed by its exact bytes.
+
+    The reference is read in each transaction that needs it, so a reference written
+    by a transaction that later rolled back is never reused.
+    """
+
+    _maximum_trace_bytes: ClassVar[int] = 64 * 1024**2
+
+    def __init__(self) -> None:
+        """Start with no reference read."""
+        self._cached: tuple[bytes, ReferenceFrames] | None = None
+
+    def frames(self, reference: bytes) -> ReferenceFrames:
+        """Return the frames of one reference trace."""
+        cached = self._cached
+        if cached is None or cached[0] != reference:
+            cached = (
+                reference,
+                ReferenceFrames(
+                    reference,
+                    maximum_bytes=self._maximum_trace_bytes,
+                    label="account journal paper trace",
+                ),
+            )
+            self._cached = cached
+        return cached[1]
+
+
 class _HistoryTables:
-    """Read committed history rows inside one open SQLite transaction."""
+    """Read committed history rows inside one open SQLite transaction.
+
+    A paper trace row holds its exact encoded bytes as a frame against the journal's
+    reference trace (``paper_trace_reference``): the first committed trace, written
+    in the same transaction. Every read, chain, key check, page and export uses the
+    decoded bytes, which are the trace's exact encoding.
+    """
 
     _clock_decoder: msgspec.json.Decoder[_TraceMarketClock] = msgspec.json.Decoder(
         _TraceMarketClock
@@ -706,13 +740,19 @@ class _HistoryTables:
     _trace_keys: msgspec.json.Decoder[_TraceKey] = msgspec.json.Decoder(_TraceKey)
 
     def __init__(
-        self, connection: sqlite3.Connection, codec: DomainCodec, summary: HistorySummary
+        self,
+        connection: sqlite3.Connection,
+        codec: DomainCodec,
+        summary: HistorySummary,
+        references: _TraceReferences,
     ) -> None:
         """Bind the connection whose transaction fixes the visible rows."""
         self.connection = connection
         self.codec = codec
         self.summary = summary
+        self.references = references
         self._checkpoints: dict[str, bytes] | None = None
+        self._frames: ReferenceFrames | None = None
 
     def find_decision(self, instance_id: str, decision_identity: str) -> SavedDecision | None:
         """Resolve one committed decision by its unique key."""
@@ -746,7 +786,7 @@ class _HistoryTables:
         instrument_id: InstrumentId | None,
     ) -> AccountPaperTrace | None:
         """Return the earliest committed trace of a market identity within the given keys."""
-        payload = self._payload(
+        payload = self._trace_payload(
             _FIND_TRACE, (market_identity, account_id, venue, self._instrument(instrument_id))
         )
         return None if payload is None else self.codec.decode_json(payload, AccountPaperTrace)
@@ -761,20 +801,20 @@ class _HistoryTables:
             tuple(item for item in (account_id, instrument) if item is not None),
         )
         for row in cast(Iterator[tuple[object, ...]], cursor):
-            yield self.codec.decode_json(self._blob(row[0]), AccountPaperTrace)
+            yield self.codec.decode_json(self._trace(row[0]), AccountPaperTrace)
 
     def latest_trace_market_at(
         self, account_id: str, instrument_id: InstrumentId
     ) -> datetime | None:
         """Return the newest committed trace's market clock for one account instrument."""
-        payload = self._payload(_LATEST_TRACE, (account_id, self._instrument(instrument_id)))
+        payload = self._trace_payload(_LATEST_TRACE, (account_id, self._instrument(instrument_id)))
         return None if payload is None else self._clock_decoder.decode(payload).market.at
 
     def latest_trace(
         self, account_id: str, instrument_id: InstrumentId
     ) -> AccountPaperTrace | None:
         """Return the newest committed trace of one account instrument, decoded in full."""
-        payload = self._payload(_LATEST_TRACE, (account_id, self._instrument(instrument_id)))
+        payload = self._trace_payload(_LATEST_TRACE, (account_id, self._instrument(instrument_id)))
         return None if payload is None else self.codec.decode_json(payload, AccountPaperTrace)
 
     def trace_page(
@@ -783,7 +823,7 @@ class _HistoryTables:
         """Return committed traces after a position, with positions, and whether more may follow.
 
         The page holds at most ``limit`` traces and, beyond the first, at most
-        ``limit_bytes`` of their stored bytes; it may continue when it stopped at
+        ``limit_bytes`` of their encoded bytes; it may continue when it stopped at
         either bound.
         """
         parameters = (after, limit) if account_id is None else (account_id, after, limit)
@@ -791,7 +831,7 @@ class _HistoryTables:
         rows: list[tuple[int, AccountPaperTrace]] = []
         used = 0
         for row in cast(Iterator[tuple[object, ...]], cursor):
-            payload = self._blob(row[1])
+            payload = self._trace(row[1])
             if rows and used + len(payload) > limit_bytes:
                 return rows, True
             used += len(payload)
@@ -801,7 +841,7 @@ class _HistoryTables:
     def export_traces(self, account_id: str | None, stream: BinaryIO) -> int:
         """Write committed trace bytes as one JSON array, checking the whole chain.
 
-        Every row's exact stored bytes extend the chain, every account's included, and
+        Every row's exact encoded bytes extend the chain, every account's included, and
         the chain must end at the head's count and digest. The selected rows are
         written unchanged between ``[``, ``,`` and ``]``, which is exactly the codec's
         encoding of the tuple of those traces. Memory stays bounded by one row.
@@ -815,7 +855,7 @@ class _HistoryTables:
         chain, count, written = b"", 0, 0
         stream.write(b"[")
         for row in cast(Iterator[tuple[object, ...]], self.connection.execute(_EXPORT_TRACES)):
-            payload = self._blob(row[1])
+            payload = self._trace(row[1])
             chain = hashlib.sha256(chain + payload).digest()
             count += 1
             if account_id is None or row[0] == account_id:
@@ -837,7 +877,7 @@ class _HistoryTables:
         """Yield one account's committed fill-bearing traces after a sequence, in order."""
         cursor = self.connection.execute(_FILLED_TRACES_AFTER, (account_id, after_seq))
         for row in cast(Iterator[tuple[object, ...]], cursor):
-            yield cast(int, row[0]), self.codec.decode_json(self._blob(row[1]), AccountPaperTrace)
+            yield cast(int, row[0]), self.codec.decode_json(self._trace(row[1]), AccountPaperTrace)
 
     def append(self, state: FirmState) -> HistorySummary:
         """Insert the state's staged history items and return the extended summary."""
@@ -870,9 +910,10 @@ class _HistoryTables:
     def verify(self) -> None:
         """Check every row's bytes, key columns and the head's counts, digests and checkpoints.
 
-        Each row's exact stored bytes extend its table's hash chain, which must end at
-        the head's count and digest; each row's key columns must equal the keys its
-        bytes name; and the head's checkpoints must be each instance's latest decision.
+        Each row's exact encoded bytes (a trace's decoded frame) extend its table's hash
+        chain, which must end at the head's count and digest; each row's key columns
+        must equal the keys its bytes name; the reference trace must be exactly the
+        first trace; and the head's checkpoints must be each instance's latest decision.
         Every row was a validated domain record when it was encoded and committed, and
         every read decodes it in full again, so this check reads only its keys: its
         time is linear in the stored bytes and its memory bounded by one row.
@@ -884,12 +925,32 @@ class _HistoryTables:
             pass
         for _ in self._verified_keys("paper_traces", self._trace_keys):
             pass
+        self._require_trace_reference()
         expected = tuple(
             _InstanceCheckpoint(instance_id=instance_id, checkpoint=checkpoint)
             for instance_id, checkpoint in checkpoints.items()
         )
         if expected != self.summary.checkpoints:
             raise ValueError("account journal history differs from its head")
+
+    def _require_trace_reference(self) -> None:
+        """Require the reference trace to be exactly the first trace, and none without one.
+
+        Raises:
+            ValueError: A reference exists without traces, or differs from the first
+                trace's exact bytes.
+        """
+        reference = cast(
+            tuple[object] | None,
+            self.connection.execute(
+                "SELECT payload FROM paper_trace_reference WHERE id=1"
+            ).fetchone(),
+        )
+        first = self._payload("SELECT frame FROM paper_traces WHERE seq=0", ())
+        if (reference is None) != (first is None) or (
+            reference is not None and first is not None and self._trace(first) != reference[0]
+        ):
+            raise ValueError("account journal paper trace reference differs from its first trace")
 
     def _insert[T](
         self,
@@ -902,7 +963,12 @@ class _HistoryTables:
         statement = _TABLE_STATEMENTS[table][0]
         for item in items:
             payload = self.codec.encode_json(item)
-            self.connection.execute(statement, (digest.count, *key(item), payload))
+            stored = (
+                self._trace_frames(first=payload).encode(payload)
+                if table == "paper_traces"
+                else payload
+            )
+            self.connection.execute(statement, (digest.count, *key(item), stored))
             digest = digest.extend(payload)
         return digest
 
@@ -917,7 +983,7 @@ class _HistoryTables:
         cursor = self.connection.execute(_TABLE_STATEMENTS[table][1])
         chain, count = b"", 0
         for row in cast(Iterator[tuple[object, ...]], cursor):
-            payload = self._blob(row[-1])
+            payload = self._trace(row[-1]) if table == "paper_traces" else self._blob(row[-1])
             keys = decoder.decode(payload)
             if row[0] != count or row[1:-1] != keys.columns():
                 raise ValueError("account journal history differs from its head")
@@ -936,6 +1002,38 @@ class _HistoryTables:
     def _instrument(instrument_id: InstrumentId | None) -> str | None:
         """Return the stored text of an optional instrument key."""
         return None if instrument_id is None else str(instrument_id.uuid_value)
+
+    def _trace_payload(self, statement: str, parameters: tuple[str | None, ...]) -> bytes | None:
+        """Fetch one optional trace's exact encoded bytes."""
+        frame = self._payload(statement, parameters)
+        return None if frame is None else self._trace_frames().decode(frame)
+
+    def _trace(self, frame: object) -> bytes:
+        """Return one stored trace frame's exact encoded bytes."""
+        return self._trace_frames().decode(self._blob(frame))
+
+    def _trace_frames(self, *, first: bytes | None = None) -> ReferenceFrames:
+        """Return the reference trace's frames, writing ``first`` as it if there is none.
+
+        Raises:
+            ValueError: Traces are read but the journal has no reference trace.
+        """
+        if self._frames is None:
+            row = cast(
+                tuple[object] | None,
+                self.connection.execute(
+                    "SELECT payload FROM paper_trace_reference WHERE id=1"
+                ).fetchone(),
+            )
+            if row is not None:
+                reference = self._blob(row[0])
+            elif first is not None:
+                self.connection.execute("INSERT INTO paper_trace_reference VALUES (1, ?)", (first,))
+                reference = first
+            else:
+                raise ValueError("account journal paper trace reference is missing")
+            self._frames = self.references.frames(reference)
+        return self._frames
 
     def _payload(self, statement: str, parameters: tuple[str | None, ...]) -> bytes | None:
         """Fetch one optional payload."""
@@ -1278,6 +1376,7 @@ class AccountStateStore:
         self._configuration_payload = codec.encode_json(config)
         self._cached_snapshot: tuple[bytes, _LoadedHead] | None = None
         self._rows = StateRows(codec)
+        self._trace_references = _TraceReferences()
         self._connection: sqlite3.Connection | None = None
         self._finalizer: weakref.finalize[[], AccountStateStore] | None = None
         self._session_lock = threading.Lock()
@@ -1379,7 +1478,7 @@ class AccountStateStore:
                 AccountStateStore._require_layout(connection)
                 payload = _FirmRow.payload(connection, codec.encode_json(config))
                 head = codec.decode_json(payload, FirmHead)
-                _HistoryTables(connection, codec, head.history).verify()
+                _HistoryTables(connection, codec, head.history, _TraceReferences()).verify()
                 rows = StateRows(codec)
                 rows.verify(connection, head.history)
                 state = StateRows.assemble(head.state, rows.load(connection, head.history))
@@ -1439,7 +1538,7 @@ class AccountStateStore:
 
     def _tables(self, connection: sqlite3.Connection, history: HistorySummary) -> _HistoryTables:
         """Bind history lookups to this connection's transaction."""
-        return _HistoryTables(connection, self.codec, history)
+        return _HistoryTables(connection, self.codec, history, self._trace_references)
 
     def _initial(self) -> FirmState:
         """Create explicit initial funding postings; require reconciliation before admission."""

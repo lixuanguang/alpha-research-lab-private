@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import os
+from compression import zstd
 from decimal import Decimal
 from importlib import resources
 from pathlib import Path
@@ -14,7 +15,7 @@ import pytest
 
 # project library imports
 from financial_units import Currency, Money
-from serialization import DomainCodec, DurableDirectory, DurableLines
+from serialization import DomainCodec, DurableDirectory, DurableLines, ReferenceFrames
 
 _CODEC = DomainCodec()
 
@@ -230,3 +231,62 @@ class TestDurableLines:
         monkeypatch.undo()
         with pytest.raises(ValueError, match="incomplete record"):
             log.append(b'{"refused":5}')
+
+
+class TestReferenceFrames:
+    """Keep exact records as small frames that decode only against their own reference."""
+
+    _reference = (
+        b'{"account_id":"okx-shared","market":{"ask":"104.00","bid":"99.00"},"venue":"okx"}'
+    )
+    _record = b'{"account_id":"okx-shared","market":{"ask":"105.00","bid":"98.00"},"venue":"okx"}'
+
+    def test_a_record_round_trips_exactly_and_is_smaller_against_its_reference(self) -> None:
+        """Shared structure is stored once in the reference; the record decodes exactly."""
+        frames = ReferenceFrames(self._reference, maximum_bytes=1024, label="journal trace")
+        plain = ReferenceFrames(None, maximum_bytes=1024, label="journal trace")
+        frame = frames.encode(self._record)
+        assert frames.decode(frame) == self._record
+        assert plain.decode(plain.encode(self._record)) == self._record
+        assert len(frame) < len(plain.encode(self._record))
+
+    def test_another_reference_damage_or_trailing_bytes_are_refused(self) -> None:
+        """The checksum refuses damaged bytes and a reference that restores other bytes."""
+        frames = ReferenceFrames(self._reference, maximum_bytes=1024, label="journal trace")
+        frame = frames.encode(self._record)
+        other = ReferenceFrames(
+            self._reference.replace(b"okx", b"bfx"), maximum_bytes=1024, label="journal trace"
+        )
+        plain = ReferenceFrames(None, maximum_bytes=1024, label="journal trace")
+        damaged = frame[:-5] + bytes([frame[-5] ^ 1]) + frame[-4:]
+        for reader, value in (
+            (other, frame),
+            (plain, frame),
+            (frames, damaged),
+            (frames, frame + b"\x00"),
+            (frames, frame + frame),
+            (frames, frame[:-1]),
+            (frames, b""),
+            (frames, self._record),
+            (frames, bytearray(frame)),
+        ):
+            with pytest.raises(ValueError, match="journal trace frame is malformed"):
+                reader.decode(value)
+
+    def test_unchecked_oversized_or_empty_frames_and_records_are_refused(self) -> None:
+        """Frames must declare a checksum and a size within the bound; records are bounded."""
+        frames = ReferenceFrames(self._reference, maximum_bytes=64, label="index boundary")
+        unchecked = zstd.compress(
+            self._record, zstd_dict=zstd.ZstdDict(self._reference, is_raw=True)
+        )
+        assert zstd.decompress(unchecked, zstd_dict=zstd.ZstdDict(self._reference, is_raw=True))
+        large = ReferenceFrames(self._reference, maximum_bytes=1024, label="index boundary")
+        for value in (unchecked, large.encode(self._record)):
+            with pytest.raises(ValueError, match="index boundary frame is malformed"):
+                frames.decode(value)
+        for record in (b"", self._record):
+            with pytest.raises(ValueError, match="empty or exceeds its bound"):
+                frames.encode(record)
+        for reference, bound in ((b"", 64), (self._reference, 0)):
+            with pytest.raises(ValueError, match="require a record and a positive bound"):
+                ReferenceFrames(reference, maximum_bytes=bound, label="index boundary")

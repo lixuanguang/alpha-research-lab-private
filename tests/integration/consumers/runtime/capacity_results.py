@@ -5,6 +5,10 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 import math
+import multiprocessing
+import os
+from collections.abc import Iterator
+from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
@@ -18,7 +22,7 @@ from capacity_inputs import FixtureReceipts
 from configuration import PaperServiceConfiguration
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookProjection, CaptureReplay
-from market_data.contracts import CaptureRunRequest, RecordingRequest
+from market_data.contracts import CaptureRecord, CaptureRunRequest, RecordingRequest
 from market_data.storage import CaptureRecording
 from runtime import SharedBookDelivery
 from serialization import DomainCodec
@@ -304,14 +308,41 @@ class CapacityResultsCollector:
         self.codec = DomainCodec()
 
     @staticmethod
-    def _read_lines(path: Path) -> tuple[bytes, ...]:
-        """Reject a partial terminal JSONL row instead of silently dropping it."""
+    def _read_lines(path: Path) -> Iterator[bytes]:
+        """Stream JSONL rows, rejecting a partial terminal row before yielding any.
+
+        Rows are read one at a time, so memory stays bounded by one row however long
+        the day's measurement or delivery file is.
+        """
         if not path.is_file():
-            return ()
-        payload = path.read_bytes()
-        if payload and not payload.endswith(b"\n"):
-            raise ValueError(f"incomplete capacity measurement row: {path}")
-        return tuple(payload.splitlines())
+            return
+        with path.open("rb") as stream:
+            if stream.seek(0, os.SEEK_END):
+                stream.seek(-1, os.SEEK_END)
+                if stream.read(1) != b"\n":
+                    raise ValueError(f"incomplete capacity measurement row: {path}")
+            stream.seek(0)
+            for line in stream:
+                yield line[:-1]
+
+    @staticmethod
+    def _sha256(path: Path) -> str:
+        """Return a file's SHA-256, read in bounded chunks."""
+        with path.open("rb") as stream:
+            return hashlib.file_digest(stream, "sha256").hexdigest()
+
+    @staticmethod
+    def _durable(records: Iterator[CaptureRecord], *, trim: bool) -> Iterator[CaptureRecord]:
+        """Yield records in order, leaving out a final interrupted unknown tail when ``trim``."""
+        previous: CaptureRecord | None = None
+        for record in records:
+            if previous is not None:
+                yield previous
+            previous = record
+        if previous is not None and not (
+            trim and previous.reason == "interrupted_persistence_unknown_tail"
+        ):
+            yield previous
 
     def _capture_probe(
         self, path: Path, steady_window_ns: tuple[int, int] | None = None
@@ -413,9 +444,7 @@ class CapacityResultsCollector:
         return (
             {
                 "measurement_path": str(path),
-                "measurement_sha256": hashlib.sha256(path.read_bytes()).hexdigest()
-                if path.is_file()
-                else None,
+                "measurement_sha256": self._sha256(path) if path.is_file() else None,
                 "receipt_to_durable": receipt.summarize(),
                 "latency_population": "complete_recording_including_startup_and_shutdown",
                 "steady_receipt_to_durable": steady_receipt.summarize(),
@@ -523,9 +552,7 @@ class CapacityResultsCollector:
             steady_bbo_result["reason"] = "ineligible_snapshot_or_update_in_steady_cohort"
         return {
             "measurement_path": str(path),
-            "measurement_sha256": hashlib.sha256(path.read_bytes()).hexdigest()
-            if path.is_file()
-            else None,
+            "measurement_sha256": self._sha256(path) if path.is_file() else None,
             "deliveries": total,
             "complete_position_prefix": first_position == 0 and previous_position == total - 1,
             "market_eligible": eligible,
@@ -711,22 +738,28 @@ class CapacityResultsCollector:
             cursor = recording.cursor()
         except ValueError as error:
             raise ValueError(f"capture cursor differs from request: {root}") from error
-        records = tuple(recording.records(completed=completed))
-        if (
-            not completed
-            and records
-            and records[-1].reason == "interrupted_persistence_unknown_tail"
-        ):
-            records = records[:-1]
-        encoded_bytes = sum(len(self.codec.encode_json(record)) + 1 for record in records)
-        if encoded_bytes != cursor.offset or len(records) != cursor.records:
+        # One streamed pass: each record is encoded once and only sizes and clocks are kept.
+        record_sizes: list[int] = []
+        raw_sizes: list[int] = []
+        encoded_sizes: list[int] = []
+        receipts: list[int] = []
+        end_reason: str | None = None
+        for record in self._durable(recording.records(completed=completed), trim=not completed):
+            size = len(self.codec.encode_json(record)) + 1
+            record_sizes.append(size)
+            if record.kind in ("frame", "snapshot"):
+                raw_sizes.append(len(record.raw))
+                encoded_sizes.append(size)
+                receipts.append(record.received_ns)
+            elif record.kind == "end":
+                end_reason = record.reason
+        if sum(record_sizes) != cursor.offset or len(record_sizes) != cursor.records:
             raise ValueError(f"capture records differ from acknowledged cursor: {root}")
-        frames = tuple(record for record in records if record.kind in ("frame", "snapshot"))
-        record_sizes = sorted(len(self.codec.encode_json(record)) + 1 for record in records)
-        raw_sizes = sorted(len(record.raw) for record in frames)
-        encoded_sizes = sorted(len(self.codec.encode_json(record)) + 1 for record in frames)
-        count = len(frames)
-        record_count = len(records)
+        record_sizes.sort()
+        raw_sizes.sort()
+        encoded_sizes.sort()
+        count = len(raw_sizes)
+        record_count = len(record_sizes)
         record_mean = sum(record_sizes) / record_count if record_count else None
         record_p99 = (
             record_sizes[math.ceil(0.99 * record_count) - 1] if record_count >= 1000 else None
@@ -744,9 +777,6 @@ class CapacityResultsCollector:
             else "pass"
             if raw_p99 is not None
             else "unmeasured"
-        )
-        end_reason = next(
-            (record.reason for record in reversed(records) if record.kind == "end"), None
         )
         segments: dict[str, object] = (
             {
@@ -784,11 +814,9 @@ class CapacityResultsCollector:
             "size_p99_unavailable_reason": None
             if raw_p99 is not None
             else "fewer_than_1000_native_messages",
-            "first_receipt_ns": min((record.received_ns for record in frames), default=None),
-            "last_receipt_ns": max((record.received_ns for record in frames), default=None),
-            "arrival_schedule": self._arrival_facts(
-                tuple(record.received_ns for record in frames), steady_window_ns, origin
-            ),
+            "first_receipt_ns": min(receipts, default=None),
+            "last_receipt_ns": max(receipts, default=None),
+            "arrival_schedule": self._arrival_facts(tuple(receipts), steady_window_ns, origin),
             "stop_reason": end_reason,
             "stop_status": "pass"
             if completed and end_reason in ("duration_limit", "supervisor_stop")
@@ -801,20 +829,22 @@ class CapacityResultsCollector:
     def _delivery_facts(
         self, path: Path, capture_root: Path, request: RecordingRequest
     ) -> dict[str, object]:
-        """Prove every available retained delivery against its raw native cursor."""
+        """Prove every available retained delivery against its raw native cursor.
+
+        Deliveries and raw records are streamed in lockstep, so memory stays bounded by
+        one of each. ``SharedBookDelivery.decode`` already applies every native, decision
+        and coordination check to the line.
+        """
         recording = CaptureRecording(capture_root, request)
         completed = recording.completed
-        raw = tuple(recording.records(completed=completed))
-        if raw and raw[-1].reason == "interrupted_persistence_unknown_tail":
-            raw = raw[:-1]
+        raw = self._durable(recording.records(completed=completed), trim=True)
         replay = CaptureReplay(request.config, book_factory=BookAdapters.create)
         matched = 0
         for line in self._read_lines(path):
-            if matched >= len(raw):
+            record = next(raw, None)
+            if record is None:
                 raise ValueError(f"delivery extends beyond acknowledged raw capture: {path}")
             delivery = SharedBookDelivery.decode(line, self.codec)
-            delivery.__post_init__()
-            record = raw[matched]
             if delivery.source.record != record:
                 raise ValueError(f"delivery differs from raw capture at {matched}: {path}")
             outcome = replay.apply(record)
@@ -825,19 +855,21 @@ class CapacityResultsCollector:
                 )
             matched += 1
         remaining_kinds: dict[str, int] = {}
-        for record in raw[matched:]:
+        remaining = 0
+        for record in raw:
             remaining_kinds[record.kind] = remaining_kinds.get(record.kind, 0) + 1
+            remaining += 1
         return {
             "delivery_path": str(path),
-            "delivery_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "delivery_sha256": self._sha256(path),
             "matched_deliveries": matched,
-            "available_durable_raw_records": len(raw),
-            "unmatched_durable_raw_records": len(raw) - matched,
+            "available_durable_raw_records": matched + remaining,
+            "unmatched_durable_raw_records": remaining,
             "unmatched_raw_record_kinds": remaining_kinds,
             "status": "pass_complete_native_stream"
-            if matched == len(raw) and completed
+            if not remaining and completed
             else "pass_available_cursor_prefix"
-            if matched == len(raw)
+            if not remaining
             else "unmeasured_unattributed_delivery_tail",
             "capture_finalization": "completed" if completed else "interrupted_prefix_only",
             "trace_identity": replay.summary()["trace_identity"],
@@ -908,7 +940,7 @@ class CapacityResultsCollector:
         return {
             "status": "pass" if complete else "fail",
             "trace_path": str(trace_path),
-            "trace_sha256": hashlib.sha256(trace_path.read_bytes()).hexdigest(),
+            "trace_sha256": self._sha256(trace_path),
             "fixture_identity": trace.fixture_identity,
             "emitted_frames": len(indices),
             "durable_frames": len(frames),
@@ -1033,9 +1065,7 @@ class CapacityResultsCollector:
             }
         return {
             "samples_path": str(samples_path),
-            "samples_sha256": hashlib.sha256(samples_path.read_bytes()).hexdigest()
-            if samples_path.is_file()
-            else None,
+            "samples_sha256": self._sha256(samples_path) if samples_path.is_file() else None,
             "per_target": groups,
             "four_reader_workload": workloads,
             "feature": self._feature_reads(),
@@ -1056,7 +1086,45 @@ class CapacityResultsCollector:
         }
 
     def collect(self) -> dict[str, object]:
-        """Return a bounded finite-trial characterization with exact evidence paths."""
+        """Return a bounded finite-trial characterization with exact evidence paths.
+
+        Each source's capture, probe and delivery facts are independent of every other
+        source's, so each is collected in its own process; the result is assembled in
+        the configuration's source order, exactly as a sequential collection would.
+        """
+        trial, config, run = self._context()
+        steady_monotonic_window = self._steady_monotonic_window_ns(self.read_root)
+        names = tuple(definition.name for definition in config.sources)
+        context = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=max(1, len(names)), mp_context=context) as pool:
+            futures = [
+                pool.submit(
+                    CapacityResultsCollector._collect_source,
+                    self.service_root,
+                    self.measurement_root,
+                    self.read_root,
+                    name,
+                )
+                for name in names
+            ]
+            reads = self._reads(config)
+            sources = {name: future.result() for name, future in zip(names, futures, strict=True)}
+        return {
+            "schema_version": "runtime-capacity-result",
+            "evidence_class": "bounded_local_stage_1",
+            "run_id": run.run_id,
+            "public_venue": trial.public_venue,
+            "variant": trial.variant,
+            "service_configuration_identity": config.identity,
+            "sources": sources,
+            "steady_monotonic_interval_ns": steady_monotonic_window,
+            "reads": reads,
+            "sustained_24_hour_status": "unmeasured",
+            "sustained_24_hour_reason": "finite_service_life_and_no_capture_rollover",
+        }
+
+    def _context(self) -> tuple[_TrialContext, PaperServiceConfiguration, _ServiceRun]:
+        """Read the trial's provenance, service configuration and current run."""
         trial_path = self.service_root.parent / "summary.json"
         trial = self.codec.decode_json(trial_path.read_bytes(), _TrialContext)
         if trial.public_venue not in (None, "okx", "bitfinex") or trial.variant not in (
@@ -1071,138 +1139,136 @@ class CapacityResultsCollector:
             (self.service_root / "configuration.json").read_bytes(), PaperServiceConfiguration
         )
         run = self.codec.decode_json((self.service_root / "status.json").read_bytes(), _ServiceRun)
+        return trial, config, run
+
+    @staticmethod
+    def _collect_source(
+        service_root: Path, measurement_root: Path, read_root: Path | None, name: str
+    ) -> dict[str, object]:
+        """Collect one source's facts in a worker process from the same evidence roots."""
+        return CapacityResultsCollector(service_root, measurement_root, read_root)._source(name)
+
+    def _source(self, name: str) -> dict[str, object]:
+        """Verify and summarize one source's recordings, probes and delivery parity."""
+        trial, config, run = self._context()
+        definition = next(item for item in config.sources if item.name == name)
         run_root = self.service_root / "runs" / run.run_id
         probe_root = self.measurement_root / run.run_id
         steady_window = self._steady_window_ns(self.read_root)
         steady_monotonic_window = self._steady_monotonic_window_ns(self.read_root)
-        sources: dict[str, object] = {}
-        for definition in config.sources:
-            origin: Literal["base_fixture", "live_public", "other_fixture"] = (
-                "live_public"
-                if definition.capture.venue == trial.public_venue
-                else "base_fixture"
-                if trial.variant == "base" and trial.workload == "capacity"
-                else "other_fixture"
-            )
-            recordings: dict[str, object] = {}
-            for recording in CaptureRecording.discover(run_root / definition.name):
-                request, capture_root, key = recording.request, recording.root, recording.key
-                if request.config != definition.capture:
-                    raise ValueError(f"capture differs from selected source: {capture_root}")
-                capture = self._capture_facts(capture_root, request, steady_window, origin)
-                if origin == "base_fixture" and capture["completed_manifest"] is True:
-                    capture["fixture_schedule_proof"] = self._fixture_schedule(
-                        definition.name, capture_root, request
-                    )
-                measurement_directory = probe_root / definition.name
-                source_probe, cursors = self._capture_probe(
-                    measurement_directory / f"{key}.capture.jsonl",
-                    steady_monotonic_window,
+        origin: Literal["base_fixture", "live_public", "other_fixture"] = (
+            "live_public"
+            if definition.capture.venue == trial.public_venue
+            else "base_fixture"
+            if trial.variant == "base" and trial.workload == "capacity"
+            else "other_fixture"
+        )
+        recordings: dict[str, object] = {}
+        for recording in CaptureRecording.discover(run_root / definition.name):
+            request, capture_root, key = recording.request, recording.root, recording.key
+            if request.config != definition.capture:
+                raise ValueError(f"capture differs from selected source: {capture_root}")
+            capture = self._capture_facts(capture_root, request, steady_window, origin)
+            if origin == "base_fixture" and capture["completed_manifest"] is True:
+                capture["fixture_schedule_proof"] = self._fixture_schedule(
+                    definition.name, capture_root, request
                 )
-                captured_native_messages = capture["native_messages"]
-                if type(captured_native_messages) is not int:
-                    raise ValueError(f"capture has no native message count: {capture_root}")
-                actual_frame_cursors = {
-                    position
-                    for position, record in enumerate(
-                        recording.records(completed=False),
-                        start=1,
-                    )
-                    if record.kind in ("frame", "snapshot")
+            measurement_directory = probe_root / definition.name
+            source_probe, cursors = self._capture_probe(
+                measurement_directory / f"{key}.capture.jsonl",
+                steady_monotonic_window,
+            )
+            captured_native_messages = capture["native_messages"]
+            if type(captured_native_messages) is not int:
+                raise ValueError(f"capture has no native message count: {capture_root}")
+            actual_frame_cursors = {
+                position
+                for position, record in enumerate(
+                    recording.records(completed=False),
+                    start=1,
+                )
+                if record.kind in ("frame", "snapshot")
+            }
+            probe_complete = set(cursors) == actual_frame_cursors
+            source_probe["coverage"] = {
+                "status": "pass" if probe_complete else "fail",
+                "captured_native_messages": captured_native_messages,
+                "measured_native_messages": len(cursors),
+            }
+            if not probe_complete:
+                for name in (
+                    "receipt_to_durable",
+                    "steady_receipt_to_durable",
+                    "append_to_durable",
+                    "record_fsync",
+                    "cursor_checkpoint",
+                    "durable_to_reconstructed",
+                ):
+                    latency = cast(dict[str, object], source_probe[name])
+                    if latency.get("status") == "pass":
+                        latency["status"] = "unmeasured"
+                        latency["reason"] = "probe_does_not_cover_every_native_message"
+            expected_accounts = {
+                item.account_id for item in config.instances if item.source == definition.name
+            }
+            paper: dict[str, object] = {}
+            for path in sorted(measurement_directory.glob(f"{key}.*.paper.jsonl")):
+                account_id = path.name.removeprefix(f"{key}.").removesuffix(".paper.jsonl")
+                if account_id not in expected_accounts:
+                    raise ValueError(f"paper probe has unknown account: {path}")
+                paper[account_id] = self._paper_probe(path, cursors, steady_monotonic_window)
+            delivery_parity: dict[str, object] = {}
+            for account_id in sorted(expected_accounts):
+                path = run_root / definition.name / f"{key}-{account_id}.jsonl"
+                delivery_parity[account_id] = (
+                    self._delivery_facts(path, capture_root, request)
+                    if path.is_file()
+                    else {"status": "unmeasured_missing_delivery", "delivery_path": str(path)}
+                )
+                account_probe_raw = paper.get(account_id)
+                if account_probe_raw is None:
+                    paper[account_id] = {
+                        "status": "unmeasured_missing_probe",
+                        "measurement_path": str(
+                            measurement_directory / f"{key}.{account_id}.paper.jsonl"
+                        ),
+                    }
+                    continue
+                account_probe = cast(dict[str, object], account_probe_raw)
+                delivery_count = cast(dict[str, object], delivery_parity[account_id]).get(
+                    "matched_deliveries"
+                )
+                matched_probe = (
+                    account_probe["deliveries"] == delivery_count
+                    and account_probe["complete_position_prefix"] is True
+                )
+                account_probe["coverage"] = {
+                    "status": "pass" if matched_probe else "fail",
+                    "measured_deliveries": account_probe["deliveries"],
+                    "retained_deliveries": delivery_count,
                 }
-                probe_complete = set(cursors) == actual_frame_cursors
-                source_probe["coverage"] = {
-                    "status": "pass" if probe_complete else "fail",
-                    "captured_native_messages": captured_native_messages,
-                    "measured_native_messages": len(cursors),
-                }
-                if not probe_complete:
+                if not matched_probe:
                     for name in (
-                        "receipt_to_durable",
-                        "steady_receipt_to_durable",
-                        "append_to_durable",
-                        "record_fsync",
-                        "cursor_checkpoint",
-                        "durable_to_reconstructed",
+                        "durable_to_bbo",
+                        "steady_durable_to_bbo",
+                        "selected_book_to_checkpoint",
                     ):
-                        latency = cast(dict[str, object], source_probe[name])
+                        latency = cast(dict[str, object], account_probe[name])
                         if latency.get("status") == "pass":
                             latency["status"] = "unmeasured"
-                            latency["reason"] = "probe_does_not_cover_every_native_message"
-                expected_accounts = {
-                    item.account_id for item in config.instances if item.source == definition.name
-                }
-                paper: dict[str, object] = {}
-                for path in sorted(measurement_directory.glob(f"{key}.*.paper.jsonl")):
-                    account_id = path.name.removeprefix(f"{key}.").removesuffix(".paper.jsonl")
-                    if account_id not in expected_accounts:
-                        raise ValueError(f"paper probe has unknown account: {path}")
-                    paper[account_id] = self._paper_probe(path, cursors, steady_monotonic_window)
-                delivery_parity: dict[str, object] = {}
-                for account_id in sorted(expected_accounts):
-                    path = run_root / definition.name / f"{key}-{account_id}.jsonl"
-                    delivery_parity[account_id] = (
-                        self._delivery_facts(path, capture_root, request)
-                        if path.is_file()
-                        else {"status": "unmeasured_missing_delivery", "delivery_path": str(path)}
-                    )
-                    account_probe_raw = paper.get(account_id)
-                    if account_probe_raw is None:
-                        paper[account_id] = {
-                            "status": "unmeasured_missing_probe",
-                            "measurement_path": str(
-                                measurement_directory / f"{key}.{account_id}.paper.jsonl"
-                            ),
-                        }
-                        continue
-                    account_probe = cast(dict[str, object], account_probe_raw)
-                    delivery_count = cast(dict[str, object], delivery_parity[account_id]).get(
-                        "matched_deliveries"
-                    )
-                    matched_probe = (
-                        account_probe["deliveries"] == delivery_count
-                        and account_probe["complete_position_prefix"] is True
-                    )
-                    account_probe["coverage"] = {
-                        "status": "pass" if matched_probe else "fail",
-                        "measured_deliveries": account_probe["deliveries"],
-                        "retained_deliveries": delivery_count,
-                    }
-                    if not matched_probe:
-                        for name in (
-                            "durable_to_bbo",
-                            "steady_durable_to_bbo",
-                            "selected_book_to_checkpoint",
-                        ):
-                            latency = cast(dict[str, object], account_probe[name])
-                            if latency.get("status") == "pass":
-                                latency["status"] = "unmeasured"
-                                latency["reason"] = "probe_does_not_cover_every_retained_delivery"
-                recordings[key] = {
-                    "capture": capture,
-                    "source_probe": source_probe,
-                    "account_probes": paper,
-                    "delivery_parity": delivery_parity,
-                }
-            sources[definition.name] = {
-                "venue": definition.capture.venue,
-                "transport_origin": origin,
-                "instrument_id": str(definition.capture.instrument_id),
-                "recordings": recordings,
-                "status": "measured" if recordings else "unmeasured_no_recording",
+                            latency["reason"] = "probe_does_not_cover_every_retained_delivery"
+            recordings[key] = {
+                "capture": capture,
+                "source_probe": source_probe,
+                "account_probes": paper,
+                "delivery_parity": delivery_parity,
             }
         return {
-            "schema_version": "runtime-capacity-result",
-            "evidence_class": "bounded_local_stage_1",
-            "run_id": run.run_id,
-            "public_venue": trial.public_venue,
-            "variant": trial.variant,
-            "service_configuration_identity": config.identity,
-            "sources": sources,
-            "steady_monotonic_interval_ns": steady_monotonic_window,
-            "reads": self._reads(config),
-            "sustained_24_hour_status": "unmeasured",
-            "sustained_24_hour_reason": "finite_service_life_and_no_capture_rollover",
+            "venue": definition.capture.venue,
+            "transport_origin": origin,
+            "instrument_id": str(definition.capture.instrument_id),
+            "recordings": recordings,
+            "status": "measured" if recordings else "unmeasured_no_recording",
         }
 
     def write(self, output: Path) -> dict[str, object]:

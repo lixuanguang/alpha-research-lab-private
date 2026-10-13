@@ -613,6 +613,28 @@ class TestCapacityReads:
         with pytest.raises(ValueError, match=message):
             collector._delivery_facts(source.delivery_path, source.capture_root, source.request)
 
+    def test_result_parity_still_refuses_an_invalid_retained_book(self, tmp_path: Path) -> None:
+        """The delivery decode alone validates each retained book; parity relies on it."""
+        _, source, _ = self._index(tmp_path)
+        codec = DomainCodec()
+        lines = source.delivery_path.read_bytes().splitlines()
+        delivery = SharedBookDelivery.decode(lines[1], codec)
+        row = codec.encode_json(delivery.source.book)
+        marker = b'"position":' + str(delivery.source.book.position).encode() + b","
+        assert row.count(marker) == 1
+        invalid = SharedBookDelivery.retained(
+            codec,
+            record=delivery.source.record,
+            row_payload=row.replace(marker, b'"position":-1,'),
+            available_at=delivery.source.available_at,
+            decisions=delivery.decisions,
+            matched=delivery.matched,
+        )
+        source.delivery_path.write_bytes(b"\n".join((lines[0], invalid, *lines[2:])) + b"\n")
+        collector = CapacityResultsCollector(tmp_path, tmp_path)
+        with pytest.raises(ValueError, match="invalid book occurrence coordinates"):
+            collector._delivery_facts(source.delivery_path, source.capture_root, source.request)
+
     def test_native_parity_reports_unattributed_durable_tail(self, tmp_path: Path) -> None:
         """A verified capture tail without delivery cannot count as complete parity."""
         index, source, _ = self._index(tmp_path)
