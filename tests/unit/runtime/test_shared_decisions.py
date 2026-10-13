@@ -456,9 +456,10 @@ class TestSharedDecisions:
         restarted = run_shared_paper(
             config, bindings=bindings, journal_path=path, events=(quotes[2], decisions[2])
         )
+        # The reset candidate warms again; that step replaces the live order with none.
         assert (restarted.decisions[0].status, restarted.decisions[0].reason) == (
             "committed",
-            "no_intent",
+            "replacement_pending",
         )
         saved = AccountJournal(path, config).checkpoint("orders")
         assert saved is not None

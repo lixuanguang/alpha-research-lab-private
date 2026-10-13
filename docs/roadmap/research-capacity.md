@@ -2,8 +2,9 @@
 
 Owner: quant development. Status: **accepted by extrapolation** from measured 2-hour
 and 6-minute runs. The measured 72-hour run is a
-[standing requirement](../research/program.md#measured-research-capacity) and runs on
-the static host.
+[standing requirement](../research/program.md#measured-research-capacity). It may start
+once the counted day run and its replay release the host, and may overlap the rest of
+their retention interval ([remaining work](overview.md#remaining-work-before-qr-onboarding)).
 
 This profile covers multi-day historical data, concurrent studies and offline feature
 capacity. [Runtime capacity](runtime-capacity.md) is separate. The targets are

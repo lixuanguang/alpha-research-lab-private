@@ -67,6 +67,7 @@ from execution.account_reduction import (
     PaperReductionRequest,
     PaperReductionResult,
 )
+from execution.account_replacement import PaperReplacements
 from execution.account_state import (
     AccountStateStore,
     AccountTransaction,
@@ -80,7 +81,7 @@ from execution.paper import PaperMarket
 from execution.paper_authority import PaperActivation, PaperAuthority, PaperOwner
 from execution.records import OrderEvent, OrderState, StepCommit
 from financial_units import DecimalGrid, Dimension, Money, Quantity
-from portfolio import ProRataAllocator
+from portfolio import PortfolioContext, ProRataAllocator
 from serialization import DomainCodec, DurableDirectory
 
 
@@ -110,6 +111,32 @@ class DispatchPermit(NamedTuple):
             raise ValueError("dispatch lease send window passed")
 
 
+class AccountHistory:
+    """Look up one stopped journal's committed batches and decisions, read-only."""
+
+    def __init__(self, snapshot: _AccountSnapshot) -> None:
+        """Bind one read-only snapshot of the journal's committed history."""
+        self._snapshot = snapshot
+
+    def batch(self, identity: str) -> PortfolioBatch | None:
+        """Return the committed portfolio batch with this identity, if any."""
+        saved = self._snapshot.find_batch(identity)
+        return None if saved is None else saved.batch
+
+    def decision(self, instance_id: str, decision_identity: str) -> SavedDecision | None:
+        """Return the saved decision of an instance with this identity, if any."""
+        return self._snapshot.find_decision(instance_id, decision_identity)
+
+    def digests(self) -> tuple[HistoryDigest, HistoryDigest, HistoryDigest]:
+        """Return the committed decision, batch and trace histories' counts and hash chains.
+
+        Each chain extends with every committed row, so equal digests read the same
+        committed history and any later commit changes at least one of them.
+        """
+        snapshot = self._snapshot
+        return snapshot.decision_history, snapshot.batch_history, snapshot.trace_history
+
+
 class AccountJournal:
     """Own shared paper/shadow admission, reservations, postings and safe recovery.
 
@@ -136,15 +163,24 @@ class AccountJournal:
         self._codec = DomainCodec()
         self._store = AccountStateStore(path, config, self._codec)
         self._admission = AccountAdmission(config, self._codec)
-        self._operations = AccountOperations(self._admission)
         self._allocation = PhysicalAllocation(config, self._codec, self._admission)
         self._portfolio = PortfolioCoordinator(config, self._codec, self._admission)
+        self._replacements = PaperReplacements(
+            config,
+            self._codec,
+            self._admission,
+            self._allocation,
+            self._portfolio,
+            self._require_send,
+        )
+        self._operations = AccountOperations(self._admission, self._replacements.withdraw_account)
         self._paper = AccountPaperMatching(
             config,
             self._store,
             self._codec,
             self._admission,
             self._allocation,
+            self._replacements,
             owner=paper_owner,
             clock=self._now,
         )
@@ -163,17 +199,52 @@ class AccountJournal:
         PaperDeployment._require_utc(at, field_name="paper operation")
         return at
 
+    def _require_send(
+        self,
+        transaction: AccountTransaction,
+        request: AccountDecision,
+        context: PortfolioContext | None,
+        *,
+        modelled: bool = False,
+    ) -> None:
+        """Check paper authority, deployment context and current input before staging orders.
+
+        A ``modelled`` request is a replacement arriving at its own modelled time, which a
+        command may process later: its quote's age is judged at that arrival, not at the
+        processing clock, so a late command neither revives nor discards it.
+        """
+        PaperAuthority.require_decision(transaction, request, self.paper_owner, now=self._now())
+        activation = PaperAuthority.find(transaction, request.account_id)
+        if (
+            context is not None
+            and activation is not None
+            and (
+                context.authority_scope != activation.deployment.submission_authority
+                or context.venue
+                != activation.deployment.scope_for(request.instance_id).scenario.venue
+                or not any(
+                    strategy.instance_id == request.instance_id
+                    and strategy.model_identity == context.model_revision
+                    for strategy in activation.deployment.strategies
+                )
+            )
+        ):
+            raise ValueError("paper_deployment_context_differs")
+        self._require_current_input(transaction, request, modelled=modelled)
+
     def _require_current_input(
-        self, transaction: AccountTransaction, request: AccountDecision
+        self, transaction: AccountTransaction, request: AccountDecision, *, modelled: bool = False
     ) -> None:
         """Reject stale/future operational data even when historical event clocks agree."""
         if PaperAuthority.find(transaction, request.account_id) is None:
             return
         now = self._now()
+        reference = request.decision.at if modelled else now
         if (
             request.decision.at > now
             or request.quote.at > now
-            or now - request.quote.at > timedelta(microseconds=self.config.budgets.max_quote_age_us)
+            or reference - request.quote.at
+            > timedelta(microseconds=self.config.budgets.max_quote_age_us)
         ):
             raise ValueError("paper_input_stale_or_future")
 
@@ -593,6 +664,22 @@ class AccountJournal:
         return saved.batch if saved is not None else None
 
     @staticmethod
+    @contextmanager
+    def read_history(path: Path, config: AccountConfiguration) -> Iterator[AccountHistory]:
+        """Read a stopped journal's committed batches and decisions without writing.
+
+        The journal is pinned to exact configuration bytes, the current layout and the
+        current head format, as ``verify`` pins it.
+        """
+        with AccountStateStore.read_history(path, config, DomainCodec()) as snapshot:
+            yield AccountHistory(snapshot)
+
+    @staticmethod
+    def arrival_identity(account_id: str, instance_id: str, decision_identity: str) -> str:
+        """Name the outcome row a deferred paper decision is resolved under at arrival."""
+        return PaperReplacements.arrival_identity(account_id, instance_id, decision_identity)
+
+    @staticmethod
     def verify(
         path: Path,
         config: AccountConfiguration,
@@ -684,6 +771,26 @@ class AccountJournal:
         ``AccountPaperMatching.apply``.
         """
         return self._paper.apply(account_id, market, scenario)
+
+    def advance_paper(self, at: datetime) -> None:
+        """Settle modelled paper lifecycle events due strictly before ``at``, without input.
+
+        A quiet market cannot extend a requested cancellation, a reservation or a
+        replacement's release and arrival: every cancellation, release and arrival
+        dated before ``at`` takes effect at its own modelled time. Nothing is matched,
+        observed or decided, and with nothing due nothing is written.
+        """
+        self._admission.require_utc(at, field_name="paper clock")
+        with self._store.write() as transaction:
+            if self.paper_owner is not None:
+                PaperAuthority.require_owner(
+                    transaction,
+                    self.paper_owner.account_id,
+                    self.paper_owner,
+                    at=self._now(),
+                    new_exposure=False,
+                )
+            self._replacements.settle(transaction, at)
 
     def paper_trace_page(self, account_id: str | None = None, *, after: int = -1) -> PaperTracePage:
         """Read one bounded page of committed traces after a position; see ``PaperTracePage``.
@@ -871,10 +978,20 @@ class AccountJournal:
                 and PaperAuthority.find(transaction, request.account_id) is not None
             ):
                 raise ValueError("managed_paper_restart_requires_owner_claim")
+            # An exact retry returns its original outcome before anything settles, so a
+            # retried cancel cannot withdraw intent decided after it.
+            saved = self._operations.saved(transaction, request)
+            if saved is not None:
+                return saved
+            self._replacements.settle(transaction, request.at)
             return self._operations.apply(transaction, request)
 
     def observe(self, quote: AccountQuote) -> None:
-        """Persist a monotonic actual valuation fact without admitting an order."""
+        """Persist a monotonic actual valuation fact without admitting an order.
+
+        Paper lifecycle events due strictly before the quote are settled first, on the
+        quotes known then, so a later observation never informs an earlier arrival.
+        """
         quote.__post_init__()
         with self._store.write() as transaction:
             if self.paper_owner is not None:
@@ -885,6 +1002,7 @@ class AccountJournal:
                     at=self._now(),
                     new_exposure=False,
                 )
+            self._replacements.settle(transaction, quote.at)
             self._admission.observe_quote(transaction, quote)
 
     def admit(self, request: AccountDecision) -> StepCommit:
@@ -908,8 +1026,8 @@ class AccountJournal:
                 if saved.request != request:
                     raise ValueError("decision identity reused with different content")
                 return saved.result
-            PaperAuthority.require_decision(transaction, request, self.paper_owner, now=self._now())
-            self._require_current_input(transaction, request)
+            self._replacements.settle(transaction, request.decision.at, deciding=True)
+            self._require_send(transaction, request, None)
             before = transaction.state
             try:
                 result = self._admission.admit(transaction, request)
@@ -942,23 +1060,13 @@ class AccountJournal:
                 if saved.batch != batch:
                     raise ValueError("portfolio batch identity reused with different content")
                 return saved.result
+            self._replacements.settle(
+                transaction,
+                min(item.request.decision.at for item in batch.decisions),
+                deciding=True,
+            )
             for item in batch.decisions:
-                PaperAuthority.require_decision(
-                    transaction, item.request, self.paper_owner, now=self._now()
-                )
-                activation = PaperAuthority.find(transaction, item.request.account_id)
-                if activation is not None and (
-                    item.context.authority_scope != activation.deployment.submission_authority
-                    or item.context.venue
-                    != activation.deployment.scope_for(item.request.instance_id).scenario.venue
-                    or not any(
-                        strategy.instance_id == item.request.instance_id
-                        and strategy.model_identity == item.context.model_revision
-                        for strategy in activation.deployment.strategies
-                    )
-                ):
-                    raise ValueError("paper_deployment_context_differs")
-                self._require_current_input(transaction, item.request)
+                self._require_send(transaction, item.request, item.context)
             before = transaction.state
             result = self._portfolio.coordinate(transaction, batch)
             try:
@@ -994,6 +1102,7 @@ class AccountJournal:
                     transaction, parent, event, activation, now
                 ):
                     raise ValueError("managed_paper_events_require_public_matching")
+            self._replacements.settle(transaction, event.at)
             result, failure = self._allocation.apply_event(transaction, event)
         if failure is not None:
             raise ValueError(f"account blocked: {failure}")
@@ -1087,6 +1196,7 @@ class AccountJournal:
                     item.instance_id for item in activation.deployment.strategies
                 }:
                     raise ValueError("paper_authorization_scope_differs")
+            self._replacements.withdraw(transaction, instance_id, at)
             return self._portfolio.stop_instance(transaction, instance_id, at)
 
     def restart_instance(self, instance_id: str, at: datetime) -> None:
@@ -1106,6 +1216,7 @@ class AccountJournal:
                 item.instance_id for item in activation.deployment.strategies
             }:
                 raise ValueError("paper_authorization_scope_differs")
+            self._replacements.settle(transaction, at)
             self._portfolio.restart_instance(transaction, instance_id, at)
 
     def reissue_pending(self, account_id: str, at: datetime) -> tuple[NetOrder, ...]:
@@ -1115,6 +1226,7 @@ class AccountJournal:
             PaperAuthority.require_owner(
                 transaction, account_id, self.paper_owner, at=self._now(), new_exposure=True
             )
+            self._replacements.settle(transaction, at)
             return self._portfolio.reissue_pending(transaction, account_id, at)
 
     def apply_event(self, event: OrderEvent) -> OrderState:
@@ -1136,6 +1248,7 @@ class AccountJournal:
                 is not None
             ):
                 raise ValueError("managed_paper_events_require_public_matching")
+            self._replacements.settle(transaction, event.at)
             result, failure = self._admission.apply_event(transaction, event)
         if failure is not None:
             raise ValueError(f"account blocked: {failure}")
@@ -1158,6 +1271,7 @@ class AccountJournal:
             )
             if PaperAuthority.find(transaction, posting.account_id) is not None:
                 raise ValueError("managed_paper_postings_require_public_matching")
+            self._replacements.settle(transaction, posting.known_at)
             snapshot, failure = self._admission.post(transaction, posting)
         if failure is not None:
             raise ValueError(f"account blocked: {failure}")
@@ -1175,6 +1289,7 @@ class AccountJournal:
                     at=self._now(),
                     new_exposure=False,
                 )
+            self._replacements.settle(transaction, observation.at)
             return self._admission.reconcile(transaction, observation, self._allocation)
 
     def apply_native_fill(self, request: NativeFill) -> OrderState | NetOrder:

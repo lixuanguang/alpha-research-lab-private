@@ -101,6 +101,7 @@ class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
         "claim_paper",
         "bind_paper_scenario",
         "public_market",
+        "advance_paper",
         "reduce_paper",
         "serve_paper",
         "shutdown_paper",
@@ -233,6 +234,7 @@ class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
             "revoke_paper",
             "claim_paper",
             "bind_paper_scenario",
+            "advance_paper",
             "serve_paper",
             "shutdown_paper",
             "export_traces",
@@ -265,6 +267,7 @@ class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
                 "control",
                 "bind_paper_scenario",
                 "public_market",
+                "advance_paper",
                 "reduce_paper",
                 "stop_instance",
                 "restart_instance",
@@ -330,6 +333,10 @@ class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
             if not self.account_id or self.at is None or self.reason is not None:
                 raise ValueError("residual reissue requires account and UTC time")
             self._require_utc(self.at, field_name="residual reissue")
+        elif self.action == "advance_paper":
+            if self.at is None or self.paper_owner is None or self.reason is not None:
+                raise ValueError("paper clock advance requires an owner and UTC time")
+            self._require_utc(self.at, field_name="paper clock")
         elif (
             self.action
             not in (
@@ -349,7 +356,8 @@ class AccountExecutionRequest(WireRecord, frozen=True, omit_defaults=True):
                 raise ValueError("instance control requires identity and UTC time")
             self._require_utc(self.at, field_name="instance control")
         elif self.instance_id is not None or (
-            self.at is not None and self.action not in ("reissue_pending", "revoke_paper")
+            self.at is not None
+            and self.action not in ("reissue_pending", "revoke_paper", "advance_paper")
         ):
             raise ValueError("instance control fields require a stop or restart action")
         if self.alert_socket is not None:

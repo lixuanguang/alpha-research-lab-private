@@ -13,6 +13,7 @@ from typing import ClassVar, Literal
 # third party library imports
 import msgspec
 from capacity_inputs import CapacityNativeFixture, CapacityVariant, CapacityWorkload
+from capacity_reconciler import AccountReconciler
 from paper_services import PaperServiceWorkload
 
 # project library imports
@@ -25,7 +26,11 @@ from configuration import (
     PaperSourceChain,
     PaperTelemetryRetention,
 )
-from execution import AccountJournal, AccountObservation, AccountQuote
+from execution import (
+    AccountExecutionRequest,
+    AccountJournal,
+    AccountQuote,
+)
 from financial_units import Money, Price, Quantity
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookProjection, BookRegistry, CaptureReplay
@@ -34,6 +39,7 @@ from market_data.contracts import CaptureRecord, CaptureRequest
 from portfolio import PortfolioContext
 from research.observations import LiveBookDecisionSource
 from runtime import SharedDecisionRuntime, SharedPaperCaptureObserver, SharedStrategyBinding
+from telemetry import RuntimeMeasurementJournal
 
 
 class SustainedNativeFixture(CapacityNativeFixture):
@@ -390,8 +396,12 @@ class SustainedWorkload(CapacityWorkload):
         minutes: int,
         scratch: Path,
         reconcile_seconds: int | None,
+        measurements: RuntimeMeasurementJournal | None = None,
     ) -> dict[str, object]:
-        """Drive one account's books through its policies and a fresh journal."""
+        """Drive one account's books through its policies and a fresh journal.
+
+        ``measurements`` retains each book's trial measurement row, as a service does.
+        """
         account = next(item for item in service.accounts if item.account_id == account_id)
         venue = self.venue_workload(source.capture.venue)
         opening = self.opening_at + timedelta(seconds=1)
@@ -468,6 +478,7 @@ class SustainedWorkload(CapacityWorkload):
             scenario=source.scenario,
             delivery_path=scratch / "deliveries.jsonl",
             clock=clock,
+            measurements=measurements,
         )
         fixture = self.fixture(source)
         replay = CaptureReplay(source.capture, book_factory=BookAdapters.create)
@@ -486,33 +497,36 @@ class SustainedWorkload(CapacityWorkload):
                     raw=fixture._native_frame(clock.ns(at) // 1_000_000),
                 )
             )
-        reconciled_at, reconciliations = opening, 0
+        scheduled_at, reconciliations = opening, 0
         for position, record in enumerate(records):
             clock.at = clock.from_ns(record.received_ns) + timedelta(milliseconds=1)
-            if reconcile_seconds is not None and clock.at - reconciled_at >= timedelta(
+            if reconcile_seconds is not None and clock.at - scheduled_at >= timedelta(
                 seconds=reconcile_seconds
             ):
-                # Paper facts are the account's own settled ledger and open physical orders.
-                reconciled_at = clock()
-                if not journal.reconcile(
-                    AccountObservation(
-                        identity=f"projection-{reconciliations}",
-                        at=reconciled_at,
-                        snapshot=AccountLedger(journal.accounts()[0].ledger).snapshot(),
-                        open_orders=tuple(
-                            item.order
-                            for item in journal.net_orders()
-                            if not item.order.is_terminal
-                        ),
+                # The delivery clock only schedules the round. Its evidence is stamped as
+                # the live reconciler stamps it, from one snapshot of the account's facts:
+                # this delivery may cross a grid instant not yet decided.
+                scheduled_at = clock.at
+                facts = journal.result_snapshot(
+                    AccountExecutionRequest(
+                        action="inspect", account_id=account_id, projection="reconciliation"
                     )
-                ):
+                )
+                accepted = None if observer.last_market is None else observer.last_market.at
+                observation = AccountReconciler.observation(
+                    facts, accepted, f"projection-{reconciliations}"
+                )
+                if not journal.reconcile(observation):
                     raise ValueError("sustained projection reconciliation failed")
                 reconciliations += 1
             outcome = replay.apply(record)
             observer.observe(record, BookProjection.capture(position, record, outcome, replay))
+        # Decision time: each grid batch's commit. Under arrival-time admission a paper
+        # decision commits as pending and is admitted, or refused, at its arrival.
         reasons: dict[str, int] = {}
         for commit in observer.decisions:
             reasons[commit.reason] = reasons.get(commit.reason, 0) + 1
+        arrivals, waiting = _ArrivalOutcomes.read(journal)
         orders = journal.orders()
         first = min((tagged.order.decision_at for tagged in orders), default=None)
         ledger = AccountLedger(journal.accounts()[0].ledger)
@@ -529,8 +543,11 @@ class SustainedWorkload(CapacityWorkload):
             "reconciliations": reconciliations,
             "committed_checkpoints": len(observer.decisions),
             "commit_reasons": reasons,
+            "arrival_reasons": arrivals,
+            "arrivals_waiting": waiting,
             "orders": len(orders),
-            # Orders decided at the first committed checkpoint open the held targets.
+            # Orders admitted at the first decisions' arrival open the held targets; an
+            # order is dated at its arrival, where it was admitted.
             "opening_orders": sum(tagged.order.decision_at == first for tagged in orders),
             "steady_orders": sum(
                 first is not None and tagged.order.decision_at > first for tagged in orders
@@ -539,6 +556,36 @@ class SustainedWorkload(CapacityWorkload):
             "holdings": holdings,
             "final_economics": (snapshot.cash, snapshot.fees, snapshot.positions),
         }
+
+
+class _ArrivalOutcomes:
+    """Read each pending paper decision's own arrival outcome from the journal."""
+
+    _pending: ClassVar[frozenset[str]] = frozenset(("arrival_pending", "replacement_pending"))
+
+    @classmethod
+    def read(cls, journal: AccountJournal) -> tuple[dict[str, int], int]:
+        """Count arrival outcome reasons, per decision, and the arrivals still waiting.
+
+        A deferred decision is resolved under an identity derived from its own, so an
+        outcome is an arrival exactly when it carries a pending decision's derived
+        identity; a refusal at decision time is not counted as one.
+        """
+        outcomes = journal.result_snapshot(
+            AccountExecutionRequest(action="inspect", projection="decisions")
+        ).decision_outcomes
+        derived = {
+            AccountJournal.arrival_identity(
+                item.account_id, item.instance_id, item.decision_identity
+            )
+            for item in outcomes
+            if item.reason in cls._pending
+        }
+        reasons: dict[str, int] = {}
+        for item in outcomes:
+            if item.decision_identity in derived:
+                reasons[item.reason] = reasons.get(item.reason, 0) + 1
+        return reasons, len(derived) - sum(reasons.values())
 
 
 class _ProjectionClock:

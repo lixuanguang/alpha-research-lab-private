@@ -541,56 +541,80 @@ class PublicPaperWorkload:
             ask_quantity=self.quantity("4"),
         )
 
+    def arrivals(self, journal: PaperAccount, deliveries: Path) -> set[str]:
+        """Name the arrival decisions derivable from the retained decisions.
+
+        A deferred decision arrives under an identity derived from its own; orders an
+        arrival placed carry that identity.
+        """
+        found: set[str] = set()
+        for line in deliveries.read_bytes().splitlines():
+            delivery = SharedBookDelivery.decode(line, self.codec)
+            for group in delivery.decisions:
+                batch = journal.portfolio_batch(
+                    hashlib.sha256(self.codec.encode_json((delivery.source, group))).hexdigest()
+                )
+                for item in () if batch is None else batch.decisions:
+                    derived = hashlib.sha256(
+                        self.codec.encode_json(
+                            (
+                                "paper-replacement-send",
+                                item.request.account_id,
+                                item.request.instance_id,
+                                item.request.decision.identity,
+                            )
+                        )
+                    ).hexdigest()
+                    found.add(derived)
+        return found
+
     def replaced(
         self,
+        journal: PaperAccount,
         traces: tuple[AccountPaperTrace, ...],
-        decisions: tuple[PortfolioCommit, ...],
+        parents: tuple[OrderState, ...],
         deliveries: Path,
-    ) -> set[str]:
-        """Name physical orders that a later decision of an owning instance replaced.
+    ) -> dict[str, datetime]:
+        """Name physical orders a later decision of an owning instance replaced, with when.
 
-        Derived from the observer's retained decisions and the paper events alone:
-        an order is replaced when such a decision coordinates while it is still live.
+        Derived from the observer's retained decisions and the paper events alone: an
+        order is replaced when such a decision coordinates while it is still live, and
+        its cancellation is requested at that decision's date, one microsecond earlier.
         """
         groups = tuple(
             (group.coordinated_at, {item.instance_id for item in group.inputs})
             for line in deliveries.read_bytes().splitlines()
             for group in SharedBookDelivery.decode(line, self.codec).decisions
         )
-        owner = {
-            child.order.identity: child.instance_id
-            for decision in decisions
-            for child in decision.children
-        }
-        replaced: set[str] = set()
-        for decision in decisions:
-            for parent in decision.net_orders:
-                order = parent.order
-                owners = {owner[item.child_order_id] for item in parent.allocations}
-                events = tuple(
-                    event
-                    for trace in traces
-                    for event in trace.physical_events
-                    if event.order_id == order.identity
-                )
-                for at, instances in groups:
-                    if at <= order.decision_at or not instances & owners:
-                        continue
-                    filled = sum(
-                        (
-                            abs(event.fill.quantity.value)
-                            for event in events
-                            if event.fill is not None and event.at < at
-                        ),
-                        Decimal(0),
-                    )
-                    cancelled = any(
-                        event.kind in ("cancelled", "cancelled_on_request") and event.at < at
+        owner = {child.order.identity: child.instance_id for child in journal.orders()}
+        allocations = {parent.order.identity: parent.allocations for parent in journal.net_orders()}
+        replaced: dict[str, datetime] = {}
+        for order in parents:
+            owners = {owner[item.child_order_id] for item in allocations[order.identity]}
+            events = tuple(
+                event
+                for trace in traces
+                for event in trace.physical_events
+                if event.order_id == order.identity
+            )
+            for at, instances in groups:
+                if at <= order.decision_at or not instances & owners:
+                    continue
+                filled = sum(
+                    (
+                        abs(event.fill.quantity.value)
                         for event in events
-                    )
-                    if filled < order.intent.quantity.value and not cancelled:
-                        replaced.add(order.identity)
-                        break
+                        if event.fill is not None and event.at < at
+                    ),
+                    Decimal(0),
+                )
+                cancelled = any(
+                    event.kind in ("cancelled", "cancelled_on_request") and event.at < at
+                    for event in events
+                )
+                if filled < order.intent.quantity.value and not cancelled:
+                    replaced[order.identity] = at - timedelta(microseconds=1)
+                    break
         return replaced
 
     def reconcile(
@@ -606,19 +630,41 @@ class PublicPaperWorkload:
 
         Each decision replaces its instance's working orders: a physical order still
         live when a later retained decision of an owning instance coordinates carries
-        a cancel request.
+        a cancel request. That cancellation takes effect at the request plus the cancel
+        delay, ended by a book at or after then or, without one, by the next delivery,
+        each of which settles what is due before it. A replacing decision arrives one
+        entry delay after the cancellation and may place new orders, whose states are
+        derived from the paper events like any other.
         """
         traces = tuple(journal.iter_paper_traces("paper"))
-        replaced = self.replaced(traces, decisions, deliveries)
+        arrived = self.arrivals(journal, deliveries)
+        arrival_children = {
+            child.order.identity
+            for child in journal.orders()
+            if child.order.decision_identity in arrived
+        }
+        decided = tuple(parent.order for decision in decisions for parent in decision.net_orders)
+        arrival_parents = tuple(
+            parent.order
+            for parent in journal.net_orders()
+            if any(item.child_order_id in arrival_children for item in parent.allocations)
+        )
+        replaced = self.replaced(journal, traces, (*decided, *arrival_parents), deliveries)
+        lines = deliveries.read_bytes().splitlines()
+        final = SharedBookDelivery.decode(lines[-1], self.codec).source.available_at
+        delay = timedelta(microseconds=self.scenario.cancel_delay_us)
+        ended = {identity for identity, requested in replaced.items() if requested + delay < final}
         quantity, notional, fees = Fraction(0), Fraction(0), Fraction(0)
         expected_orders: list[OrderState] = []
-        originals = tuple(
-            parent.order for decision in decisions for parent in decision.net_orders
-        ) + tuple(
-            order
-            for result in journal.paper_reductions()
-            if result.status == "accepted"
-            for order in result.orders
+        originals = (
+            *decided,
+            *arrival_parents,
+            *(
+                order
+                for result in journal.paper_reductions()
+                if result.status == "accepted"
+                for order in result.orders
+            ),
         )
         for original in originals:
             events = tuple(
@@ -648,6 +694,7 @@ class PublicPaperWorkload:
                 if filled == original.intent.quantity.value
                 else "cancelled"
                 if any(event.kind in ("cancelled", "cancelled_on_request") for event in events)
+                or original.identity in ended
                 else "cancel_requested"
                 if original.identity in replaced
                 else "partial"

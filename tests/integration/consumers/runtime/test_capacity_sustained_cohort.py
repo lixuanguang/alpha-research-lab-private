@@ -144,11 +144,13 @@ class SustainedCohortFixture:
                 "feature_durable_to_available": SustainedCohortFixture.windows(),
                 "failed_or_missed_reads": {},
             },
+            # The profile's D2 shape: every selected batch commits pending, and each of
+            # its two strategies' decisions is admitted at its own arrival.
             "commits": {
-                account: {
-                    **({"committed:reserved": opening} if opening else {}),
-                    "committed:target_matched": checkpoints - opening,
-                }
+                account: {"committed:arrival_pending": checkpoints} for account in accounts
+            },
+            "decisions": {
+                account: SustainedCohortFixture.decisions(checkpoints, opening)
                 for account in accounts
             },
             "reconciliations": {
@@ -177,6 +179,19 @@ class SustainedCohortFixture:
         )
         summary: dict[str, object] = {"passed": True, "failures": []}
         return summary, results, sustained, observations
+
+    @staticmethod
+    def decisions(checkpoints: int, opening: int) -> dict[str, object]:
+        """Author one account's resolved decisions: two a batch, ``opening`` reserving."""
+        pending = "committed:arrival_pending->committed"
+        return {
+            "readable": True,
+            "batches": checkpoints,
+            "outcomes": {
+                **({f"{pending}:reserved": opening} if opening else {}),
+                f"{pending}:target_matched": 2 * checkpoints - opening,
+            },
+        }
 
     @staticmethod
     def failed(
@@ -235,12 +250,13 @@ class TestSustainedGates:
         """Apply one authored defect to a deep copy of the passing evidence."""
         summary, results, sustained, observations = copy.deepcopy(base)
         commits = sustained["commits"]
+        decisions = cast(dict[str, dict[str, dict[str, int]]], sustained["decisions"])
         reconciliations = sustained["reconciliations"]
         assert isinstance(commits, dict) and isinstance(reconciliations, dict)
         if change == "rejected":
-            commits["okx-shared"]["committed:rejected"] = 1
+            commits["okx-shared"]["rejected:stale_firm_account"] = 1
         elif change == "orders":
-            commits["okx-shared"]["committed:reserved"] = 3
+            decisions["okx-shared"]["outcomes"]["committed:arrival_pending->committed:reserved"] = 3
         elif change == "mismatch":
             reconciliations["okx-shared"]["matched"] = 29
         elif change == "fence":
@@ -379,8 +395,13 @@ class TestSustainedGates:
                 kind="all_replacement_instances_progressed",
                 values={"first_claim_to_progress_seconds": 31.2, "within_40_seconds": True},
             )
-            for counts in cast(dict[str, dict[str, int]], sustained["commits"]).values():
-                counts.pop("committed:reserved", None)
+            for facts in cast(
+                dict[str, dict[str, dict[str, int]]], sustained["decisions"]
+            ).values():
+                outcomes = facts["outcomes"]
+                outcomes["committed:arrival_pending->committed:target_matched"] += outcomes.pop(
+                    "committed:arrival_pending->committed:reserved"
+                )
         elif change == "no_fence":
             observations.pop()
             expected = ["injected_owner_death_fenced", "supervisor_source_delivery_complete"]
@@ -440,14 +461,116 @@ class TestSustainedGates:
         assert failed == ([] if victim else ["supervisor_source_delivery_complete"])
 
     def test_recovered_phase_places_no_further_orders(self) -> None:
-        """After recovery the held target needs no order; any reserved commit fails."""
+        """After recovery the held target needs no order; any reserved admission fails."""
         summary, results, sustained, observations = SustainedCohortFixture.evidence("b")
-        commits = sustained["commits"]
-        assert isinstance(commits, dict)
-        commits["bitfinex-shared"]["committed:reserved"] = 1
+        decisions = cast(dict[str, dict[str, dict[str, int]]], sustained["decisions"])
+        decisions["bitfinex-shared"]["outcomes"][
+            "committed:replacement_pending->committed:reserved"
+        ] = 1
         assert SustainedCohortFixture.failed("b", summary, results, sustained, observations) == [
             "orders_only_at_opening"
         ]
+
+    @pytest.mark.parametrize("phase", ["a", "b"])
+    def test_pending_batches_pass_only_when_each_decision_is_admitted(
+        self, phase: Literal["a", "b"]
+    ) -> None:
+        """Regression: D2 pending commits passed only as decision-time admissions before.
+
+        Every selected batch of the profile commits ``arrival_pending``; the gate once
+        accepted only ``committed:reserved`` and ``committed:target_matched`` and so
+        failed every valid phase. A pending commit alone never passes either: without
+        each decision's resolved arrival the checkpoint and opening-order gates fail.
+        """
+        summary, results, sustained, observations = SustainedCohortFixture.evidence(phase)
+        assert SustainedCohortFixture.failed(phase, summary, results, sustained, observations) == []
+        del sustained["decisions"]
+        assert SustainedCohortFixture.failed(phase, summary, results, sustained, observations) == [
+            "checkpoints_commit_without_rejection",
+            "orders_only_at_opening",
+        ]
+
+    def test_immediate_and_replacement_admissions_pass(self) -> None:
+        """An account admitting at once, or a decision replacing work, passes when admitted."""
+        summary, results, sustained, observations = SustainedCohortFixture.evidence("a")
+        commits = cast(dict[str, dict[str, int]], sustained["commits"])
+        decisions = cast(dict[str, dict[str, object]], sustained["decisions"])
+        commits["okx-isolated"] = {"committed:reserved": 1, "committed:target_matched": 599}
+        decisions["okx-isolated"] = {
+            "readable": True,
+            "batches": 600,
+            "outcomes": {"committed:reserved": 2, "committed:target_matched": 1198},
+        }
+        commits["okx-shared"] = {
+            "committed:arrival_pending": 1,
+            "committed:replacement_pending": 599,
+        }
+        decisions["okx-shared"] = {
+            "readable": True,
+            "batches": 600,
+            "outcomes": {
+                "committed:arrival_pending->committed:reserved": 2,
+                "committed:replacement_pending->committed:target_matched": 1198,
+            },
+        }
+        assert SustainedCohortFixture.failed("a", summary, results, sustained, observations) == []
+
+    @pytest.mark.parametrize(
+        ("outcome", "orders_fail"),
+        [
+            ("committed:arrival_pending->rejected:order_notional_limit", False),
+            ("committed:replacement_pending->rejected:stale_firm_account", False),
+            ("committed:arrival_pending->unresolved", False),
+            ("committed:replacement_pending->unresolved", False),
+            ("committed:arrival_pending->committed:no_fresh_book_at_arrival", False),
+            ("committed:replacement_pending->committed:replaced_before_arrival", False),
+            ("committed:arrival_pending->committed:withdrawn_by_account_cancel", False),
+            ("committed:arrival_pending->committed:arrival_pending", False),
+            ("committed:arrival_pending->conflicting", False),
+            ("rejected:order_notional_limit", False),
+            ("committed:no_intent", False),
+            ("missing", False),
+            ("missing_batch", False),
+            ("unnamed_batch", False),
+            ("other_account", False),
+            ("conflicting", False),
+            ("unreadable", True),
+            ("empty", False),
+            ("absent_account", True),
+        ],
+    )
+    def test_a_refused_unresolved_or_unevidenced_decision_fails(
+        self, outcome: str, orders_fail: bool
+    ) -> None:
+        """One decision refused, unresolved, withdrawn or unevidenced fails the phase.
+
+        Its batch still committed pending, so decision-time evidence alone is clean.
+        """
+        summary, results, sustained, observations = SustainedCohortFixture.evidence("b")
+        decisions = cast(dict[str, dict[str, object]], sustained["decisions"])
+        if outcome == "unreadable":
+            decisions["okx-shared"] = {"readable": False, "reason": "OSError: no final state"}
+        elif outcome == "empty":
+            decisions["okx-shared"]["outcomes"] = {}
+        elif outcome == "absent_account":
+            del decisions["okx-shared"]
+        else:
+            cast(dict[str, int], decisions["okx-shared"]["outcomes"])[outcome] = 1
+        failed = SustainedCohortFixture.failed("b", summary, results, sustained, observations)
+        assert failed == [
+            "checkpoints_commit_without_rejection",
+            *(["orders_only_at_opening"] if orders_fail else []),
+        ]
+
+    def test_an_unacknowledged_or_refused_batch_fails_even_with_admitted_decisions(self) -> None:
+        """Decision-time batch evidence is still graded beside each decision's outcome."""
+        for status in ("unacknowledged", "committed:no_intent", "rejected:stale_firm_account"):
+            summary, results, sustained, observations = SustainedCohortFixture.evidence("b")
+            commits = cast(dict[str, dict[str, int]], sustained["commits"])
+            commits["okx-shared"][status] = 1
+            assert SustainedCohortFixture.failed(
+                "b", summary, results, sustained, observations
+            ) == ["checkpoints_commit_without_rejection"]
 
     def test_observations_decode_retained_driver_rows(self) -> None:
         """The gate reads exactly the rows the driver retains."""

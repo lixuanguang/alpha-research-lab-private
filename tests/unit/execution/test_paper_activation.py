@@ -30,6 +30,7 @@ from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountControl,
     AccountDecision,
+    AccountExecutionRequest,
     AccountJournal,
     AccountObservation,
     AccountQuote,
@@ -452,6 +453,60 @@ class TestPaperActivation:
             == result
         )
 
+    def test_a_late_command_admits_a_due_arrival_before_a_later_fault(self, tmp_path: Path) -> None:
+        """A managed arrival is judged at its modelled time, and a later fault follows it.
+
+        With no cancel or entry delay, alpha's 16 s decision replaces its resting order:
+        the order ends at 16 s and the replacement arrives then, priced on the 15 s book,
+        one second old. The worker first processes time at 27 s, when that quote is 12 s
+        old by the wall clock, beyond the 10 s bound. The arrival is still admitted at
+        16 s, since the quote was current at its arrival, and the fault applied at 27 s
+        follows it; afterwards the faulted account admits nothing more.
+        """
+        admin, worker, clock, _, _, _ = self._bootstrap(tmp_path / "late-arrival.sqlite3")
+        clock.at = self._at(14)
+        first = worker.admit(self._decision("resting", self._at(14), self._quote(self._at(12))))
+        assert first.reason == "reserved"
+        clock.at = self._at(15)
+        PaperBooks.apply(
+            worker,
+            "shared",
+            self._market("no-liquidity", self._at(15), ask_quantity="0"),
+            self._scenario(),
+        )
+        clock.at = self._at(16)
+        replacing = worker.admit(
+            self._decision("replacing", self._at(16), self._quote(self._at(15)))
+        )
+        assert replacing.reason == "replacement_pending"
+        clock.at = self._at(27)
+        worker.advance_paper(self._at(27))
+        assert (
+            admin.control(
+                AccountControl(
+                    identity="late-fault",
+                    account_id="shared",
+                    kind="fault",
+                    at=self._at(27),
+                    reason="public_input_invalid",
+                )
+            ).status
+            == "applied"
+        )
+        worker.advance_paper(self._at(40))
+
+        outcomes = worker.result_snapshot(
+            AccountExecutionRequest(action="inspect", projection="decisions")
+        ).decision_outcomes
+        assert [(item.decided_at, item.reason) for item in outcomes] == [
+            (self._at(14), "reserved"),
+            (self._at(16), "replacement_pending"),
+            (self._at(16), "reserved"),
+        ]
+        statuses = [item.order.status for item in worker.orders()]
+        assert statuses[0] == "cancelled" and len(statuses) == 2
+        assert worker.accounts()[0].phase == "faulted"
+
     def test_order_count_and_current_wall_clock_fence_historical_decisions(
         self, tmp_path: Path
     ) -> None:
@@ -462,7 +517,12 @@ class TestPaperActivation:
         first = worker.admit(self._decision("first-buy", self._at(14), quote))
         assert first.status == "committed"
         clock.at = self._at(15)
-        second = worker.admit(self._decision("second-buy", self._at(15), quote))
+        # The first order fills, so the second decision replaces no open work and is
+        # admitted at once, against the lifetime count the first order used.
+        PaperBooks.apply(
+            worker, "shared", self._market("fill-first", self._at(15)), self._scenario()
+        )
+        second = worker.admit(self._decision("second-buy", self._at(15), self._quote(self._at(15))))
         assert (second.status, second.reason) == ("rejected", "paper_authorization_order_limit")
         assert len(worker.orders()) == 1
         clock.at = self._at(31)
@@ -649,7 +709,27 @@ class TestPaperActivation:
         after = current_worker.admit(
             self._decision("second-after-renewal", self._at(19), current_quote)
         )
-        assert (after.status, after.reason) == ("rejected", "paper_authorization_order_limit")
+        # It replaces the partly filled order, so it waits for that cancellation. With no
+        # cancel or entry delay both take effect at 19 s, without a book; the 20 s book's
+        # command settles them first, and the renewed grant's lifetime order count
+        # refuses the replacement at its 19 s arrival, priced on the fresh 15 s book.
+        assert (after.status, after.reason) == ("committed", "replacement_pending")
+        for second in (20, 21):
+            clock.at = self._at(second)
+            PaperBooks.apply(
+                current_worker,
+                "shared",
+                self._market(f"after-renewal-{second}", self._at(second)),
+                self._scenario(),
+            )
+        outcomes = current_worker.result_snapshot(
+            AccountExecutionRequest(action="inspect", projection="decisions")
+        ).decision_outcomes
+        assert (outcomes[-1].decided_at, outcomes[-1].status, outcomes[-1].reason) == (
+            self._at(19),
+            "rejected",
+            "paper_authorization_order_limit",
+        )
         assert len(current_worker.orders()) == 1
 
     @pytest.mark.parametrize("barrier", ("expired", "revoked"))
@@ -729,13 +809,15 @@ class TestPaperActivation:
 
         due = now + timedelta(seconds=1)
         clock.at = due
+        # The requested cancellation took effect at its 17 s deadline; the next paper
+        # command records it then, before this book, whose own trace has no effect.
         settled = PaperBooks.apply(
             worker,
             "shared",
             self._market(f"cancel-confirmed-{barrier}", due, ask_quantity="0"),
             self._scenario(),
         )
-        assert tuple(event.kind for event in settled.physical_events) == ("cancelled_on_request",)
+        assert settled.physical_events == ()
         assert worker.orders()[0].order.status == "cancelled"
         assert AccountLedger(worker.accounts()[0].ledger).snapshot() == self._opening()
         clock.at = due + timedelta(seconds=1)
@@ -1177,12 +1259,21 @@ class TestPaperActivation:
         assert (committed.status, committed.reason) == ("committed", "reserved")
         assert (len(committed.children), len(committed.net_orders)) == (1, 1)
         # A later order uses the grant's last order, so new content is refused on limits.
+        # Each order fills before the next decision, which therefore replaces nothing.
         clock.at = self._at(15)
-        later = worker.admit(self._decision("later-buy", self._at(15), quote))
-        assert later.status == "committed"
+        PaperBooks.apply(
+            worker, "shared", self._market("fill-batch", self._at(15)), self._scenario()
+        )
+        later = worker.admit(self._decision("later-buy", self._at(15), self._quote(self._at(15))))
+        assert (later.status, later.reason) == ("committed", "reserved")
         clock.at = self._at(16)
+        PaperBooks.apply(
+            worker, "shared", self._market("fill-later", self._at(16)), self._scenario()
+        )
         with pytest.raises(ValueError, match="paper_authorization_order_limit"):
-            worker.coordinate(self._batch("over-limit-batch", self._at(16), quote))
+            worker.coordinate(
+                self._batch("over-limit-batch", self._at(16), self._quote(self._at(16)))
+            )
         assert worker.portfolio_batch("over-limit-batch") is None
         new_content_refusal = self._end_authority(barrier, admin, grant, clock)
         journal = self._journal_rows(path)
@@ -1288,10 +1379,15 @@ class TestPaperActivation:
         committed = worker.coordinate(batch)
         assert committed.status == "committed"
         clock.at = self._at(15)
+        # The batch replaced the direct order. With no cancel or entry delay the 14 s
+        # book ends it and is known to the replacement's 14 s arrival, which the next
+        # book's command admits and that book fills.
         PaperBooks.apply(
-            worker, "shared", self._market("fill-both", self._at(15)), self._scenario()
+            worker, "shared", self._market("cancel-direct", self._at(14)), self._scenario()
         )
-        # The batch replaced the direct order; one book cancels it and fills the batch.
+        PaperBooks.apply(
+            worker, "shared", self._market("fill-replacement", self._at(15)), self._scenario()
+        )
         assert [item.order.status for item in worker.orders()] == ["cancelled", "filled"]
         filled = AccountLedger(worker.accounts()[0].ledger).snapshot()
         assert filled.positions == (self._quantity("1"),)

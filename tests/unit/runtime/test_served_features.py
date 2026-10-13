@@ -643,7 +643,11 @@ class TestServedSharedDecisions:
     def test_a_served_decision_is_dated_when_read_and_fills_only_on_a_later_book(
         self, tmp_path: Path
     ) -> None:
-        """A snapshot first read at book 5 dates its decision at 5 s; book 6, not 5, fills it."""
+        """A snapshot first read at book 5 dates its decision at 5 s; book 6, not 5, fills it.
+
+        The decision arrives one entry delay later, at 5.001 s; book 6's command admits
+        it then, dating its child at 5.001 s and its parent one microsecond later.
+        """
         setup = TestServedFeatures()
         store, definition, _, bridge, served, _ = setup._setup(tmp_path)
         candidate = TestServedFeatures._candidate(definition, "stream", starts_at=_AT)
@@ -656,12 +660,13 @@ class TestServedSharedDecisions:
         store.append(definition, setup._row(definition, 3, "1/50"))
         setup._publish(store, bridge, tmp_path, definition, "stream", 3)
         observer.observe(*self._book(5, 5))
+        assert observer.decisions[-1].reason == "arrival_pending"
+        assert journal.orders() == ()
+        observer.observe(*self._book(6, 6))
         child = journal.orders()[-1].order
         parent = journal.net_orders()[-1].order
-        assert child.decision_at == _AT + timedelta(seconds=5)
-        assert parent.decision_at == _AT + timedelta(seconds=5, microseconds=1)
-        assert parent.filled.value == 0
-        observer.observe(*self._book(6, 6))
+        assert child.decision_at == _AT + timedelta(milliseconds=5001)
+        assert parent.decision_at == _AT + timedelta(milliseconds=5001, microseconds=1)
         assert journal.net_orders()[-1].order.status == "filled"
         # The serving book matched before the decision, so only the next book fills it.
         (fill,) = (
@@ -689,8 +694,8 @@ class TestServedSharedDecisions:
             setup._publish(store, bridge, tmp_path, definition, "stream", seconds)
         observer.observe(*self._book(5, 5))
         assert [(commit.status, commit.reason) for commit in observer.decisions[-2:]] == [
-            ("committed", "reserved"),
-            ("committed", "reserved"),
+            ("committed", "arrival_pending"),
+            ("committed", "arrival_pending"),
         ]
 
     def test_the_next_book_fills_a_served_decision_beside_a_source_fed_one(
@@ -698,8 +703,9 @@ class TestServedSharedDecisions:
     ) -> None:
         """Book 6 decides source instant 5 before its match and served instant 4 after it.
 
-        Book 7 crosses no instant; like every eligible book it matches, filling the served
-        order that book 6 could not.
+        The served decision, dated 6 s, arrives at 6.001 s, so book 6 places nothing for
+        it. Book 7 crosses no instant; its command admits the served order at that arrival,
+        and like every eligible book it matches, filling the order.
         """
         setup = TestServedFeatures()
         store, definition, _, bridge, served, _ = setup._setup(tmp_path)
@@ -717,13 +723,14 @@ class TestServedSharedDecisions:
         store.append(definition, setup._row(definition, 4, "1/50"))
         setup._publish(store, bridge, tmp_path, definition, "stream", 4)
         observer.observe(*self._book(6, 6))
-        late = journal.net_orders()[-1].order
-        assert (late.decision_at, late.status) == (
-            _AT + timedelta(seconds=6, microseconds=1),
-            "intent",
-        )
+        assert observer.decisions[-1].reason == "arrival_pending"
+        arrived = _AT + timedelta(milliseconds=6001, microseconds=1)
+        assert all(parent.order.decision_at != arrived for parent in journal.net_orders())
         observer.observe(*self._book(7, 7))
-        assert journal.net_orders()[-1].order.status == "filled"
+        (late,) = (
+            parent.order for parent in journal.net_orders() if parent.order.decision_at == arrived
+        )
+        assert late.status == "filled"
 
     def test_a_published_snapshot_decides_on_the_next_clock(self, tmp_path: Path) -> None:
         """An awaited instant decides on a clock, and the next book matches its order."""

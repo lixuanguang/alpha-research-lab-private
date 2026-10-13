@@ -14,6 +14,7 @@ from execution import (
     MarketTouch,
     OrderDecision,
     OrderEvent,
+    PaperArrivalPolicy,
     PaperMarket,
     PaperMatcher,
     PaperOrderJournal,
@@ -206,7 +207,12 @@ class PaperCandidateRuntime:
                 epoch=self._fence(), identity=market.identity, payload=payload
             )
         if self.config.mode == "paper":
-            self._matcher.match(market, epoch=self._fence())
+            prior = self._current()
+            self._matcher.match(
+                market,
+                epoch=self._fence(),
+                known_at=None if prior.blocked else prior.last_at,
+            )
         self._drain_orders()
         state = self._current()
         session = CandidateSession(self.loaded, state.candidate)
@@ -566,6 +572,8 @@ class PaperCandidateRuntime:
             order_sequence=prior.order_sequence if order_sequence is None else order_sequence,
             blocked=None if clear_block else blocked or prior.blocked,
         )
+        # Waiting plans due before this step arrive first; a blocked runtime holds them.
+        # A paper decision waits for its own modelled arrival (see PaperPlan).
         committed = self.journal.commit_step(
             epoch=self._fence(),
             step_id=identity,
@@ -575,6 +583,15 @@ class PaperCandidateRuntime:
             maximum_fee=self.config.maximum_fee,
             input_bytes=payload,
             result_bytes=self._codec.encode_json(result),
+            settle_at=None if prior.blocked else at,
+            known_at=prior.last_at,
+            arrival=None
+            if decision is None or self.config.mode != "paper"
+            else PaperArrivalPolicy(
+                entry_delay_us=self.config.execution.entry_delay_us,
+                cancel_delay_us=self.config.execution.cancel_delay_us,
+                max_market_age_us=self.config.market_max_age_us,
+            ),
         )
         self._state = successor
         return committed

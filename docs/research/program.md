@@ -556,8 +556,10 @@ of the full profile remains a requirement:
   Feast boundary, four costed trials on two workers, recovery, backup and restore.
 - **Limits.** Every limit in the profile, measured rather than extrapolated, with the
   same correctness rules.
-- **Host.** An always-on host, so the capture has no sleep gaps. It runs on the static
-  host ([handoff checklist](../roadmap/runtime-capacity.md#static-host-handoff-checklist)).
+- **Host.** An always-on host, so the capture has no sleep gaps, declared before the
+  run. It may use the [day-run host](../roadmap/runtime-capacity.md#day-run-host-checklist)
+  once the counted day run and its replay release it, overlapping the rest of their
+  retention interval. The day run's iCloud waiver does not extend to this run.
 
 A measured failure replaces the extrapolated acceptance, and the bottleneck is fixed
 before research relies on that scale.

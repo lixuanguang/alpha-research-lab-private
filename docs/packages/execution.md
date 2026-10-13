@@ -24,15 +24,53 @@ modeled paper/shadow work only. A selected reference identity has
 `qualification == "referenced"` but venue rule freshness remains the caller's
 responsibility. Neither qualification grants executable authority.
 
-A decision never cancels the instance's open orders. This is the interim reading
-while plan decision D2 is deferred. A target or exposure decision made while any
-order is open is rejected as `pending_target`, and the open order keeps its
-reservation until a fill, cancellation or rejection ends it. Cancellation is a
-separate, explicitly requested operation. Research simulation instead replaces the
-plan at each decision: it cancels a resting order and enters the new one after the
-cancel and entry delays. Dedicated paper is therefore not research-parity evidence
-for a strategy whose resting orders or IOCs are still unfilled at the next
-decision; its fills and reservations can differ from research for those decisions.
+Plan decision D2 (owner, 2026-10-12) adopts research-aligned decision lifecycle for
+both paper paths ([paper decision replacement](#paper-decision-replacement) for shared
+accounts). The dedicated journal implements it when the runtime supplies a
+`PaperArrivalPolicy` (the scenario's entry and cancel delays and its market age bound),
+as the paper runtime does; shadow mode and the explicit `replace` interface keep their
+immediate contracts.
+
+- **Decision.** Every paper decision, an abstention included, requests cancellation of
+  the instance's live orders at its date; each keeps its reservation until it ends, and
+  fills before its cancellation takes effect remain valid. The decision is saved once,
+  with its candidate checkpoint, and held as a durable `PaperPlan`, reserving nothing:
+  `replacement_pending` when work was outstanding (a live order or a waiting plan),
+  otherwise `arrival_pending`. Only a decision that would arrive at itself with nothing
+  outstanding (no entry delay) is admitted at once, as before. A decision refused by the
+  account break or an unknown outcome holds nothing and cancels nothing.
+- **Cancellation.** A requested cancellation takes effect at its latest request plus
+  the scenario's cancel delay, or at an earlier inherited deadline, whether or not a
+  book arrives then: a `cancelled_on_request` fact at that time releases the order's
+  reservation in the same transaction. A book before it can still fill the order; one
+  at or after it cannot. An unknown outcome is never ended by elapsed time.
+- **Arrival.** A plan replacing outstanding work is released at its decision plus the
+  cancel delay, or once the last live order has ended if that is later; one replacing
+  nothing is released at its decision. It arrives one entry delay later and is lowered
+  and admitted, under the usual account-break, unknown-outcome, holding and cash checks,
+  against the ledger then, so fills during the cancellation window reduce a target, and
+  on the latest claimed book at or before the arrival if it is within the market age
+  bound; explicit limits are kept. The outcome, including `no_fresh_book_at_arrival`,
+  `no_intent`, `target_matched` or a refusal, is retained as its own `arrival:<step>`
+  step. Its orders may fill from the first book after the arrival; the entry delay is
+  not applied twice.
+- **A newer decision while a plan waits** sets that plan's deadline to its own
+  cancellation. The waiting plan is withdrawn at its arrival as
+  `replaced_before_arrival` unless it arrives first; it is then admitted and its orders'
+  cancellation is requested at once, effective at that deadline. Plans proceed in
+  decision order, each released once no order is live.
+- **Order and recovery.** Each runtime step settles the cancellations, releases and
+  arrivals due strictly before its clock (a decision also those due at it), a
+  cancellation before a release before an arrival at the same time; quote matching
+  settles those strictly before the quote. Nothing is dated before the clock already
+  processed. Delivered inputs, including quiet-market clocks, therefore end orders and
+  resolve arrivals without creating fills. A blocked runtime (stop, fault, account
+  break) holds its plans; releasing the process fence or restarting keeps them, and
+  exact retries add nothing. No dedicated operation withdraws strategy intent; a stop
+  pauses.
+
+The journal layout gained `plans`, `arrivals` and `deadlines` tables; a journal written
+before them is refused as an unsupported paper journal schema and never migrated.
 
 Paper matching claims each modeled quote identity with exact immutable bytes in
 the same transaction as its effects; shadow mode uses `claim_market` to record a
@@ -71,8 +109,8 @@ snapshot matching cannot clear that contradiction.
 Owner: `execution`. `AccountJournal(path, AccountConfiguration)` implements the
 local paper/shadow account. It uses the same
 `OrderDecision`, `OrderState`, `OrderEvent` and `SpotOrderLifecycle` as the dedicated
-journal. Existing dedicated journals retain their schema and replay behavior;
-they are not silently migrated into shared accounts.
+journal. A dedicated journal is never migrated into a shared account, and one written
+under an earlier dedicated layout is refused rather than migrated.
 
 [`accounts.py`](../../src/execution/accounts.py) remains the supported journal and record import
 surface. The concrete wire records live in [`account_records.py`](../../src/execution/account_records.py),
@@ -197,15 +235,159 @@ the reference workload, not runtime throughput, bounded retention or deployment
 readiness. Retain the journal with its configuration and compatible artifact;
 never edit accounting history to make a rollback appear compatible.
 
+## Paper decision replacement
+
+Owner: `execution` ([`account_replacement.py`](../../src/execution/account_replacement.py)).
+In a paper account every admitted strategy decision, with or without an intent,
+replaces its instance's work and is resolved at its modelled arrival, as a research
+decision replaces its plan and resolves it at arrival. Research cancels outstanding work
+at the decision plus the cancel delay and enters the new plan one entry delay later
+(one entry delay after the decision when nothing was outstanding), sized then; a plan
+still waiting when a later cancellation takes effect is withdrawn
+(`replaced_before_arrival`). Status for shared accounts: **the selected decision
+lifecycle is implemented**, as it is for the
+[dedicated journal](#dedicated-paper-order-journal). Protective reductions, reissued residuals and other operational orders
+keep their own immediate contracts. The account follows this sequence:
+
+- **Outstanding work.** A live order of the instance or any of its plans that has not
+  yet arrived. A decision refused by an admission check before deferral (a block, a
+  stopped instance, an unobserved or future quote, an unknown outcome, a decision
+  older than known account facts) changes nothing and cancels nothing.
+- **Decision.** The decision requests cancellation of the instance's live orders at
+  its date and is saved committed, with its candidate continuation, as
+  `replacement_pending` when work was outstanding or `arrival_pending` when not. It
+  reserves nothing and is never evaluated again. Only when its plan would arrive at
+  the decision itself (no entry delay, and no cancel delay or nothing live or waiting)
+  is it admitted at once, as before. Direct (`admit`) and coordinated (`coordinate`)
+  strategy decisions follow the same rule.
+- **Cancellation.** Every requested paper cancellation, from a replacement, a stop or
+  an account cancel, takes effect at its deadline: the request plus the bound cancel
+  delay, or an earlier inherited deadline. It is recorded as a `cancelled_on_request`
+  fact dated at that deadline (or at the account's knowledge if that is later; never
+  earlier), which releases the order's reservation in the same transaction, whether or
+  not a book arrives then. A book before the deadline can still fill the order; one at
+  or after it cannot. An unknown outcome is never ended by elapsed time, and a faulted
+  account ends nothing. A plan replacing outstanding work is released at its decision
+  plus the cancel delay, or once the last replaced order has ended if that is later; a
+  plan replacing nothing is released at its decision.
+- **Arrival.** The plan arrives one entry delay after its release, exactly once, and is
+  resolved there, at the account clock if that is later: a new decision dated at the
+  arrival, with a derived identity, admitted against the holdings, funding,
+  reservations, limits and authority then. A target or exposure quantity and a
+  crossing price use the newest market known at the arrival: the latest book matched at
+  or before it, or the decision's own touch when no newer book exists. Explicit order
+  limits are kept. `max_quote_age_us` is judged at the arrival, also for a managed
+  account's current-input check; an older newest market records
+  `no_fresh_book_at_arrival` and places nothing, and an abstention records `no_intent`.
+  Like research's, these are decision outcomes, not order refusals. Plans arriving
+  together are resolved in decision order. Consecutive portfolio plans are coordinated
+  in one batch, so netting, crossing and per-decision refusal keep their meaning; a
+  direct plan first lets the batch before it reserve, so admission path never changes
+  priority. A plan that a later decision superseded is coordinated alone, as its own
+  physical order: its immediate cancellation and inherited deadline must neither end
+  nor extend another strategy's netted order. The admitted orders keep a `ReplacementEntry` and may fill from the
+  first book after the arrival; the entry delay is not applied twice. Arrival is
+  admission, not a fill. While an account stop, block or fault or an unknown order
+  outcome holds back new exposure, an arriving plan waits and is admitted at the
+  account clock once it can; a pause alone withdraws nothing.
+- **Selective stop.** `stop_instance` withdraws the strategy's intent. It first settles
+  what is due before the stop, then ends each waiting plan of that strategy as
+  `withdrawn_by_instance_stop`, retained beside the original decision. Its orders keep
+  their reservations until their terminal outcomes; other strategies are unaffected. A
+  restart revives nothing: only a new decision establishes new intent.
+- **Account cancel (D1, owner decision 2026-10-12).** `control/cancel` withdraws the
+  account's working intent without changing its phase. After settling what is due
+  strictly before the cancel, it ends every waiting plan of the account, including one
+  due exactly then, as `withdrawn_by_account_cancel`; requests cancellation of every
+  outstanding physical order; ends every strategy order not allocated to an outstanding
+  physical order, whether or not a `PortfolioResidual` names it, releasing its
+  reservation; and marks each attached strategy order so that its parent's outcome ends
+  it instead of leaving it to reissue. Attached orders keep their reservations, and
+  fills, until then; an unknown outcome stays unknown. The `AccountControlResult` lists
+  `cancel_order_ids`, `withdrawn_decision_ids` and `withdrawn_order_ids`, all inside the
+  control's own rollback boundary, and an exact retry returns it before anything
+  settles. Both withdrawal lists are required in every control receipt (empty for
+  other controls). A journal holding a receipt without them, saved before this
+  contract, is refused on open and by `verify` as `unsupported account journal state
+  schema`, unmodified: it is neither migrated nor reread with empty lists, and its
+  cancels are not re-executed. Holdings are untouched. A running account admits later decisions as usual, so
+  a strategy may rebuild its target; stop the account first to hold it. D2 replacement
+  and `stop_instance` are unchanged, and dedicated paper's per-order `cancel` withdraws
+  no waiting decision.
+- **Later decisions.** A later decision before the arrival sets the waiting plan's
+  deadline to its own cancellation. The plan is withdrawn at its arrival as
+  `replaced_before_arrival` unless it arrives before that deadline; otherwise it is
+  admitted and its orders' cancellation is requested at once. The request keeps its
+  true clock, the admission, but takes effect at the later decision's original
+  deadline, which each such order keeps as a `ReplacementDeadline` naming that
+  decision. An instance's plans proceed in decision order, each released after the
+  previous plan's orders have ended. Other instances neither wait for nor cancel
+  another's work.
+- **Order and durability.** Waiting plans are journal state. Commands settle
+  cancellations, releases and arrivals oldest first: a cancellation, then a release,
+  then an arrival at the same time. A command that brings a market or account fact
+  (`apply_public_market`, `observe`, `reconcile`, `control`, `apply_event`,
+  `apply_net_event`, `post`, `reissue_pending`, `restart_instance`, `stop_instance`)
+  settles those dated strictly before its own clock, so a book or quote at exactly an
+  arrival is known to it and a later one is not. `advance_paper(at)`, which the shared
+  observer calls for each clock, heartbeat or control delivery, settles those strictly
+  before `at` without matching or deciding, so a quiet market extends no order's
+  lifetime, reservation or arrival. A delivery that invalidates public input first
+  settles what was due before it, on the facts known then, and only then faults or
+  blocks the account; events after an effective fault admit nothing. A `coordinate` or
+  direct `admit` command also settles those at its decisions' own time, so every
+  arrival due then is admitted, in decision order and against the staged account,
+  before a new decision at the same timestamp, as research processes it. An arrival at
+  *A* records two synthetic coordination clocks at *A* plus one microsecond: its
+  physical orders' decision clock and, for a superseded plan, the cancellation it
+  requests itself (`replace:<arrival decision>:<order>`). Identified by that provenance
+  and exact clock, only those count at *A* when dating a decision or another arrival at
+  or after *A*. Every observed fact keeps its own clock and still bounds later
+  decisions. Restart, replay and exact retries reach the same outcomes from the same
+  commands. An account without a bound scenario has no delays.
+
+Unit and observer tests demonstrate this lifecycle against independently derived
+timelines: no double fill of a replaced order and its replacement inside the
+cancellation window (also checked against a research simulation of the resting-bid
+case), sizing after partial fills in that window, arrival-time pricing and sizing of
+targets and exposures with and without outstanding work, by the direct and coordinated
+paths, shared capacity in arrival order (an earlier arrival reserving first; a
+same-time decision meeting an arrival's reservation; two arrivals at one time; a
+direct arrival not overtaking an earlier coordinated one;
+an arrival's observed acceptance refusing an earlier-dated decision), arrival-time quote
+freshness, a book at exactly the arrival informing it and a later one not, waiting-plan
+withdrawal versus arrival, a newer decision or a stop withdrawing a plan replacing
+nothing, an obsolete plan's order ending at the replacing decision's deadline, superseded plans
+arriving together keeping their own deadlines (crossing books before both, between and
+at the later deadline), quiet
+intervals spanning cancellations and arrivals, elapsed time leaving unknown outcomes and
+withdrawn intent alone, the zero-entry-delay case, journal reopen, idempotent retry,
+and instance isolation.
+
+### Unfinished replacement alignment
+
+No part of the selected decision lifecycle remains open on either paper path. Still
+open, outside it:
+
+1. **Efficiency.** Deferral adds journal rows and work per decision; see the
+   [pending efficiency measurement](../roadmap/runtime-capacity.md#day-run).
+
+Fill-model differences are separate: paper matches an order at the first book after its
+arrival, where research crosses the latest known fresh book at arrival, and queue
+position and a modeled IOC lifetime remain outside this contract.
+
 ## Public-input paper matching
 
 `PaperExecutionScenario` pins the venue and instrument, entry and cancellation
 delays, adverse price movement, fee rate, fraction of displayed touch size taken,
 and an explicit reason gas is inapplicable to this off-chain spot model. The
-selected `SpotLimits` lot and tick still govern quantities and prices. Entry and
-cancel eligibility are evaluated at the first later received public quote; the
-model invents no intervening exchange event or response clock. A cancel request
-honoured at its delay ends the order `cancelled_on_request`. An immediate-or-cancel
+selected `SpotLimits` lot and tick still govern quantities and prices. Entry
+eligibility is evaluated at the first later received public quote; the model invents
+no intervening exchange event or response clock. A shared account's cancel request
+ends the order `cancelled_on_request` at its delay, whether or not a book arrives then
+([paper decision replacement](#paper-decision-replacement)); a book at or after that
+time ends it before it can fill. A dedicated journal does the same
+([dedicated paper order journal](#dedicated-paper-order-journal)). An immediate-or-cancel
 or stranded remainder that ends first is `cancelled`, and a crossing post-only order
 is `rejected`, even while a request is still pending. A quote can fill
 only an older order. The modeled fill retains both observed touch reference and
@@ -282,13 +464,21 @@ modeled confirmation.
 
 Each trace holds the exact market, scenario, input digest, physical events,
 attributed child fills and durable liquidity cursor, including no-fill markets.
+Its row stores the trace's exact encoded bytes as a checksummed zstd frame against the
+journal's reference trace (see the journal layout above). The history chain, key
+columns, pages and exports use the decoded bytes, which equal the trace's encoding; a
+frame that declares no content checksum, or is truncated, corrupt, uncompressed,
+concatenated or longer than its declared length, is refused by every read and by
+`verify`. A journal in an earlier trace layout (uncompressed `payload`, or frames
+without a reference) is refused at open and by `verify`, unchanged. Measured storage:
+[storage efficiency](../roadmap/runtime-capacity.md#storage-efficiency-measurements).
 The trace history grows with every eligible book, so it is read in bounded pieces,
 never whole:
 - `paper_trace(account_id, market_identity)` reads one market's trace, if the
   account applied it;
 - `paper_trace_page(account_id, after=...)` reads the traces after a journal-wide
   position, from -1: at most `PaperTracePage.maximum` (256) and, beyond the first,
-  at most `PaperTracePage.maximum_bytes` (512 KiB) of encoded trace bytes, so a page
+  at most `PaperTracePage.maximum_bytes` (512 KiB) of decoded trace bytes, so a page
   stays well inside a 1 MiB socket response. A page that stopped at either bound
   names the position to continue from; one that did not ends the history. Each page
   carries the journal's whole trace history as a `HistoryDigest`, every account's:
@@ -324,7 +514,12 @@ that clock or the last reconciliation. An earlier one is stale, not evidence of 
 break: it is refused with `observation_precedes_account_state`, unrecorded and
 without faulting the account, and the operator observes again. A stamp at the clock
 is always safe: the account already refuses
-any market earlier than its own clock, so no market in flight is refused. Supported live-public-input composition
+any market earlier than its own clock, so no market in flight is refused. A later stamp
+asserts account state the account does not yet have: a decision dated before it, such
+as the grid instant a delivery in flight is about to decide, is refused with
+`decision_precedes_account_state`. While a service decides, stamp at the later of the
+knowledge clock and the last market the account accepted (a delivery decides every
+instant it crosses before its market is accepted), never at a wall or delivery clock. Supported live-public-input composition
 and its operating limits are documented by the
 [paper application](paper-application.md).
 
@@ -396,7 +591,8 @@ corrections, voiding and restoration follow the existing current-revision
 contract. Parent and child fee totals change together; unreserved costs fail
 and a successful revision requires complete reconciliation before new risk.
 
-`stop_instance(instance_id, at)` blocks new decisions for that strategy. A shared
+`stop_instance(instance_id, at)` blocks new decisions for that strategy and withdraws
+its waiting paper replacements ([selective stop](#paper-decision-replacement)). A shared
 parent must be cancelled as one physical order; when that requested cancellation
 takes effect (`cancelled_on_request`, in paper once the modeled cancel delay has
 elapsed), the other strategy's child reservation and remaining quantity survive.
@@ -677,7 +873,9 @@ managed activation contract.
 
 `control/stop` is the reversible block-new-exposure action. `control/cancel`
 records cancellation requests, preserving reservations until the matching model
-provides terminal outcomes. `reduce_paper(PaperReductionRequest)` reserves an
+provides terminal outcomes, and withdraws the account's waiting plans and unsent
+strategy orders ([account cancel](#paper-decision-replacement)); it does not stop the
+account. `reduce_paper(PaperReductionRequest)` reserves an
 explicit IOC sell with a minimum price and fee bound. It checks attributable
 inventory minus every outstanding sell commitment, fresh eligible market and
 independent reconciliation, uncertainty and existing risk. It cannot sell another

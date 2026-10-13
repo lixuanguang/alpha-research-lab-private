@@ -46,8 +46,10 @@ class DayFixture:
             entries[0].update(segments=segments, durable_records=messages)
         checkpoints = interval // 3
         sustained["commits"] = {
-            account: {"committed:reserved": 2, "committed:target_matched": checkpoints - 2}
-            for account in _ACCOUNTS
+            account: {"committed:arrival_pending": checkpoints} for account in _ACCOUNTS
+        }
+        sustained["decisions"] = {
+            account: SustainedCohortFixture.decisions(checkpoints, 2) for account in _ACCOUNTS
         }
         sustained["reconciliations"] = {
             account: {"attempts": interval // 60, "matched": interval // 60, "max_seconds": 0.1}

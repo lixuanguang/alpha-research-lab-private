@@ -16,6 +16,7 @@ from execution.accounts import (
     AccountControlKind,
     AccountControlResult,
     AccountDecision,
+    AccountHistory,
     AccountJournal,
     AccountObservation,
     AccountPaperCost,
@@ -35,6 +36,7 @@ from execution.accounts import (
     PortfolioResidual,
     TaggedOrder,
 )
+from execution.client_logs import ClientLogArchive, ClientLogArchiveResult, ClientLogSeal
 from execution.installed_account import InstalledPaperAccount, SentRequest, SocketPaperAccount
 from execution.journal import PaperOrderJournal
 from execution.lifecycle import SpotOrderLifecycle
@@ -59,6 +61,8 @@ from execution.records import (
     OrderDecision,
     OrderEvent,
     OrderState,
+    PaperArrivalPolicy,
+    PaperPlan,
     StepCommit,
     StepRecord,
 )
@@ -82,6 +86,7 @@ __all__ = [
     "AccountDecision",
     "AccountExecutionRequest",
     "AccountExecutionResult",
+    "AccountHistory",
     "AccountJournal",
     "AccountObservation",
     "AccountPaperCost",
@@ -94,6 +99,9 @@ __all__ = [
     "AccountStatus",
     "AccountView",
     "BitfinexSpotAdapter",
+    "ClientLogArchive",
+    "ClientLogArchiveResult",
+    "ClientLogSeal",
     "DecisionOutcome",
     "DroppedLeg",
     "EventKind",
@@ -113,6 +121,7 @@ __all__ = [
     "OrderState",
     "PaperAccount",
     "PaperActivation",
+    "PaperArrivalPolicy",
     "PaperLiquidityState",
     "PaperMarket",
     "PaperMarketOutcome",
@@ -122,6 +131,7 @@ __all__ = [
     "PaperMonitoring",
     "PaperOrderJournal",
     "PaperOwner",
+    "PaperPlan",
     "PaperReductionRequest",
     "PaperReductionResult",
     "PaperTouchLiquidity",

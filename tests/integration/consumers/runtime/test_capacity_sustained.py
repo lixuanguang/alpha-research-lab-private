@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import cast
@@ -107,7 +107,13 @@ class TestCapacitySustained:
         for facts in accounts.values():
             assert facts["orders"] == facts["filled_orders"] == 2
             assert facts["committed_checkpoints"] == 120
-            assert facts["commit_reasons"] == {"reserved": 1, "target_matched": 119}
+            # Two holding strategies decide on each of 120 grid instants. With the
+            # scenario's entry delay every batch commits pending and each decision is
+            # admitted at its arrival: each strategy opens its one-unit target once,
+            # then holds it, and no arrival is left waiting.
+            assert facts["commit_reasons"] == {"arrival_pending": 120}
+            assert facts["arrival_reasons"] == {"reserved": 2, "target_matched": 238}
+            assert facts["arrivals_waiting"] == 0
             assert facts["reconciliations"] == 5
             assert set(cast(dict[str, object], facts["holdings"]).values()) == {
                 ("1.000000000000000000",)
@@ -121,6 +127,70 @@ class TestCapacitySustained:
         for account_id, facts in accounts.items():
             cash, fees, positions = oracle[account_id]
             assert facts["final_economics"] == ((cash,), (fees,), positions)
+
+    @staticmethod
+    def _scheduled_reconciliations(minutes: int, period: int) -> int:
+        """Count the rounds a cadence schedules on the fixture's own delivery clock.
+
+        Each delivery is available 1 ms after its authored slot (the session record at
+        the opening); a round is due at the first delivery at least ``period`` after
+        the last round's, starting from the opening.
+        """
+        cadence, last, rounds = timedelta(seconds=period), timedelta(0), 0
+        slots = [timedelta(0)] + [
+            timedelta(seconds=SustainedNativeFixture.elapsed_seconds(index))
+            for index in range(SustainedNativeFixture.frame_count)
+            if SustainedNativeFixture.elapsed_seconds(index) < minutes * 60
+        ]
+        for slot in slots:
+            available = slot + timedelta(milliseconds=1)
+            if available - last >= cadence:
+                last, rounds = available, rounds + 1
+        return rounds
+
+    def test_reconciliation_on_a_crossing_delivery_never_refuses_its_decision(
+        self, tmp_path: Path
+    ) -> None:
+        """Regression: a round stamped at its delivery clock refused that delivery's decision.
+
+        A delivery authored exactly on a grid instant is available 1 ms later, so it
+        crosses the instant and decides it, dated at the instant. Over 90 minutes the
+        60-second round fell on such a delivery once an account; stamped at the delivery
+        clock, before the delivery was processed, it refused the decision with
+        ``decision_precedes_account_state`` (00:51:03 in the day replay). A 2-second
+        cadence falls on four in three minutes. Rounds are still scheduled on the
+        delivery clock but stamped as the live reconciler stamps them, so every
+        decision is admitted at its arrival, every round matches and the economics
+        equal the independent oracle and an ordinary 60-second cadence's.
+        """
+        workload = SustainedWorkload(opening_at=_OPENING, socket_root=_SOCKETS)
+        service = workload.service_configuration()
+        account = "okx-shared"
+        source = next(
+            item
+            for item in service.sources
+            if any(i.account_id == account and i.source == item.name for i in service.instances)
+        )
+        frequent = workload._replay_mix(service, account, source, 3, tmp_path / "frequent", 2)
+        ordinary = workload._replay_mix(service, account, source, 3, tmp_path / "ordinary", 60)
+        last = max(
+            SustainedNativeFixture.elapsed_seconds(index)
+            for index in range(SustainedNativeFixture.frame_count)
+            if SustainedNativeFixture.elapsed_seconds(index) < 180
+        )
+        # One batch for each 3-second instant crossed by a later delivery; two strategies.
+        batches = int(last // 3) + 1
+        assert batches == 60
+        for replayed, period in ((frequent, 2), (ordinary, 60)):
+            assert replayed["committed_checkpoints"] == batches
+            assert replayed["commit_reasons"] == {"arrival_pending": batches}
+            assert replayed["arrival_reasons"] == {"reserved": 2, "target_matched": 2 * batches - 2}
+            assert replayed["arrivals_waiting"] == 0
+            assert replayed["reconciliations"] == self._scheduled_reconciliations(3, period)
+            assert (replayed["orders"], replayed["filled_orders"]) == (2, 2)
+            cash, fees, positions = workload.first_touch_oracle()[account]
+            assert replayed["final_economics"] == ((cash,), (fees,), positions)
+        assert frequent["reconciliations"] == 89
 
     def test_without_reconciliation_a_held_position_goes_stale(self, tmp_path: Path) -> None:
         """The unchanged 120-second state age rejects checkpoints that no reconcile refreshes."""

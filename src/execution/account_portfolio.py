@@ -53,20 +53,24 @@ class PortfolioCoordinator:
         self.codec = codec
         self.admission = admission
 
-    def coordinate(self, transaction: AccountTransaction, batch: PortfolioBatch) -> PortfolioCommit:
+    def coordinate(
+        self, transaction: AccountTransaction, batch: PortfolioBatch, *, replacing: bool = True
+    ) -> PortfolioCommit:
         """Admit each decision's risk, cross by policy, and create physical orders.
 
         A decision its own admission refuses is rolled back alone; the others commit
         together. A self-trade conflict between the batch's own decisions, any other
         batch-wide refusal, or every decision refused rejects the batch. The journal
         resolves a saved batch identity before authority and input checks, so this
-        receives only a batch identity it has not saved.
+        receives only a batch identity it has not saved. ``replacing`` is False only
+        for a batch sending deferred paper replacements; see ``AccountAdmission.admit``.
         """
         before = transaction.state
         children: list[TaggedOrder] = []
         # Decision identities are unique only within an instance.
         dropped: dict[tuple[str, str], tuple[DroppedLeg, ...]] = {}
         refused: dict[tuple[str, str], str] = {}
+        pending: dict[tuple[str, str], str] = {}
         persist_rejection = False
         try:
             if (
@@ -102,6 +106,7 @@ class PortfolioCoordinator:
                         crossing_ids={child.order.identity for child in children}
                         if batch.crossing == "internal_at_quote"
                         else set(),
+                        replacing=replacing,
                     )
                     if step_commit.status != "committed":
                         raise ValueError(step_commit.reason)
@@ -118,6 +123,8 @@ class PortfolioCoordinator:
                     refused[request.instance_id, request.decision.identity] = str(error)
                     continue
                 dropped[request.instance_id, request.decision.identity] = step_commit.dropped
+                if step_commit.reason in ("replacement_pending", "arrival_pending"):
+                    pending[request.instance_id, request.decision.identity] = step_commit.reason
                 children.extend(transaction.order(order.identity) for order in step_commit.orders)
             if len(refused) == len(batch.decisions):
                 first = batch.decisions[0].request
@@ -150,6 +157,11 @@ class PortfolioCoordinator:
                 for item in batch.decisions
                 if (item.request.instance_id, item.request.decision.identity) not in refused
             )
+            waiting = [
+                pending[item.request.instance_id, item.request.decision.identity]
+                for item in admitted
+                if (item.request.instance_id, item.request.decision.identity) in pending
+            ]
             portfolio_result = PortfolioCommit(
                 status="committed",
                 reason="reserved"
@@ -158,6 +170,10 @@ class PortfolioCoordinator:
                 if any(item.child_order_id in batch_ids for item in residuals)
                 else "internal_cross"
                 if crossed
+                else "replacement_pending"
+                if "replacement_pending" in waiting
+                else "arrival_pending"
+                if waiting
                 else "no_intent"
                 if all(item.request.decision.intent is None for item in admitted)
                 else "target_matched",
@@ -184,6 +200,8 @@ class PortfolioCoordinator:
                             and child.order.decision_identity == item.request.decision.identity
                             for child in children
                         )
+                        else pending[item.request.instance_id, item.request.decision.identity]
+                        if (item.request.instance_id, item.request.decision.identity) in pending
                         else "no_intent"
                         if item.request.decision.intent is None
                         else "target_matched",

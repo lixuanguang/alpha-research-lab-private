@@ -140,7 +140,7 @@ profitability.
 | Feature store, workspace and jobs | Versioned offline and online feature paths with causal retrieval, incremental materialization, validation, TTL, idempotent retry, restart and rollback; lakeFS and ClearML; scheduling, cancellation, bounded workers, backup and restore, on one trusted local POSIX workspace ([feature store contract](../architecture/research-and-simulation-design.md#feature-store-contract)) | Shared-host authentication, distributed leases, external exactly-once execution |
 | Candidate packaging | Rule-only and learned candidates with input, feature, state and metric contracts; the same components in replay and runtime; a typed capability registry that refuses unsupported combinations before startup ([candidate promotion contract](../architecture/research-and-simulation-design.md#candidate-promotion-contract)) | Unimplemented product economics fail closed |
 | Packages and trusted installation | Independent collector and execution closures; build, verify, install and roll back signed artifacts on Darwin arm64 with CPython 3.14.7 ([release workflow](../governance/workflow.md#build-a-release)) | Linux and remote deployment, production key provisioning |
-| Paper and shadow runtime and OMS | Supervised candidates with checkpointed state; durable order-intent journal; partial fills, rejects, cancel/replace, unknown outcomes and restart; one fenced execution owner ([OMS design](../architecture/portfolio-and-execution-design.md#oms-and-venue-adapter-design)) | Paper touch matching models no queue position or impact |
+| Paper and shadow runtime and OMS | Supervised candidates with checkpointed state; durable order-intent journal; partial fills, rejects, cancel/replace, unknown outcomes and restart; one fenced execution owner ([OMS design](../architecture/portfolio-and-execution-design.md#oms-and-venue-adapter-design)) | Paper touch matching models no queue position or impact. Research-aligned decision lifecycle (D2) is implemented for shared accounts and the dedicated journal; fill-model, queue and IOC-lifetime differences remain ([details](../packages/execution.md#unfinished-replacement-alignment)) |
 | Book quotes | One typed per-book quote contract for native L2 and L3; exact incremental L3 aggregates; a book registry with per-venue and consolidated BBO over explicitly equivalent instruments ([shared book quotes](../packages/market-data.md#shared-book-quotes)) | No implicit FX; no queue priority inferred |
 | Paper risk and reconciliation | Authorized instruments; instance, account and firm limits with atomic pending and uncertain reservations; independent reconciliation of orders, fills, positions, cash and fees for both venues ([execution](../packages/execution.md)) | Authenticated physical account reconciliation |
 | Portfolio and shared accounts | Allocation and order-intent coordination, budgets, conflict and self-trade prevention, strategy-tagged children, netting, deterministic allocation of fills, residuals and costs ([portfolio design](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk)) | Other product economics and FX fee conversion |
@@ -154,23 +154,74 @@ profitability.
 
 ## Remaining work before QR onboarding
 
-1. Confirm the journey on the current code with a fault-injection development run.
-2. Bring up the static host using the
-   [handoff checklist](runtime-capacity.md#static-host-handoff-checklist).
-3. Day-run rehearsal (2 hours) on the static host. Its fixes come back as commits. Code
-   freezes when the counted day run passes.
-4. A full uncounted journey rehearsal on the development laptop, on the frozen commit.
-5. The counted day run (about 25 hours) with its 4× replay. `day-counted-2` failed on
-   2026-10-12 on source replay parity at shutdown; the next attempt needs that fix, a
-   check of the shutdown path, and an owner booking
-   ([failed attempts](runtime-capacity.md#failed-attempts)). The fix and the supervisor
-   delivery gate are merged, and uncounted sustained and natural-expiry checks passed on
-   candidate `d91d7cd` ([integration checks](runtime-capacity.md#uncounted-integration-checks));
-   the counted day run awaits the owner's booking.
-6. The 72-hour retention check.
-7. The counted onboarding journey (owner approval; the owner chooses the host). It may
-   overlap step 6.
-8. J8 after retention passes, then G5 acceptance.
+The consolidated sequence (owner, 2026-10-12). On 2026-10-12 the owner moved the
+counted day run and its retention to the end of the work. `day-counted-2` failed and
+stays failed ([failed attempts](runtime-capacity.md#failed-attempts)); the shutdown fix
+and the supervisor delivery gate passed uncounted checks on `d91d7cd`
+([integration checks](runtime-capacity.md#uncounted-integration-checks)), which the
+final candidate will very likely supersede.
+
+1. **Finish the work.** The remaining decisions and their implementation, including
+   the efficiency and storage work, then the bounded
+   [efficiency measurements](runtime-capacity.md#efficiency-measurements) before
+   any final acceptance run.
+2. **Development preflight.** One fault-injection J1–J7
+   [development run](qr-onboarding.md#development-runs) after those changes land. The
+   last one, rehearsal-135 on `c4a5f78`, predates the telemetry, shutdown, supervisor
+   and paper decision-lifecycle changes, so it does not cover them.
+3. **Freeze one candidate** before either counted run, and verify it: the commit, the
+   built artifacts and installed identity, and the configuration and evidence identities
+   ([day-run host checklist](runtime-capacity.md#day-run-host-checklist)). Both counted
+   runs qualify this same candidate.
+4. **Day rehearsal** (2 hours) on the frozen candidate, because the journal and runtime
+   changed since the last one. Equivalent earlier evidence is reused only if it covers
+   this candidate and workload, and the record explains the reuse.
+5. **Counted runs.** The counted J1–J7 [journey](qr-onboarding.md#counted-attempt)
+   (separate owner approval; the owner chooses its host), then the counted
+   [day run](runtime-capacity.md#day-run) and its 4× replay on the declared day-run host
+   (estimated 32–34 hours together; an owner-booked slot of about 36 hours). No fault
+   injection overlaps the measured day.
+6. **Retention clock.** The 72 hours start when the measured day ends. The replay runs
+   while retention elapses; no further 72-hour wait follows it.
+7. **Measured research capacity.** The
+   [72-hour run](../research/program.md#measured-research-capacity) may start once the
+   day and its replay release the host, and may overlap the rest of the retention
+   interval. Its acquisition and processing requirements are unchanged, and so is its
+   relationship to J8 and G5.
+8. **Retention verification** when eligible, then J8 and G5 once their required
+   evidence passes.
+
+**Acceptance policy (owner, 2026-10-12).** This replaces the earlier order, which froze
+code only after the counted day run passed and added a full uncounted journey on the
+frozen commit.
+- The freeze precedes both counted runs, and the counted journey and day evidence
+  belong to that one frozen candidate.
+- A full uncounted journey on the frozen candidate is no longer required; the
+  development preflight (step 2) covers the code before the freeze.
+- Consolidation removes redundant runs and overlaps eligible waits. It does not shorten
+  a measurement, relax a threshold or waive a gate.
+- Failed attempts keep their original outcomes. Diagnostics never turn a failed attempt
+  into a pass.
+
+**Candidate changes and reruns.** Evidence is valid for the candidate, workload,
+configuration and grading semantics it was taken under. A change after the freeze is
+classified by its effect on that validity and recorded before any rerun:
+- *Guide or record only*: it changes no executable artifact, workload, configuration or
+  grading semantics. It does not by itself require a rerun. A counted attempt is still
+  never patched while it runs.
+- *Code*: any change to an executable artifact makes a new candidate. Same-candidate
+  acceptance then needs a renewed counted journey and the new candidate's own day
+  evidence from steps 4–6: the rehearsal (or equivalent evidence for that candidate),
+  the counted day with its 4× replay, and retention.
+- *Workload, configuration or grading semantics without a code change*: every run whose
+  evidence the change affects is repeated under it, and the record names those runs and
+  why the others stay valid. A change that alters a recorded candidate identity makes a
+  new candidate, as for code.
+- A replacement counted day starts its own 72-hour retention clock when its measured day
+  ends, with its replay inside that window. No other rehearsal or retention wait is
+  added, and an earlier attempt's retention never stands in for it.
+- Earlier attempts stay recorded with their actual outcomes; a rerun replaces none of
+  them.
 
 ## Decisive acceptance scenarios
 

@@ -83,6 +83,7 @@ class AccountOwnerService:
             "control",
             "bind_paper_scenario",
             "public_market",
+            "advance_paper",
             "reduce_paper",
             "shutdown_paper",
         }

@@ -28,6 +28,8 @@ from execution.account_records import (
     NativeFill,
     NetOrder,
     PhysicalAccountObservation,
+    ReplacementEntry,
+    ReplacementPlan,
     TaggedOrder,
 )
 from execution.account_state import (
@@ -177,8 +179,13 @@ class AccountAdmission:
         context: PortfolioContext | None = None,
         crossing_ids: set[str] | None = None,
         protective: bool = False,
+        replacing: bool = True,
     ) -> StepCommit:
-        """Evaluate a decision against authoritative holdings and firm commitments."""
+        """Evaluate a decision against authoritative holdings and firm commitments.
+
+        ``replacing`` is False only for a deferred replacement being sent: it has
+        already replaced the instance's work, so it is admitted as it stands.
+        """
         account = transaction.account(request.account_id)
         if protective:
             self._require_protective_sell(transaction, request, context, crossing_ids)
@@ -190,9 +197,7 @@ class AccountAdmission:
             raise ValueError("instance_stopped")
         if account.reconciled_at is None:
             raise ValueError("account_not_reconciled")
-        if request.decision.at < max(
-            self.account_time(transaction, item) for item in transaction.state.accounts
-        ):
+        if request.decision.at < self.decision_knowledge(transaction, request.decision.at):
             raise ValueError("decision_precedes_account_state")
         if any(
             tagged.account_id == request.account_id and tagged.order.status == "unknown"
@@ -239,22 +244,31 @@ class AccountAdmission:
             ),
             Quantity(value=Decimal(0), dimension=limits.lot.dimension),
         )
-        if self.config.mode == "paper" and not protective:
+        if self.config.mode == "paper" and not protective and replacing:
             # Each paper decision replaces its instance's working orders, as research
             # replaces its plan; an abstention or warming step replaces them with none.
+            # Like research's plan, it arrives an entry delay after any cancellation of
+            # outstanding work, and is sized and admitted only then.
+            outstanding = self.replacement_outstanding(transaction, request.instance_id)
             self.request_instance_cancels(
                 transaction,
                 request.instance_id,
                 request.decision.at,
                 label=f"replace:{request.decision.identity}",
             )
+            if self._deferred(transaction, request, context, outstanding=outstanding):
+                return StepCommit(
+                    status="committed",
+                    reason="replacement_pending" if outstanding else "arrival_pending",
+                    orders=(),
+                )
         if request.decision.intent is None:
             # A continuation advances only the instance's opaque state.
             return StepCommit(status="committed", reason="no_intent", orders=())
         lifecycle = SpotOrderLifecycle(limits)
         # Orders being replaced, directly or through their physical parent, do not
         # hold back a target; any other live order of the instance does.
-        replacing = {
+        being_replaced = {
             allocation.child_order_id
             for parent in transaction.state.net_orders
             if not parent.order.is_terminal and parent.order.cancel_requested
@@ -264,7 +278,7 @@ class AccountAdmission:
             tagged.instance_id == request.instance_id
             and not tagged.order.is_terminal
             and not tagged.order.cancel_requested
-            and tagged.order.identity not in replacing
+            and tagged.order.identity not in being_replaced
             for tagged in transaction.state.orders
         ):
             raise ValueError("pending_target")
@@ -987,6 +1001,157 @@ class AccountAdmission:
                 )
             ).value > limits.maximum.value:
                 raise ValueError("holding_limit")
+
+    def decision_knowledge(self, transaction: AccountTransaction, at: datetime) -> datetime:
+        """Return the latest account fact that something dated ``at`` may not predate.
+
+        A replacement arriving at ``A`` is admitted at ``A``, but two of its records carry
+        the one-microsecond coordination clock instead: its physical orders' decision
+        clock, and, for a plan a later decision had replaced, the cancellation the
+        arrival itself requests on its orders (``replace:<arrival decision>:<order>``).
+        For an arrival at or before ``at``, only those records, identified by that
+        provenance and exact clock, count at ``A``, so the arrival does not postpone a
+        decision or another arrival at ``A``. Every observed fact keeps its own clock:
+        an acceptance, fill or confirmed cancellation of the same orders still bounds
+        later decisions.
+        """
+        known = max(self.account_time(transaction, item) for item in transaction.state.accounts)
+        entries = {
+            item.order_id: item
+            for item in transaction.state.replacement_entries
+            if item.entered_at <= at
+        }
+        if known <= at or not entries:
+            return known
+
+        state = transaction.state
+        parents: list[NetOrder] = []
+        for parent in state.net_orders:
+            arrival = self._coordinated_arrival(
+                entries, parent.order.identity, parent.order.decision_at
+            )
+            if arrival is not None:
+                parent = replace(parent, order=replace(parent.order, decision_at=arrival))
+            parents.append(parent)
+        staged_parents: tuple[NetOrder, ...] = tuple(parents)
+        net_events: tuple[_SavedNetEvent, ...] = tuple(
+            saved for saved in state.net_events if not self._self_requested(entries, saved.event)
+        )
+        events: tuple[_SavedEvent, ...] = tuple(
+            saved for saved in state.events if not self._self_requested(entries, saved.event)
+        )
+        transaction.state = replace(
+            state, net_orders=staged_parents, net_events=net_events, events=events
+        )
+        try:
+            return max(self.account_time(transaction, item) for item in transaction.state.accounts)
+        finally:
+            transaction.state = state
+
+    @staticmethod
+    def _coordinated_arrival(
+        entries: dict[str, ReplacementEntry], order_id: str, clock: datetime
+    ) -> datetime | None:
+        """Return an arrived order's arrival if ``clock`` is its coordination clock."""
+        entry = entries.get(order_id)
+        if entry is None or clock != entry.entered_at + timedelta(microseconds=1):
+            return None
+        return entry.entered_at
+
+    @classmethod
+    def _self_requested(cls, entries: dict[str, ReplacementEntry], event: OrderEvent) -> bool:
+        """Report whether an arrival requested this cancellation of its own order."""
+        entry = entries.get(event.order_id)
+        return (
+            entry is not None
+            and event.kind == "cancel_requested"
+            and event.identity == f"replace:{entry.decision_identity}:{event.order_id}"
+            and cls._coordinated_arrival(entries, event.order_id, event.at) is not None
+        )
+
+    @staticmethod
+    def replacement_outstanding(transaction: AccountTransaction, instance_id: str) -> bool:
+        """Report whether a new decision replaces outstanding instance work.
+
+        Research counts resting orders and plans that have not yet arrived. Here that
+        is any live order of the instance or any of its plans, which leave the journal
+        state when they arrive.
+        """
+        return any(
+            tagged.instance_id == instance_id and not tagged.order.is_terminal
+            for tagged in transaction.state.orders
+        ) or any(
+            plan.request.instance_id == instance_id for plan in transaction.state.replacement_plans
+        )
+
+    def _deferred(
+        self,
+        transaction: AccountTransaction,
+        request: AccountDecision,
+        context: PortfolioContext | None,
+        *,
+        outstanding: bool,
+    ) -> bool:
+        """Hold a paper decision until its modelled arrival and supersede older plans.
+
+        The bound paper scenario supplies the cancel and entry delays; an account
+        without one has neither. A decision replacing outstanding work waits for its
+        cancellation deadline and then the entry delay; one replacing nothing is
+        released at once, with no cancel delay, and arrives one entry delay later. Only
+        the first later decision's deadline governs a waiting plan, as research's
+        earliest cancellation withdraws it. When the plan would arrive at the decision
+        itself and nothing of the instance is left live or waiting, the decision is
+        admitted now, so False is returned and nothing is held.
+        """
+        instrument = request.quote.price.per.instrument_id
+        binding = next(
+            (
+                item
+                for item in transaction.state.paper_bindings
+                if item.account_id == request.account_id
+                and item.scenario.instrument_id == instrument
+            ),
+            None,
+        )
+        cancel_us, entry_us = (
+            (0, 0)
+            if binding is None
+            else (binding.scenario.cancel_delay_us, binding.scenario.entry_delay_us)
+        )
+        if (
+            (not outstanding or not cancel_us)
+            and not entry_us
+            and not any(
+                tagged.instance_id == request.instance_id and not tagged.order.is_terminal
+                for tagged in transaction.state.orders
+            )
+            and not any(
+                plan.request.instance_id == request.instance_id
+                for plan in transaction.state.replacement_plans
+            )
+        ):
+            return False
+        deadline = request.decision.at + timedelta(microseconds=cancel_us)
+        plans: list[ReplacementPlan] = []
+        for plan in transaction.state.replacement_plans:
+            if plan.request.instance_id == request.instance_id and plan.superseded_at is None:
+                plan = replace(
+                    plan, superseded_at=deadline, superseded_by=request.decision.identity
+                )
+            plans.append(plan)
+        stripped: AccountDecision = replace(request, checkpoint=b"")
+        plans.append(
+            ReplacementPlan(
+                request=stripped,
+                context=context,
+                ready_at=deadline if outstanding else request.decision.at,
+                entry_delay_us=entry_us,
+                released_at=None if outstanding else request.decision.at,
+            )
+        )
+        staged: tuple[ReplacementPlan, ...] = tuple(plans)
+        transaction.state = replace(transaction.state, replacement_plans=staged)
+        return True
 
     def request_instance_cancels(
         self, transaction: AccountTransaction, instance_id: str, at: datetime, *, label: str

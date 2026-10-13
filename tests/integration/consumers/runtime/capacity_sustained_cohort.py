@@ -31,7 +31,7 @@ from capacity_sustained import (
     DayRehearsalFixture,
     SustainedNativeFixture,
 )
-from capacity_sustained_results import SustainedResults, WindowBudget
+from capacity_sustained_results import DecisionAdmissions, SustainedResults, WindowBudget
 from capacity_trial import TrialTimings, TrialWorkload, TrialWorkloads
 
 # project library imports
@@ -251,6 +251,10 @@ class SustainedGates:
         proofs = cast(dict[str, dict[str, object]], sustained["fixture_proofs"])
         latencies = cast(dict[str, object], sustained["latencies"])
         commits = cast(dict[str, dict[str, int]], sustained["commits"])
+        # Absent decision evidence resolves nothing, and no decision passes.
+        decisions: dict[str, dict[str, object]] = cast(
+            dict[str, dict[str, object]], sustained.get("decisions", dict[str, object]())
+        )
         reconciliations = cast(dict[str, dict[str, object]], sustained["reconciliations"])
         gates = [
             Gate("trial_passed", summary.get("passed") is True, summary.get("failures")),
@@ -329,12 +333,8 @@ class SustainedGates:
             (
                 Gate(
                     "checkpoints_commit_without_rejection",
-                    len(commits) == 4
-                    and all(
-                        set(counts) <= {"committed:reserved", "committed:target_matched"}
-                        for counts in commits.values()
-                    ),
-                    commits,
+                    cls._admitted(commits, decisions),
+                    {"batches": commits, "decisions": decisions},
                 ),
                 Gate(
                     "committed_checkpoints_per_account",
@@ -344,12 +344,15 @@ class SustainedGates:
                 ),
                 Gate(
                     "orders_only_at_opening",
-                    len(commits) == 4
+                    len(decisions) == 4
                     and all(
-                        counts.get("committed:reserved", 0) <= opening
-                        for counts in commits.values()
+                        reserved is not None and reserved <= opening
+                        for reserved in cls._reserved(decisions).values()
                     ),
-                    {"opening_orders_per_account": opening},
+                    {
+                        "opening_orders_per_account": opening,
+                        "reserved_decisions": cls._reserved(decisions),
+                    },
                 ),
                 Gate(
                     "accounts_reconciled_on_cadence",
@@ -389,6 +392,44 @@ class SustainedGates:
                 )
             )
         return tuple(gates)
+
+    @staticmethod
+    def _admitted(
+        commits: dict[str, dict[str, int]], decisions: dict[str, dict[str, object]]
+    ) -> bool:
+        """Require every selected batch committed and every decision in it admitted.
+
+        A batch commit is graded at decision time, where a pending one only defers. Each
+        of its strategy decisions must then be admitted in the stopped account journal,
+        at once or at its own arrival: a refusal, a missing or unresolved arrival, a
+        withdrawal or unreadable evidence fails.
+        """
+        committed = {
+            f"committed:{reason}"
+            for reason in DecisionAdmissions.ADMITTED | DecisionAdmissions.PENDING
+        }
+        admitted = DecisionAdmissions.admitted()
+        return (
+            len(commits) == 4
+            and set(decisions) == set(commits)
+            and all(set(counts) <= committed for counts in commits.values())
+            and all(
+                facts.get("readable") is True
+                and bool(outcomes := cast(dict[str, int], facts.get("outcomes")))
+                and set(outcomes) <= admitted
+                for facts in decisions.values()
+            )
+        )
+
+    @staticmethod
+    def _reserved(decisions: dict[str, dict[str, object]]) -> dict[str, int | None]:
+        """Count each account's decisions admitted with reserved orders; None if unreadable."""
+        return {
+            account: DecisionAdmissions.reserved(cast(dict[str, int], facts["outcomes"]))
+            if facts.get("readable") is True
+            else None
+            for account, facts in decisions.items()
+        }
 
     @classmethod
     def _day(

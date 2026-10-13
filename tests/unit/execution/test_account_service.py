@@ -431,6 +431,35 @@ class TestPublicMarketRecovery:
         )
         return config, owner, book, struct.pack("!I", len(payload)) + payload
 
+    def test_a_paper_clock_advance_is_served_and_writes_nothing_when_nothing_is_due(
+        self, tmp_path: Path
+    ) -> None:
+        """The installed service settles a quiet market's clock; with nothing due no commit writes.
+
+        The request needs the current owner and a UTC clock.
+        """
+        config, owner, _, _ = self._book(tmp_path, "unused-book")
+        with pytest.raises(ValueError, match="paper clock advance requires an owner"):
+            AccountExecutionRequest(action="advance_paper", at=datetime.now(UTC))
+        with pytest.raises(ValueError, match="paper clock advance requires an owner"):
+            AccountExecutionRequest(action="advance_paper", paper_owner=owner)
+        payload = DomainCodec().encode_json(
+            AccountExecutionRequest(
+                action="advance_paper",
+                at=datetime.now(UTC),
+                paper_owner=owner,
+                projection="operation",
+            )
+        )
+        head = self._head(tmp_path / "account.sqlite3")
+        result = self._exchange(
+            self._service(tmp_path, config, owner),
+            struct.pack("!I", len(payload)) + payload,
+            answered=True,
+        )
+        assert result is not None
+        assert self._head(tmp_path / "account.sqlite3") == head
+
     def test_a_committed_book_whose_answer_was_lost_is_an_exact_retry(self, tmp_path: Path) -> None:
         """The first life commits but its answer is lost; the next life writes nothing."""
         config, owner, book, frame = self._book(tmp_path, "lost-answer-book")

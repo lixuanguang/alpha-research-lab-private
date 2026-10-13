@@ -11,6 +11,7 @@ import subprocess  # nosec B404  # [owner=execution; rationale=Bounded signed la
 import threading
 from collections import OrderedDict
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -44,6 +45,7 @@ from execution.account_records import (
     TaggedOrder,
 )
 from execution.account_reduction import PaperReductionResult
+from execution.client_logs import ClientLogArchive, ClientLogSeal
 from execution.paper import PaperMarket
 from execution.paper_authority import PaperActivation, PaperOwner
 from financial_units import Dimension
@@ -294,6 +296,17 @@ class InstalledPaperAccount:
             )
         )
 
+    def advance_paper(self, at: datetime) -> None:
+        """Settle modelled cancellations, releases and arrivals due before ``at``."""
+        self.execute(
+            AccountExecutionRequest(
+                action="advance_paper",
+                at=at,
+                paper_owner=self.paper_owner,
+                projection="operation",
+            )
+        )
+
     def apply_public_market(
         self, account_id: str, market: PaperMarket, scenario: PaperExecutionScenario
     ) -> PaperMarketOutcome:
@@ -414,6 +427,11 @@ class SocketPaperAccount(InstalledPaperAccount):
     naming that earlier ``result`` record, so a repeated read is kept once. An
     attempt without any of these records has an uncertain outcome: a timeout or
     lost response, which this adapter never resubmits.
+
+    ``close`` ends the log's writer: it refuses new commands, waits a bounded time for
+    commands in flight to record their outcomes, and then seals the log
+    (``ClientLogArchive.seal``), which proves no record will follow and lets the log be
+    archived. With a command still in flight it does not seal.
     """
 
     _maximum_bytes = 1_048_576
@@ -447,6 +465,11 @@ class SocketPaperAccount(InstalledPaperAccount):
         self._log_lock = threading.Lock()
         # Digests of the latest distinct results this log holds, oldest first.
         self._results: OrderedDict[str, None] = OrderedDict()
+        # Commands between their request record and their outcome, and whether
+        # ``close`` has begun; both guarded by ``_progress``.
+        self._progress = threading.Condition()
+        self._in_flight = 0
+        self._closing = False
 
     def execute(self, request: AccountExecutionRequest) -> AccountExecutionResult:
         """Send one retained command and decode one response without retrying."""
@@ -456,6 +479,39 @@ class SocketPaperAccount(InstalledPaperAccount):
         payload = self._codec.encode_json(request)
         if not 0 < len(payload) <= self._maximum_bytes:
             raise ValueError("socket paper request exceeds one MiB")
+        with self._progress:
+            if self._closing:
+                raise ValueError("socket paper account log is closed")
+            self._in_flight += 1
+        try:
+            return self._send(request, payload)
+        finally:
+            with self._progress:
+                self._in_flight -= 1
+                self._progress.notify_all()
+
+    def close(self, timeout_seconds: float = 5.0) -> ClientLogSeal | None:
+        """End this adapter's log: refuse new commands and seal it once none is in flight.
+
+        Returns:
+            The log's seal, or None when a command was still in flight at the timeout
+            or the log was never written; the log is then left unsealed and is never
+            archived.
+        """
+        with self._progress:
+            self._closing = True
+            finished = self._progress.wait_for(self._idle, timeout_seconds)
+        if not finished or not self._log.path.is_file():
+            return None
+        with self._log_lock:
+            return ClientLogArchive.seal(self._log.path)
+
+    def _idle(self) -> bool:
+        """Report whether no command is between its request record and its outcome."""
+        return self._in_flight == 0
+
+    def _send(self, request: AccountExecutionRequest, payload: bytes) -> AccountExecutionResult:
+        """Retain one request record, send it once and record its outcome."""
         attempt = uuid4().hex
         sent = SentRequest(
             action=request.action,

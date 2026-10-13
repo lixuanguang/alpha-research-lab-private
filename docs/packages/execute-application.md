@@ -187,7 +187,7 @@ The same command accepts the shared portfolio operations:
 | `net_event` | `net_event: OrderEvent` names a physical parent. The journal applies its lifecycle and allocates its fill/cost effects to strategy children in one transaction. A terminal fact states its cause by kind: only `cancelled_on_request` (a pending cancel request took effect) leaves the parent's other children to reissue; `cancelled` ends them. A `venue_test` journal refuses `cancelled_on_request`. |
 | `net_cost` | `net_cost: NetFeeCorrection` identifies a physical fill and its revised total fee. Append-only child corrections retain the original event and require account reconciliation before admission resumes. |
 | `stop_instance` | `instance_id`, UTC `at`. Block the selected instance and request shared-parent cancellation while retaining unresolved reservations. This action does not flatten positions or claim an exchange cancellation. |
-| `reissue_pending` | `account_id`, UTC `at`. After a confirmed requested cancellation (`cancelled_on_request`) and complete reconciliation, route the unaffected strategy's reserved residuals through new physical parents. A residual that cannot be sent now (stale quote, drifted limit, or an owner over a ceiling) stays visible with its reason; one whose decision is older than the residual age bound is retired. |
+| `reissue_pending` | `account_id`, UTC `at`. After a confirmed requested cancellation (`cancelled_on_request`) and complete reconciliation, route the unaffected strategy's reserved residuals through new physical parents; an account `control/cancel` leaves none to route. A residual that cannot be sent now (stale quote, drifted limit, or an owner over a ceiling) stays visible with its reason; one whose decision is older than the residual age bound is retired. |
 | `restart_instance` | `instance_id`, UTC `at`. Resume local decision admission only after the journal's recovery conditions hold; independent account blocks remain in force. |
 
 Results expose both `orders` (attributed children) and `net_orders` (physical
@@ -443,6 +443,22 @@ distinct results, is recorded as `repeated_result`, their SHA-256, which names
 that earlier `result` record's value; a repeated read is kept once. An attempt
 with none of these records, or whose `repeated_result` names no earlier result in
 the log, has an uncertain outcome; inspect the journal before any new request. A payload the service never retained had no effect.
+
+A client's `close` ends its log: it refuses new commands, waits a bounded time for
+commands in flight to record their outcomes, and then seals the log, writing
+`<log>.sealed.json` with the log's durable length and SHA-256; with a command still in
+flight it does not seal. The supervisor closes its clients when its run ends, and the
+capacity driver closes its own in cleanup. Archiving a directory, by
+`alpha-execute client-logs --archive <dir>` or by the capacity driver's cleanup once
+every writer has exited, compresses each sealed, unchanged log to `<log>.jsonl.zst`: it writes a temporary file, checks that it
+decompresses to the sealed bytes, publishes it durably and only then removes the
+plaintext. An unsealed or changed log is kept and reported skipped; an interrupted
+archival leaves the plaintext, or both copies, and resumes on the next run.
+`--read <log>.jsonl` prints a log's original bytes from either form in bounded
+memory, so its uncertain outcomes read exactly as before. Archives stay where the logs
+were, in the same retention class; archiving lowers retained bytes after the run, not
+the run's peak, and briefly holds a log's plaintext and archive together. Owner
+service-request logs and individual request files are not archived.
 Retained file counts therefore grow with service lives, not with requests.
 Owner-generation checks remain inside economic transactions. Service startup
 reads only the durable activation, never the trace history, and does not claim,

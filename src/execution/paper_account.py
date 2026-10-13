@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -125,6 +126,10 @@ class PaperAccount(Protocol):
 
     def bind_paper_scenario(self, account_id: str, scenario: PaperExecutionScenario) -> None:
         """Verify the immutable matching assumptions."""
+        ...
+
+    def advance_paper(self, at: datetime) -> None:
+        """Settle modelled cancellations, releases and arrivals due strictly before ``at``."""
         ...
 
     def apply_public_market(

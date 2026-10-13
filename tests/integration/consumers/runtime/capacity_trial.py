@@ -34,6 +34,7 @@ from capacity_reads import CapacityReadObserver
 from capacity_reconciler import AccountReconciler
 from capacity_recovery import CapacityRecovery
 from capacity_sustained import DayRehearsalWorkload, DayWorkload, SustainedWorkload
+from capacity_sustained_results import StoppedJournal
 
 # project library imports
 from accounting import AccountLedger
@@ -42,6 +43,7 @@ from configuration import PaperAuthorization, PaperDeployment, PaperServiceConfi
 from execution import (
     AccountControl,
     AccountExecutionRequest,
+    ClientLogArchive,
     InstalledPaperAccount,
     PaperOwner,
     SocketPaperAccount,
@@ -943,6 +945,15 @@ class CapacityTrial:
                 (self.output / f"final-{definition.account_id}.json").write_bytes(
                     self.codec.encode_json(state)
                 )
+                if state.journal_path is None:
+                    raise ValueError("final account state names no journal")
+                # The stopped journal's history at this cutoff; the next phase reuses it.
+                StoppedJournal.retain(
+                    self.output,
+                    definition.account_id,
+                    Path(state.journal_path),
+                    definition.configuration,
+                )
             except Exception as error:
                 self.failures.append(f"cleanup {definition.account_id}: {error}")
         self.record(
@@ -962,6 +973,36 @@ class CapacityTrial:
                     shutil.copyfileobj(source, target)
             except OSError as error:
                 self.failures.append(f"request timings {definition.account_id}: {error}")
+        self.archive_client_logs()
+
+    def archive_client_logs(self) -> None:
+        """Seal this driver's client logs and archive every sealed log in scratch.
+
+        The supervisor sealed its own logs before it exited, and every launcher has
+        been waited for, so no writer remains. A log left unsealed (a command was in
+        flight) is kept as written and reported skipped; archival is not a trial gate.
+        """
+        for client in self.clients.values():
+            try:
+                client.close(timeout_seconds=1.0)
+            except (OSError, ValueError) as error:
+                self.record("client_log_seal_failed", {"error": str(error)})
+        results: dict[str, object] = {}
+        for directory in sorted(
+            (
+                *(self.output / "client").glob("*"),
+                *(self.service_root / "requests").glob("*"),
+            )
+        ):
+            if not directory.is_dir():
+                continue
+            try:
+                results[str(directory.relative_to(self.output))] = ClientLogArchive.archive(
+                    directory
+                )
+            except (OSError, ValueError) as error:
+                results[str(directory.relative_to(self.output))] = f"failed: {error}"
+        self.record("client_log_archive", results)
 
 
 class _Arguments(argparse.Namespace):

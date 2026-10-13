@@ -183,23 +183,38 @@ uv run --frozen alpha-governance-artifacts run \
    the physical order IDs. Supply subsequent identified order facts through
    `event`/`net_event`; a cancellation acknowledgement is not a terminal outcome.
    A terminal `net_event` states its cause: `cancelled_on_request` confirms that a
-   pending request took effect and keeps the parent's unaffected strategy children
-   for reissue, while `cancelled` or `reconcile_cancelled` ends them. A parent whose
-   outcome is `unknown` can only end them; a `venue_test` account accepts no
-   `cancelled_on_request`.
-   An account cancel does not withdraw strategy intent. This is the interim
-   reading while plan decision D1 is deferred. The cancel requests cancellation of
-   the physical orders only. Each strategy child that a `cancelled_on_request`
-   parent keeps stays a reserved residual. Once the account is running, with no
-   fault or operator block, and reconciled at or after that parent's outcome,
-   `reissue_pending` or the account's next coordination sends it again under the
-   usual admission checks. A child whose decision is older than
-   `max_residual_age_us` is retired instead of sent. A child whose quote is stale,
-   whose limit drifted beyond the price bound, or that is a buy over a ceiling
-   stays a visible residual. To withdraw intent, also stop the instances with
-   `stop_instance`.
-   These actions never imply liquidation. Managed paper reduction uses the
-   separate `reduce_paper` request described below.
+   pending request took effect, while `cancelled` or `reconcile_cancelled` ends every
+   child. A parent whose outcome is `unknown` can only end them; a `venue_test`
+   account accepts no `cancelled_on_request`.
+   An account cancel withdraws the account's working intent (D1, owner decision
+   2026-10-12) and leaves its phase unchanged:
+   - it requests cancellation of every outstanding physical order;
+   - it withdraws every waiting paper plan, including one due exactly at the cancel
+     time, as `withdrawn_by_account_cancel`; arrivals before that time are settled
+     first, and their orders are cancelled like any other;
+   - it ends every unsent strategy order, listed as a residual or not, and releases
+     its reservation;
+   - a strategy order still attached to an outstanding physical order is marked and
+     keeps its reservation until that order's own outcome ends it, so it is never
+     reissued; fills before then count. An `unknown` order stays unknown and
+     reserved.
+
+   The result lists the physical orders, the withdrawn decisions and the ended
+   unsent orders. An exact retry returns that result and withdraws nothing decided
+   since; a reused identity with other content is refused with no effect, and a
+   cancel dated before the account's clock is rejected with none. Holdings are
+   untouched: nothing is liquidated. A running account keeps admitting fresh
+   decisions under the usual checks, so a strategy may rebuild its target at its
+   next decision; to keep new exposure out, send `control/stop` first. After stop,
+   cancel and restart, withdrawn intent stays withdrawn and only decisions made
+   after the restart trade. A `cancelled_on_request` parent keeps children for
+   reissue (`reissue_pending` or the next coordination, under the usual checks)
+   only when their own intent was not withdrawn, such as another strategy's after a
+   selective `stop_instance`, which withdraws only its own strategy's plans and
+   orders ([paper decision replacement](../packages/execution.md#paper-decision-replacement)).
+   Dedicated paper's per-order `cancel` is separate and unchanged: it requests one
+   order's cancellation and withdraws no waiting decision. Managed paper reduction
+   uses the separate `reduce_paper` request described below.
 4. **Recover:** replay missing identified fills, fees, transfers and order facts,
    then supply a complete fresh account observation and current marks. A matching
    observation cannot clear unresolved sends, cancels, contradictions or earlier
@@ -295,9 +310,9 @@ uv run --frozen alpha-governance-artifacts run \
 5. To **block new exposure**, send `control/stop`. To **request cancellation**,
    separately send `control/cancel`. Requested/acknowledged cancellation retains
    commitments until the paper matcher produces its terminal outcome. An account
-   cancel does not withdraw strategy intent (D1 deferred; see
-   [local paper operations](#local-paper-operations), step 3); stop the instances to
-   withdraw it. Expiry
+   cancel also withdraws waiting plans and unsent strategy orders, but does not stop
+   the account; send `control/stop` first to keep new exposure out (see
+   [local paper operations](#local-paper-operations), step 3). Expiry
    and revocation also leave existing obligations and reservations intact.
 6. To **request position reduction**, send `reduce_paper` with instance, quantity,
    a fresh observed quote, explicit sell limit and maximum fee. While a shared
@@ -543,7 +558,10 @@ background system daemon or grant private venue authority.
    replayed. Stop the supervisor, inspect the latest journal through the signed
    launcher, reconcile retained requests/results and independent facts, resolve
    pending/uncertain orders, then claim a fresh owner before restarting services.
-   The supervisor's requests are in `<root>/requests/<account>/<log>.jsonl`: an
+   The supervisor's requests are in `<root>/requests/<account>/<log>.jsonl`, or, once
+   archived, `<log>.jsonl.zst` beside its `<log>.sealed.json`; read either form with
+   `alpha-execute client-logs --read <root>/requests/<account>/<log>.jsonl`, which
+   prints the original bytes and checks an archive against its seal. An
    `attempt` with a `request` record but no `result`, `repeated_result` or `error`
    record has an uncertain outcome. A `repeated_result` is the SHA-256 of the exact
    bytes of an earlier `result` record's value in the same log; one that names no

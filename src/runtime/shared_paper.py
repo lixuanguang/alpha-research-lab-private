@@ -467,6 +467,8 @@ class SharedPaperCaptureObserver:
         self.processing_ns: int | None = None
         # Opt-in phase clocks for the delivery being measured; None when unmeasured.
         self._phases: dict[str, int] | None = None
+        # Opt-in identities of the batches the measured delivery committed, in order.
+        self._batches: list[str] | None = None
         self.delivered_count = 0
         self.retained_count = 0
         self._public_faulted = False
@@ -530,6 +532,7 @@ class SharedPaperCaptureObserver:
         """
         book_started_ns = time.monotonic_ns() if self.measurements is not None else 0
         self._phases = {} if self.measurements is not None else None
+        self._batches = [] if self.measurements is not None else None
         source = ObservedLiveBookDelivery(record=record, book=row, available_at=self._now())
         market = self._market(source)
         bbo_observed_ns = time.monotonic_ns() if self.measurements is not None else 0
@@ -569,6 +572,9 @@ class SharedPaperCaptureObserver:
                         "checkpoint_acknowledged": acknowledged,
                         "checkpoint_status": self.decisions[-1].status if acknowledged else None,
                         "checkpoint_reason": self.decisions[-1].reason if acknowledged else None,
+                        # The journal's batch identities, so each decision's own outcome,
+                        # including one resolved later at its arrival, can be read back.
+                        "checkpoint_batches": self._batches,
                         "book_started_ns": book_started_ns,
                         "bbo_observed_ns": bbo_observed_ns,
                         "checkpoint_acknowledged_ns": finished_ns if acknowledged else None,
@@ -581,6 +587,7 @@ class SharedPaperCaptureObserver:
                     }
                 )
             self._phases = None
+            self._batches = None
 
     def deliver(self, delivery: SharedBookDelivery) -> None:
         """Replay one retained envelope into a fresh source and an existing account journal."""
@@ -853,6 +860,10 @@ class SharedPaperCaptureObserver:
         if market is None and (delivery.matched or (delivery.decisions and not timed)):
             raise ValueError("ineligible native input cannot decide or match")
         if not timed:
+            if self.journal.config.mode == "paper":
+                # Lifecycle events due before this delivery happened before anything it
+                # reveals: settle them on the facts known then, then invalidate.
+                self.journal.advance_paper(delivery.source.available_at)
             if not self._public_faulted and self._source_invalidated(delivery):
                 if self.journal.paper_owner is None:
                     self.journal.block(self.account_id, "public_input_invalid")
@@ -891,6 +902,10 @@ class SharedPaperCaptureObserver:
         for group in delivery.decisions:
             if group.coordinated_at > boundary:
                 self._decide(delivery, group, self._pending, replayed=replayed)
+        if market is None and self.journal.config.mode == "paper":
+            # A quiet market still advances time: modelled cancellations, releases and
+            # arrivals due before this delivery take effect without waiting for a book.
+            self.journal.advance_paper(boundary)
         self._close_open()
 
     def _shadow_replayed(self, market: PaperMarket, *, replayed: bool) -> bool:
@@ -946,6 +961,8 @@ class SharedPaperCaptureObserver:
         )
         if commit is not None:
             self.decisions.append(commit)
+            if self._batches is not None:
+                self._batches.append(identity)
         for item in group.inputs:
             self._open[item.instance_id].remove(group.at)
         self._coordinated = group.coordinated_at
