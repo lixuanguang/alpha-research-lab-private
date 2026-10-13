@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 # standard library imports
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import Protocol
 
 # third party library imports
 from msgspec.structs import replace
@@ -15,29 +16,49 @@ from execution.account_records import (
     AccountControlResult,
     AccountPhase,
     AccountView,
+    PortfolioResidual,
 )
 from execution.account_state import AccountTransaction, _SavedEvent, _SavedNetEvent
 from execution.lifecycle import SpotOrderLifecycle
 from execution.records import OrderEvent, OrderState
 
 
-class AccountOperations:
-    """Own account phase transitions and local cancel-request persistence."""
+class PlanWithdrawal(Protocol):
+    """End an account's waiting paper plans at an operator cancel."""
 
-    def __init__(self, admission: AccountAdmission) -> None:
-        """Bind the journal's authoritative account and budget checks."""
+    def __call__(
+        self, transaction: AccountTransaction, account_id: str, at: datetime
+    ) -> tuple[str, ...]:
+        """Withdraw the plans and return their original decision identities."""
+        ...
+
+
+class AccountOperations:
+    """Own account phase transitions and local cancel-request persistence.
+
+    An operator account cancel withdraws the account's working intent and leaves
+    its phase unchanged. It requests cancellation of every outstanding physical
+    order, withdraws every waiting paper plan, and ends every unsent strategy
+    order, releasing its reservation. A strategy order attached to a live physical
+    order is marked for cancellation and keeps its reservation until that order's
+    own outcome ends it, so it is never reissued as a residual. Holdings are
+    untouched, and a later strategy decision may create new intent under the usual
+    admission checks.
+    """
+
+    def __init__(self, admission: AccountAdmission, withdraw_plans: PlanWithdrawal) -> None:
+        """Bind the journal's account and budget checks and its paper plan owner."""
         self.admission = admission
+        self.withdraw_plans = withdraw_plans
 
     def apply(
         self, transaction: AccountTransaction, request: AccountControl
     ) -> AccountControlResult:
         """Persist an exact idempotent request and its original outcome."""
         request.__post_init__()
-        for saved in transaction.state.account_controls:
-            if saved.request.identity == request.identity:
-                if saved.request != request:
-                    raise ValueError("account control identity reused with different content")
-                return saved
+        saved = self.saved(transaction, request)
+        if saved is not None:
+            return saved
         account = transaction.account(request.account_id)
         before = transaction.state
         try:
@@ -50,6 +71,8 @@ class AccountOperations:
                 phase=account.phase,
                 recovery_generation=account.recovery_generation,
                 reason=str(error),
+                withdrawn_decision_ids=(),
+                withdrawn_order_ids=(),
             )
         controls: tuple[AccountControlResult, ...] = (*transaction.state.account_controls, result)
         transaction.state = replace(
@@ -57,6 +80,22 @@ class AccountOperations:
             account_controls=controls,
         )
         return result
+
+    @staticmethod
+    def saved(
+        transaction: AccountTransaction, request: AccountControl
+    ) -> AccountControlResult | None:
+        """Return an exact retry's original outcome, or None for a new identity.
+
+        Raises:
+            ValueError: The identity was already used with different content.
+        """
+        for saved in transaction.state.account_controls:
+            if saved.request.identity == request.identity:
+                if saved.request != request:
+                    raise ValueError("account control identity reused with different content")
+                return saved
+        return None
 
     def _apply(
         self, transaction: AccountTransaction, request: AccountControl, account: AccountView
@@ -79,15 +118,21 @@ class AccountOperations:
                 status="applied",
                 phase=phase,
                 recovery_generation=account.recovery_generation,
+                withdrawn_decision_ids=(),
+                withdrawn_order_ids=(),
             )
         if request.kind == "cancel":
+            decisions = self.withdraw_plans(transaction, request.account_id, request.at)
             targets = self._request_cancellation(transaction, request)
+            withdrawn = self._withdraw_strategy_orders(transaction, request.account_id)
             return AccountControlResult(
                 request=request,
                 status="applied",
                 phase=account.phase,
                 recovery_generation=account.recovery_generation,
                 cancel_order_ids=targets,
+                withdrawn_decision_ids=decisions,
+                withdrawn_order_ids=withdrawn,
             )
         self._require_recovery_ready(transaction, request, account)
         generation = account.recovery_generation + 1
@@ -105,6 +150,8 @@ class AccountOperations:
             status="applied",
             phase="running",
             recovery_generation=generation,
+            withdrawn_decision_ids=(),
+            withdrawn_order_ids=(),
         )
 
     def _require_recovery_ready(
@@ -248,6 +295,45 @@ class AccountOperations:
                 net_events=net_events,
             )
         return tuple(targets)
+
+    @staticmethod
+    def _withdraw_strategy_orders(
+        transaction: AccountTransaction, account_id: str
+    ) -> tuple[str, ...]:
+        """End unsent strategy orders and mark attached ones to end with their parent.
+
+        Unsent means not allocated to any nonterminal physical order, whether or not a
+        residual record names it: ``residuals`` is only the visible subset. Ending one
+        releases its reservation. An attached order keeps its reservation; marking it
+        makes its parent's terminal outcome end it instead of leaving it to reissue,
+        whether that outcome is a requested cancellation, a fill or a reconciled
+        unknown.
+        """
+        attached = {
+            allocation.child_order_id
+            for parent in transaction.state.net_orders
+            if parent.account_id == account_id and not parent.order.is_terminal
+            for allocation in parent.allocations
+        }
+        withdrawn: list[str] = []
+        for child in transaction.state.orders:
+            if child.account_id != account_id or child.context is None or child.order.is_terminal:
+                continue
+            if child.order.identity in attached:
+                if not child.order.cancel_requested:
+                    transaction.save_order(
+                        replace(child, order=replace(child.order, cancel_requested=True))
+                    )
+                continue
+            transaction.save_order(replace(child, order=replace(child.order, status="cancelled")))
+            withdrawn.append(child.order.identity)
+        ended = set(withdrawn)
+        residuals: tuple[PortfolioResidual, ...] = tuple(
+            item for item in transaction.state.residuals if item.child_order_id not in ended
+        )
+        if residuals != transaction.state.residuals:
+            transaction.state = replace(transaction.state, residuals=residuals)
+        return tuple(withdrawn)
 
     def _cancel_order(self, order: OrderState, event: OrderEvent) -> OrderState:
         """Record a local cancel request through the shared spot lifecycle."""

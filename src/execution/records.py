@@ -299,6 +299,70 @@ class StepRecord(WireRecord, frozen=True):
         self.commit.__post_init__()
 
 
+class PaperArrivalPolicy(WireRecord, frozen=True):
+    """Carry a dedicated paper decision's modelled delays and market freshness bound."""
+
+    entry_delay_us: int
+    cancel_delay_us: int
+    max_market_age_us: int
+
+    def __post_init__(self) -> None:
+        """Require nonnegative delays and a positive freshness bound."""
+        if (
+            any(
+                type(value) is not int or value < 0
+                for value in (self.entry_delay_us, self.cancel_delay_us)
+            )
+            or type(self.max_market_age_us) is not int
+            or self.max_market_age_us <= 0
+        ):
+            raise ValueError("invalid paper arrival policy")
+
+
+class PaperPlan(WireRecord, frozen=True):
+    """Hold one dedicated paper decision until its modelled arrival.
+
+    With no outstanding work the plan is released at its decision and arrives one entry
+    delay later. A plan that supersedes a waiting plan is ready at its decision plus the
+    cancel delay; the superseded plan records that deadline and the decision that set it,
+    and is withdrawn unless it arrives before the deadline.
+    """
+
+    step_id: str
+    decision: OrderDecision
+    maximum_fee: Money
+    ready_at: datetime
+    entry_delay_us: int
+    max_market_age_us: int
+    released_at: datetime | None = None
+    superseded_at: datetime | None = None
+    superseded_by: str | None = None
+
+    def __post_init__(self) -> None:
+        """Require an identified decision and causal clocks."""
+        self.decision.__post_init__()
+        self.maximum_fee.model_copy()
+        self._require_utc(self.ready_at, field_name="paper plan readiness")
+        if (
+            not self.step_id
+            or type(self.entry_delay_us) is not int
+            or self.entry_delay_us < 0
+            or type(self.max_market_age_us) is not int
+            or self.max_market_age_us <= 0
+            or self.ready_at < self.decision.at
+            or (self.superseded_at is None) != (self.superseded_by is None)
+        ):
+            raise ValueError("invalid paper plan")
+        if self.released_at is not None:
+            self._require_utc(self.released_at, field_name="paper plan release")
+            if self.released_at < self.ready_at:
+                raise ValueError("paper plan released before it was ready")
+        if self.superseded_at is not None:
+            self._require_utc(self.superseded_at, field_name="paper plan supersession")
+            if self.superseded_at <= self.decision.at:
+                raise ValueError("paper plan superseded before its decision")
+
+
 class AccountReservations(WireRecord, frozen=True):
     """Expose conservative pending buy cash and sell inventory commitments."""
 

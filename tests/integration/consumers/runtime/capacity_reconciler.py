@@ -73,18 +73,8 @@ class AccountReconciler:
                 action="inspect", account_id=account_id, projection="reconciliation"
             )
         )
-        if facts.known_at is None:
-            raise ValueError("reconciliation projection omitted the account's knowledge clock")
-        (account,) = facts.accounts
-        accepted = self._accepted_market(account_id)
-        observation = AccountObservation(
-            identity=f"sustained-reconcile-{uuid4().hex}",
-            at=facts.known_at if accepted is None else max(accepted, facts.known_at),
-            snapshot=AccountLedger(account.ledger).snapshot(),
-            open_orders=(
-                *(item.order for item in facts.orders),
-                *(item.order for item in facts.net_orders),
-            ),
+        observation = self.observation(
+            facts, self._accepted_market(account_id), f"sustained-reconcile-{uuid4().hex}"
         )
         matched = client.reconcile(observation)
         self.attempts += 1
@@ -102,6 +92,35 @@ class AccountReconciler:
         if not matched:
             self.failures.append(f"reconciliation mismatch faulted {account_id}")
         return matched
+
+    @staticmethod
+    def observation(
+        facts: AccountExecutionResult, accepted: datetime | None, identity: str
+    ) -> AccountObservation:
+        """Describe one snapshot's facts at the later of its knowledge and market clocks.
+
+        When a reconciliation is scheduled is independent of the time its evidence
+        describes: the stamp is never a scheduling or delivery clock. A delivery's
+        clock can pass a grid instant the account has not decided yet, and a stamp
+        after that instant would refuse its decision as preceding account state; the
+        last accepted market cannot, since a delivery decides every instant it
+        crosses before its market is accepted.
+
+        Raises:
+            ValueError: The facts are not the ``reconciliation`` projection.
+        """
+        if facts.known_at is None:
+            raise ValueError("reconciliation projection omitted the account's knowledge clock")
+        (account,) = facts.accounts
+        return AccountObservation(
+            identity=identity,
+            at=facts.known_at if accepted is None else max(accepted, facts.known_at),
+            snapshot=AccountLedger(account.ledger).snapshot(),
+            open_orders=(
+                *(item.order for item in facts.orders),
+                *(item.order for item in facts.net_orders),
+            ),
+        )
 
     def start(self) -> None:
         """Begin the cadence; the first round runs one period after start."""

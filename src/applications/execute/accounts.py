@@ -112,6 +112,7 @@ class AccountExecutionApplication:
                 "claim_paper",
                 "bind_paper_scenario",
                 "public_market",
+                "advance_paper",
                 "reduce_paper",
                 "serve_paper",
             )
@@ -132,6 +133,7 @@ class AccountExecutionApplication:
                 "admit",
                 "coordinate",
                 "public_market",
+                "advance_paper",
                 "post",
                 "event",
                 "net_event",
@@ -277,6 +279,10 @@ class AccountExecutionApplication:
             public_market = journal.apply_public_market(
                 request.account_id, request.market, request.scenario
             )
+        elif request.action == "advance_paper":
+            if request.at is None:
+                raise ValueError("paper clock advance is incomplete")
+            journal.advance_paper(request.at)
         elif request.action == "export_traces":
             if request.export_path is None:
                 raise ValueError("trace export is incomplete")

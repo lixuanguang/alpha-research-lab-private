@@ -7,6 +7,7 @@ import argparse
 import sqlite3
 import sys
 from pathlib import Path
+from typing import BinaryIO, cast
 
 # project library imports
 from applications.execute.accounts import AccountExecutionApplication
@@ -40,6 +41,8 @@ class ExecuteArguments(argparse.Namespace):
     socket: Path
     candidates: Path | None
     max_seconds: int
+    archive: Path | None
+    read: Path | None
 
 
 def main() -> None:
@@ -62,6 +65,10 @@ def main() -> None:
     source_parser = actions.add_parser("source-verification")
     source_parser.add_argument("--root", type=Path, required=True)
     source_parser.add_argument("--max-seconds", type=int, required=True)
+    logs_parser = actions.add_parser("client-logs")
+    logs_mode = logs_parser.add_mutually_exclusive_group(required=True)
+    logs_mode.add_argument("--archive", type=Path)
+    logs_mode.add_argument("--read", type=Path)
     service_control = actions.add_parser("deployment-control")
     service_control.add_argument("--socket", type=Path, required=True)
     service_control.add_argument("--request", type=Path, required=True)
@@ -154,6 +161,20 @@ def main() -> None:
             from applications.execute.source_service import SourceVerification
 
             result = SourceVerification(arguments.root).verify(max_seconds=arguments.max_seconds)
+        elif arguments.action == "client-logs":
+            # project library imports
+            from execution import ClientLogArchive
+
+            if arguments.read is not None:
+                # The exact original bytes, from the plaintext or its verified archive.
+                output = cast(BinaryIO, sys.stdout.buffer)
+                for line in ClientLogArchive.lines(arguments.read.absolute()):
+                    output.write(line)
+                output.flush()
+                return
+            if arguments.archive is None:
+                raise ValueError("client-logs requires --archive or --read")
+            result = ClientLogArchive.archive(arguments.archive.absolute())
         elif arguments.action == "deployment-control":
             # project library imports
             from applications.execute.services import control_paper_services

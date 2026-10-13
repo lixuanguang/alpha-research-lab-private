@@ -316,6 +316,41 @@ class TestIntentSimulation:
         assert result.orders[0].reason == "replaced"
         assert result.orders[1].placed_at == case.at(7)
 
+    @pytest.mark.parametrize("filled_in_window", (True, False), ids=("traded", "untraded"))
+    def test_a_target_is_sized_after_its_replaced_bid_can_no_longer_fill(
+        self, filled_in_window: bool
+    ) -> None:
+        """A target replacing a resting bid counts what that bid bought before its cancel.
+
+        Entry takes 1 s and cancellation 3 s. The 2 s ``gtc`` bid at 100 arrives at 3 s
+        below the 101 ask and rests at the front of an empty level. The 5 s target of
+        one unit cancels it at 8 s and arrives at 9 s. A sell-aggressor trade of one at
+        100 at 6 s fills the bid inside that window, so the target then changes
+        nothing. Without the trade the bid is cancelled unfilled and the target buys
+        one at the 101 ask. Either way the account ends holding exactly one unit.
+        """
+        case = _Case(cancel_delay_us=3_000_000)
+        bid = OrderIntent(
+            side="buy", quantity=case.quantity("1"), limit=case.price("100"), time_in_force="gtc"
+        )
+        market: list[IntentMarket] = [case.book(1)]
+        if filled_in_window:
+            market.append(case.trade(6, price="100", quantity="1", aggressor="sell"))
+        market.append(case.book(7))
+        result = case.run(
+            (case.decision(2, bid), case.decision(5, TargetIntent(quantity=case.quantity("1")))),
+            market,
+        )
+        assert result.decisions[1].reason == ("no_change" if filled_in_window else "submitted")
+        first = result.orders[0]
+        assert (first.status, first.closed_at) == (
+            ("filled", case.at(6)) if filled_in_window else ("canceled", case.at(8))
+        )
+        if not filled_in_window:
+            assert result.orders[1].placed_at == case.at(9)
+            assert [fill.effective for fill in result.orders[1].fills] == [case.price("101")]
+        assert Ledger(result.ledger).balance.holding == case.quantity("1")
+
     def test_abstention_cancels_the_resting_plan_and_places_nothing(self) -> None:
         """An abstaining decision replaces the plan with none, after cancel latency."""
         case = _Case(cancel_delay_us=2_000_000)

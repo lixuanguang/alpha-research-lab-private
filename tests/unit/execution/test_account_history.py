@@ -6,8 +6,11 @@ from __future__ import annotations
 import base64
 import hashlib
 import sqlite3
+from collections.abc import Callable
+from compression import zstd
 from contextlib import closing
 from datetime import timedelta
+from functools import partial
 from pathlib import Path
 from typing import cast
 
@@ -114,6 +117,18 @@ class AccountHistoryFixture:
             connection.commit()
 
     @staticmethod
+    def reframe(path: Path, seq: int, change: Callable[[ReferenceFrames, bytes], bytes]) -> None:
+        """Replace one stored trace frame with ``change`` applied to it and the reference."""
+        frames, rows = AccountHistoryFixture.frames(path)
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute(
+                "UPDATE paper_traces SET frame=? WHERE seq=?",
+                (change(frames, dict(rows)[seq]), seq),
+            )
+            connection.commit()
+            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    @staticmethod
     def count(path: Path, table: str) -> int:
         """Count one history table's rows."""
         with closing(sqlite3.connect(path)) as connection:
@@ -135,6 +150,34 @@ class TestAccountHistory:
         assert result["market_traces"] == (traces[0], None)
         assert len(AccountJournal.verify(path, _Matching._config())) == 1
 
+    def test_history_digests_name_the_committed_history_and_move_with_it(
+        self, tmp_path: Path
+    ) -> None:
+        """A read-only snapshot's digests count each table and change with any commit.
+
+        Graders bind a stopped journal to the history retained at its cutoff with them.
+        """
+        path, config = tmp_path / "digests.sqlite3", _Matching._config()
+        AccountHistoryFixture.operate(path)
+        journal = AccountJournal(path, config)
+        with AccountJournal.read_history(path, config) as history:
+            decisions, batches, traces = history.digests()
+        assert (decisions.count, batches.count, traces.count) == (
+            AccountHistoryFixture.count(path, "decisions"),
+            AccountHistoryFixture.count(path, "portfolio_batches"),
+            AccountHistoryFixture.count(path, "paper_traces"),
+        )
+        assert traces == journal.paper_trace_history()
+        with AccountJournal.read_history(path, config) as history:
+            assert history.digests() == (decisions, batches, traces)
+        later = _Matching.opening_at + timedelta(seconds=10)
+        journal.observe(AccountQuote(price=_Matching._price("1.00"), at=later))
+        journal.admit(_Matching._decision("beta", "later", later))
+        with AccountJournal.read_history(path, config) as history:
+            moved = history.digests()
+        assert moved[0].count == decisions.count + 1 and moved[0] != decisions
+        assert (moved[1], moved[2]) == (batches, traces)
+
     def test_commit_writes_head_and_rows_and_open_decodes_only_head(self, tmp_path: Path) -> None:
         """History stays out of the head, and the head is its exact full encoding."""
         path, config, codec = tmp_path / "head.sqlite3", _Matching._config(), DomainCodec()
@@ -143,13 +186,13 @@ class TestAccountHistory:
         assert (
             AccountHistoryFixture.count(path, "decisions"),
             AccountHistoryFixture.count(path, "portfolio_batches"),
-        ) == (3, 1)
+        ) == (4, 2)
         assert AccountHistoryFixture.count(path, "paper_traces") == 3
         payload = AccountHistoryFixture.payload(path)
         head = codec.decode_json(payload, FirmHead)
         assert codec.encode_json(head) == payload
         assert b"book-0" not in payload
-        assert (head.history.decisions.count, head.history.paper_traces.count) == (3, 3)
+        assert (head.history.decisions.count, head.history.paper_traces.count) == (4, 3)
         assert {item.instance_id: item.checkpoint for item in head.history.checkpoints} == {
             "alpha": b"alpha-decision",
             "beta": b"beta-decision",
@@ -201,7 +244,7 @@ class TestAccountHistory:
             ),
             ("DELETE FROM paper_traces WHERE seq=2", "history differs"),
             ("UPDATE paper_traces SET market_identity='other' WHERE seq=1", "history differs"),
-            ("UPDATE portfolio_batches SET seq=5", "history differs"),
+            ("UPDATE portfolio_batches SET seq=5 WHERE seq=0", "history differs"),
             ("DELETE FROM decisions WHERE seq=2", "history differs"),
         ),
     )
@@ -362,6 +405,7 @@ class TestBoundedTraceReads:
         )
         with pytest.raises(ValueError, match="absent absolute destination"):
             journal.export_paper_traces(destination, "shared")
+        # A well-formed frame of other bytes: only the history chain can refuse it.
         AccountHistoryFixture.retrace(path, 1, b'"matched"', b'"matcheD"')
         altered = tmp_path / "altered.json"
         with pytest.raises(ValueError, match="history differs"):
@@ -482,3 +526,129 @@ class TestTraceFrames:
         assert [seq for seq, _ in rows] == [0]
         assert frames.decode(rows[0][1]) == frames.reference
         AccountJournal.verify(path, _Matching._config())
+
+    @staticmethod
+    def _varied(path: Path) -> tuple[AccountJournal, tuple[AccountPaperTrace, ...]]:
+        """Match a partial fill, consumed, resized and repriced liquidity, then quiet books.
+
+        Alpha's resting buy of three at 1.10 meets one displayed unit, the same unit again,
+        two displayed units, a 1.05 ask, and then two identical books with nothing left
+        to fill; the first book is retried exactly.
+        """
+        scenario = _Matching._scenario()
+        journal = _Matching._ready(path, scenario)
+        at = _Matching.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=_Matching._price("1.00"), at=at))
+        assert journal.admit(_Matching._decision("alpha", "buy", at)).status == "committed"
+        sizes = ("1", "1", "2", "3", "3", "3")
+        markets = [
+            _Matching._market(f"book-{index}", at + timedelta(seconds=1 + index), ask_quantity=size)
+            for index, size in enumerate(sizes)
+        ]
+        markets[3] = replace(markets[3], ask=_Matching._price("1.05"))
+        traces = tuple(PaperBooks.apply(journal, "shared", market, scenario) for market in markets)
+        assert PaperBooks.apply(journal, "shared", markets[0], scenario) == traces[0]
+        return journal, traces
+
+    def test_every_frame_is_the_exact_encoding_of_the_trace_every_read_returns(
+        self, tmp_path: Path
+    ) -> None:
+        """Frames decode to the committed traces' bytes; every read and the export agree."""
+        path = tmp_path / "frames.sqlite3"
+        _, traces = self._varied(path)
+        assert any(trace.filled for trace in traces)
+        assert any(not trace.physical_events for trace in traces)
+        codec = DomainCodec()
+        frames, rows = AccountHistoryFixture.frames(path)
+        assert [seq for seq, _ in rows] == list(range(len(traces)))
+        for (_, frame), trace in zip(rows, traces, strict=True):
+            assert frames.decode(frame) == codec.encode_json(trace)
+            assert len(frame) < len(codec.encode_json(trace))
+        reopened = AccountJournal(path, _Matching._config())
+        assert tuple(reopened.iter_paper_traces("shared")) == traces
+        assert (
+            tuple(reopened.paper_trace("shared", trace.market.identity) for trace in traces)
+            == traces
+        )
+        assert reopened.latest_paper_traces("shared") == (traces[-1],)
+        destination = tmp_path / "traces.json"
+        assert reopened.export_paper_traces(destination, "shared") == len(traces)
+        assert destination.read_bytes() == codec.encode_json(traces)
+        AccountJournal.verify(path, _Matching._config())
+
+    @staticmethod
+    def _all(journal: AccountJournal) -> tuple[AccountPaperTrace, ...]:
+        """Read every trace of the shared account."""
+        return tuple(journal.iter_paper_traces("shared"))
+
+    @staticmethod
+    def _flipped(frames: ReferenceFrames, frame: bytes) -> bytes:
+        """Flip one bit near the end of the compressed content."""
+        return frame[:-5] + bytes([frame[-5] ^ 1]) + frame[-4:]
+
+    @staticmethod
+    def _truncated(frames: ReferenceFrames, frame: bytes) -> bytes:
+        """Keep the first half of the frame."""
+        return frame[: len(frame) // 2]
+
+    @staticmethod
+    def _empty(frames: ReferenceFrames, frame: bytes) -> bytes:
+        """Store no bytes at all."""
+        return b""
+
+    @staticmethod
+    def _uncompressed(frames: ReferenceFrames, frame: bytes) -> bytes:
+        """Store the trace's encoded bytes without a frame."""
+        return frames.decode(frame)
+
+    @staticmethod
+    def _unchecksummed(frames: ReferenceFrames, frame: bytes) -> bytes:
+        """Store a valid frame of the exact original bytes that declares no checksum."""
+        payload = frames.decode(frame)
+        dictionary = zstd.ZstdDict(cast(bytes, frames.reference), is_raw=True)
+        unchecked = zstd.compress(
+            payload,
+            options={zstd.CompressionParameter.checksum_flag: 0},
+            zstd_dict=dictionary,
+        )
+        assert zstd.decompress(unchecked, zstd_dict=dictionary) == payload
+        return unchecked
+
+    @staticmethod
+    def _doubled(frames: ReferenceFrames, frame: bytes) -> bytes:
+        """Store two concatenated frames."""
+        return frame + frame
+
+    @pytest.mark.parametrize(
+        "name",
+        (
+            "_flipped",
+            "_truncated",
+            "_empty",
+            "_uncompressed",
+            "_unchecksummed",
+            "_doubled",
+        ),
+    )
+    def test_a_corrupt_or_missing_frame_is_refused_by_every_read(
+        self, tmp_path: Path, name: str
+    ) -> None:
+        """No read returns a trace from a damaged frame, and refusing it changes nothing."""
+        path = tmp_path / "damaged.sqlite3"
+        _, traces = self._varied(path)
+        change = cast(Callable[[ReferenceFrames, bytes], bytes], getattr(self, name))
+        AccountHistoryFixture.reframe(path, 2, change)
+        before = path.read_bytes()
+        journal = AccountJournal(path, _Matching._config())
+        reads: tuple[Callable[[], object], ...] = (
+            partial(self._all, journal),
+            partial(journal.paper_trace, "shared", traces[2].market.identity),
+            partial(journal.export_paper_traces, tmp_path / "export.json", "shared"),
+            partial(AccountJournal.verify, path, _Matching._config()),
+        )
+        for read in reads:
+            with pytest.raises(ValueError, match="paper trace frame is malformed"):
+                read()
+        assert not (tmp_path / "export.json").exists()
+        journal.close()
+        assert path.read_bytes() == before

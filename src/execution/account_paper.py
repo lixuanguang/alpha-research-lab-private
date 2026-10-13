@@ -24,6 +24,7 @@ from execution.account_records import (
     AccountQuote,
     PaperMarketOutcome,
 )
+from execution.account_replacement import PaperReplacements
 from execution.account_state import AccountStateStore, AccountTransaction, _AccountSnapshot
 from execution.paper import PaperMarket, PaperMatchEvaluator
 from execution.paper_authority import PaperAuthority, PaperOwner
@@ -43,16 +44,18 @@ class AccountPaperMatching:
         codec: DomainCodec,
         admission: AccountAdmission,
         allocation: PhysicalAllocation,
+        replacements: PaperReplacements,
         *,
         owner: PaperOwner | None,
         clock: Callable[[], datetime],
     ) -> None:
-        """Reuse the account's serialized risk and attribution owners."""
+        """Reuse the account's serialized risk, attribution and replacement owners."""
         self.config = config
         self.store = store
         self.codec = codec
         self.admission = admission
         self.allocation = allocation
+        self.replacements = replacements
         self.owner, self.clock = owner, clock
         # Per account: last committed fill-bearing trace sequence read, its child fill
         # events and physical fill identities. Committed traces only grow, by sequence.
@@ -180,8 +183,11 @@ class AccountPaperMatching:
                             microseconds=self.config.budgets.max_quote_age_us
                         ):
                             raise ValueError("paper_market_stale_or_future")
-                    # Matching never reads valuation, so the effects are the same in
-                    # either order; matching first keeps its ordering refusals first.
+                    # A replacement due before this book is sent first, so the book
+                    # can fill it. Matching never reads valuation, so the effects are
+                    # the same in either order; matching first keeps its ordering
+                    # refusals first.
+                    self.replacements.settle(transaction, market.at)
                     trace, failure = self._match_new(transaction, account_id, binding, market)
                     self.admission.observe_quote(transaction, valuation)
                 elif trace.status == "failed":
@@ -402,6 +408,16 @@ class AccountPaperMatching:
             orders=orders,
             prior_events=prior_events,
             liquidity=binding.liquidity,
+            cancel_deadlines={
+                item.order_id: item.effective_at
+                for item in transaction.state.replacement_deadlines
+                if item.order_id in order_ids
+            },
+            entry_times={
+                item.order_id: item.entered_at
+                for item in transaction.state.replacement_entries
+                if item.order_id in order_ids
+            },
         )
         before = transaction.state
         start_event_count = len(before.events)

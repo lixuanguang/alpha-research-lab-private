@@ -490,7 +490,21 @@ class PaperServices:
                         self._shutdown(listener, deadline=service_deadline)
                     finally:
                         self._observation_executor = None
+                        self._close_client_logs()
             return self.status()
+
+    def _close_client_logs(self) -> None:
+        """Seal each account client's log now that this supervisor sends nothing more.
+
+        A log with a command still in flight, or that cannot be sealed, is left
+        unsealed: the missing seal is its record, and archival, which runs only after
+        the supervisor has exited, keeps it as written. Neither is a service failure.
+        """
+        for account in self.accounts.values():
+            try:
+                account.close(timeout_seconds=1.0)
+            except OSError, ValueError:
+                continue
 
     @staticmethod
     def drain_reserve(duration_seconds: float) -> float:

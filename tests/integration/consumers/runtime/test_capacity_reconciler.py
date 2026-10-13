@@ -13,6 +13,7 @@ import msgspec
 from capacity_reconciler import AccountReconciler
 from capacity_sustained import SustainedWorkload
 from capacity_trial import CapacityTrial
+from test_capacity_sustained_results import D2Account
 
 # project library imports
 from accounting import AccountPosting
@@ -22,6 +23,7 @@ from execution import (
     AccountJournal,
     AccountObservation,
     AccountQuote,
+    PortfolioBatch,
 )
 from financial_units import Money
 
@@ -207,3 +209,129 @@ class TestCapacityReconciler:
         clock[_ACCOUNT] = accepted
         assert reconciler.reconcile(_ACCOUNT) and reconciler.attempts == 2
         assert journal.accounts()[0].reconciled_at == accepted
+
+
+class TestReconciliationStamp:
+    """Stamp a round's evidence at the account's own clocks, never at a delivery clock.
+
+    One real D2 paper account (1 ms entry delay): a book is accepted at ``A``, then a
+    grid decision dated ``T`` arrives in the delivery that crosses ``T``.
+    """
+
+    @staticmethod
+    def _reconcile(journal: AccountJournal, accepted: datetime | None, identity: str) -> datetime:
+        """Reconcile one snapshot's facts under the shared stamp rule; return the stamp."""
+        facts = journal.result_snapshot(
+            AccountExecutionRequest(
+                action="inspect", account_id="shared", projection="reconciliation"
+            )
+        )
+        observation = AccountReconciler.observation(facts, accepted, identity)
+        assert journal.reconcile(observation)
+        return observation.at
+
+    @staticmethod
+    def _decide(journal: AccountJournal, at: datetime, identity: str) -> tuple[str, str]:
+        """Commit one strategy decision dated ``at``; return the batch status and reason."""
+        journal.observe(AccountQuote(price=D2Account.price(), at=at))
+        commit = journal.coordinate(
+            PortfolioBatch(
+                identity=identity,
+                at=at + timedelta(microseconds=1),
+                decisions=(D2Account.target("alpha", identity, at, "2"),),
+            )
+        )
+        return commit.status, commit.reason
+
+    @staticmethod
+    def _arrival(journal: AccountJournal, identity: str) -> tuple[str, str] | None:
+        """Return the decision's own arrival outcome, if any."""
+        derived = AccountJournal.arrival_identity("shared", "alpha", identity)
+        for item in journal.result_snapshot(
+            AccountExecutionRequest(action="inspect", projection="decisions")
+        ).decision_outcomes:
+            if item.decision_identity == derived:
+                return item.status, item.reason
+        return None
+
+    def test_the_shared_stamp_admits_the_crossed_decision_and_its_arrival(
+        self, tmp_path: Path
+    ) -> None:
+        """A round stamped at the last accepted market precedes the decision it crosses.
+
+        A pending decision places no order, so it does not advance the account's
+        knowledge: another round before its arrival is stamped at the same market, and
+        the arrival is still admitted at its own time.
+        """
+        journal = D2Account.open(tmp_path / "shared.sqlite3", delayed=True)
+        accepted = D2Account.at
+        D2Account.book(journal, 0)
+        decided = accepted + timedelta(milliseconds=3)
+        assert self._reconcile(journal, accepted, "before-crossing") == accepted
+        assert self._decide(journal, decided, "crossed") == ("committed", "arrival_pending")
+        assert self._reconcile(journal, accepted, "before-arrival") == accepted
+        D2Account.book(journal, 5)
+        assert self._arrival(journal, "crossed") == ("committed", "reserved")
+
+    def test_a_delivery_clock_stamp_refuses_the_decision_it_has_not_processed(
+        self, tmp_path: Path
+    ) -> None:
+        """The defect's boundary, and production's refusal of genuinely later state.
+
+        Stamped at the crossing delivery's clock, 1 ms after the instant, the round
+        asserts account state after the decision, which is refused, not admitted late.
+        """
+        journal = D2Account.open(tmp_path / "delivery.sqlite3", delayed=True)
+        D2Account.book(journal, 0)
+        decided = D2Account.at + timedelta(milliseconds=3)
+        delivery = decided + timedelta(milliseconds=1)
+        assert self._reconcile(journal, delivery, "delivery-clock") == delivery
+        assert self._decide(journal, decided, "refused") == (
+            "rejected",
+            "decision_precedes_account_state",
+        )
+        assert self._arrival(journal, "refused") is None
+
+    def test_equal_times_are_admitted_and_one_microsecond_later_is_not(
+        self, tmp_path: Path
+    ) -> None:
+        """A market accepted exactly at the instant stamps the round at it; that is safe.
+
+        The refusal is strict: a decision at the account's knowledge clock is admitted,
+        one a microsecond before it is not.
+        """
+        journal = D2Account.open(tmp_path / "equal.sqlite3", delayed=True)
+        decided = D2Account.at + timedelta(milliseconds=3)
+        D2Account.book(journal, 3)
+        assert self._reconcile(journal, decided, "at-instant") == decided
+        assert self._decide(journal, decided, "equal") == ("committed", "arrival_pending")
+        D2Account.book(journal, 5)
+        assert self._arrival(journal, "equal") == ("committed", "reserved")
+        later = decided + timedelta(seconds=3)
+        assert self._reconcile(journal, later + timedelta(microseconds=1), "after") > later
+        assert self._decide(journal, later, "earlier") == (
+            "rejected",
+            "decision_precedes_account_state",
+        )
+
+    def test_the_stamp_is_the_later_account_clock(self, tmp_path: Path) -> None:
+        """No accepted market stamps at the knowledge clock; an earlier market never lowers it."""
+        journal = D2Account.open(tmp_path / "clocks.sqlite3", delayed=True)
+        facts = journal.result_snapshot(
+            AccountExecutionRequest(
+                action="inspect", account_id="shared", projection="reconciliation"
+            )
+        )
+        assert facts.known_at is not None
+        assert AccountReconciler.observation(facts, None, "none").at == facts.known_at
+        earlier = facts.known_at - timedelta(seconds=1)
+        assert AccountReconciler.observation(facts, earlier, "earlier").at == facts.known_at
+        later = facts.known_at + timedelta(seconds=1)
+        assert AccountReconciler.observation(facts, later, "later").at == later
+        full = journal.result_snapshot(AccountExecutionRequest(action="inspect"))
+        try:
+            AccountReconciler.observation(full, None, "full")
+        except ValueError as error:
+            assert "knowledge clock" in str(error)
+        else:
+            raise AssertionError("a full inspection carries no knowledge clock")

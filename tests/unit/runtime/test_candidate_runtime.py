@@ -769,9 +769,11 @@ class _LifecyclePolicy(_ReferencePolicy):
         return DomainCodec().encode_json(_LifecycleHistory(events=(*events, event)))
 
     def decide(self, context: DecisionContext, state: bytes) -> DecisionTransition:
-        """Request the configured target regardless of callback history."""
+        """Request the configured target regardless of callback history, unless abstaining."""
         context.__post_init__()
         self.validate_state(state)
+        if self.abstain:
+            return DecisionTransition(intent=None, state=state)
         quantity = Quantity(
             value=self.target,
             dimension=Dimension(instrument_id=_INSTRUMENT, kind=QuantityKind.BASE_UNIT),
@@ -805,6 +807,9 @@ class TestPaperCandidateRuntime:
         *,
         mode: Literal["paper", "shadow"] = "paper",
         policy: _LifecyclePolicy | None = None,
+        entry_delay_us: int = 0,
+        cancel_delay_us: int = 0,
+        market_max_age_us: int = 1_000_000,
     ) -> PaperCandidateRuntime:
         """Bind independent source inputs and a funded single-instrument account."""
         source = NumericHistorySource(
@@ -830,12 +835,12 @@ class TestPaperCandidateRuntime:
             tick=Price(value=Decimal("1"), currency=currency, per=dimension),
             maximum_fee=Money(value=Decimal("0"), currency=currency),
             fee_rate=Decimal("0"),
-            market_max_age_us=1_000_000,
+            market_max_age_us=market_max_age_us,
             execution=PaperExecutionScenario(
                 venue="bitfinex",
                 instrument_id=_INSTRUMENT,
-                entry_delay_us=0,
-                cancel_delay_us=0,
+                entry_delay_us=entry_delay_us,
+                cancel_delay_us=cancel_delay_us,
                 adverse=Price(value=Decimal("0"), currency=currency, per=dimension),
                 fee_rate=Decimal("0"),
                 take_fraction=Decimal("1"),
@@ -875,6 +880,400 @@ class TestPaperCandidateRuntime:
             bid_quantity=runtime.config.lot,
             ask_quantity=runtime.config.lot,
         )
+
+    @staticmethod
+    def _priced(
+        runtime: PaperCandidateRuntime,
+        at: datetime,
+        *,
+        bid: str = "99",
+        ask: str = "100",
+        ask_size: str = "1",
+    ) -> PaperMarket:
+        """Author touch liquidity at ``bid``/``ask`` available at ``at``."""
+        tick = runtime.config.tick
+        return PaperMarket(
+            identity=f"quote-{at.isoformat()}",
+            at=at,
+            bid=Price(value=Decimal(bid), currency=tick.currency, per=tick.per),
+            ask=Price(value=Decimal(ask), currency=tick.currency, per=tick.per),
+            bid_quantity=runtime.config.lot,
+            ask_quantity=Quantity(value=Decimal(ask_size), dimension=runtime.config.lot.dimension),
+        )
+
+    def _replacing(
+        self, path: Path, policy: _LifecyclePolicy, *, ask: str = "100"
+    ) -> PaperCandidateRuntime:
+        """Open a runtime whose 12:00:00 decision is live at +1 s, when it is replaced.
+
+        Entry takes 0.5 s and cancellation 0.3 s; markets stay usable for 5 s. The first
+        decision, quoted on a 99/``ask`` book, arrives at +0.5 s and a +0.6 s clock
+        delivery admits it with no later book, so it is still live when the +1 s decision
+        requests its cancellation, effective at +1.3 s; that decision arrives at +1.8 s.
+        """
+        runtime = self._dedicated(path, policy)
+        runtime.open(owner="first", at=_AT)
+        try:
+            runtime.market(self._priced(runtime, _AT, ask=ask))
+            assert runtime.timer(identity="first", at=_AT)[1].reason == "arrival_pending"
+            runtime.input_delivery(
+                identity="admits", at=_AT + timedelta(milliseconds=600), payload=b"clock"
+            )
+            assert len(runtime.journal.orders()) == 1
+            second = runtime.timer(identity="second", at=_AT + timedelta(seconds=1))
+            assert second[1].reason == "replacement_pending"
+            (live,) = runtime.journal.orders()
+            assert live.cancel_requested
+        except BaseException:
+            runtime.release()
+            raise
+        return runtime
+
+    def _dedicated(self, path: Path, policy: _LifecyclePolicy) -> PaperCandidateRuntime:
+        """Bind 0.5 s entry, 0.3 s cancellation and 5 s market freshness."""
+        return self._runtime(
+            path,
+            policy=policy,
+            entry_delay_us=500_000,
+            cancel_delay_us=300_000,
+            market_max_age_us=5_000_000,
+        )
+
+    @staticmethod
+    def _cancelled_at(runtime: PaperCandidateRuntime, order_id: str) -> datetime | None:
+        """Return the clock of an order's requested cancellation taking effect, if it did."""
+        return next(
+            (
+                item.event.at
+                for item in runtime.journal.events()
+                if item.event.order_id == order_id and item.event.kind == "cancelled_on_request"
+            ),
+            None,
+        )
+
+    @pytest.mark.parametrize(
+        ("ask_size", "first_status", "reason", "bought"),
+        (("1", "cancelled", "reserved", Decimal("1")), ("2", "filled", "target_matched", None)),
+        ids=("partly-filled", "fully-filled"),
+    )
+    def test_a_replacement_target_counts_fills_in_the_cancellation_window(
+        self,
+        tmp_path: Path,
+        ask_size: str,
+        first_status: str,
+        reason: str,
+        bought: Decimal | None,
+    ) -> None:
+        """The replacement is sized after the replaced order's fills, as research's is.
+
+        The target of two first arrives at +0.5 s as an immediate-or-cancel buy of two,
+        still open at +1 s, when the same target replaces it. The +1.2 s book offers one
+        or two at 100, before the +1.3 s deadline, so the old buy fills one (its remainder
+        ending) or both. The +2 s clock admits the replacement at +1.8 s against that
+        holding: one more unit, or nothing when the target is already met.
+        """
+        runtime = self._replacing(
+            tmp_path / f"window-{ask_size}.sqlite3", _LifecyclePolicy(target=Decimal("2"))
+        )
+        try:
+            (first,) = runtime.journal.orders()
+            runtime.market(
+                self._priced(runtime, _AT + timedelta(milliseconds=1_200), ask_size=ask_size)
+            )
+            runtime.input_delivery(identity="later", at=_AT + timedelta(seconds=2), payload=b"c")
+            ended = runtime.journal.order(first.identity)
+            assert ended is not None and ended.status == first_status
+            arrival = runtime.journal.step("arrival:timer:second")
+            assert arrival is not None and arrival.commit.reason == reason
+            assert [order.intent.quantity.value for order in arrival.commit.orders] == (
+                [] if bought is None else [bought]
+            )
+            balance = Ledger(runtime.journal.ledger_state()).balance
+            assert balance.holding.value == Decimal(ask_size)
+        finally:
+            runtime.release()
+
+    @pytest.mark.parametrize(
+        ("crossing_ms", "status"),
+        ((1_200, "filled"), (1_300, "cancelled"), (1_500, "cancelled")),
+        ids=("before-deadline", "at-deadline", "after-deadline"),
+    )
+    def test_an_obsolete_resting_order_cannot_fill_at_or_after_its_deadline(
+        self, tmp_path: Path, crossing_ms: int, status: str
+    ) -> None:
+        """A replaced bid may fill before its +1.3 s deadline and never at or after it.
+
+        The resting ``gtc`` bid at 100, first quoted on a 101 ask, is replaced at +1 s. A
+        book at 100 at +1.2 s fills it; one at exactly +1.3 s ends it before it can fill;
+        at +1.5 s it already ended at +1.3 s, without a book.
+        """
+        runtime = self._replacing(
+            tmp_path / f"deadline-{crossing_ms}.sqlite3",
+            _LifecyclePolicy(output="order"),
+            ask="101",
+        )
+        try:
+            (old,) = runtime.journal.orders()
+            runtime.market(self._priced(runtime, _AT + timedelta(milliseconds=crossing_ms)))
+            ended = runtime.journal.order(old.identity)
+            assert ended is not None and ended.status == status
+            assert self._cancelled_at(runtime, old.identity) == (
+                None if status == "filled" else _AT + timedelta(milliseconds=1_300)
+            )
+        finally:
+            runtime.release()
+
+    def test_a_quiet_interval_ends_the_old_order_and_admits_the_replacement_on_time(
+        self, tmp_path: Path
+    ) -> None:
+        """Without books the old buy ends at its deadline and the replacement arrives on time.
+
+        No book follows the 12:00:00 book. The +2 s clock ends the replaced buy at +1.3 s,
+        releasing its reservation, and admits the replacement at +1.8 s on that book, still
+        fresh; only the replacement's 100 stays reserved, and nothing fills.
+        """
+        runtime = self._replacing(tmp_path / "quiet.sqlite3", _LifecyclePolicy())
+        try:
+            (old,) = runtime.journal.orders()
+            runtime.input_delivery(identity="later", at=_AT + timedelta(seconds=2), payload=b"c")
+            assert self._cancelled_at(runtime, old.identity) == _AT + timedelta(milliseconds=1_300)
+            ended, sent = runtime.journal.orders()
+            assert (ended.status, sent.status, sent.decision_at) == (
+                "cancelled",
+                "intent",
+                _AT + timedelta(milliseconds=1_800),
+            )
+            assert runtime.journal.reservations().cash.value == Decimal("100")
+            assert runtime.journal.plans() == ()
+        finally:
+            runtime.release()
+
+    def test_an_abstention_cancels_live_intent_across_restart_and_retry(
+        self, tmp_path: Path
+    ) -> None:
+        """Deciding no intent replaces the resting bid with none; restart revives nothing.
+
+        The +1 s decision abstains: it requests the resting bid's cancellation and waits as
+        ``replacement_pending``. After a restart, the retried timer returns its saved
+        result, and a +2 s clock, delivered twice, ends the bid at +1.3 s and records the
+        abstention's +1.8 s arrival as ``no_intent``, placing nothing.
+        """
+        path = tmp_path / "abstains.sqlite3"
+        policy = _LifecyclePolicy(output="order")
+        runtime = self._dedicated(path, policy)
+        runtime.open(owner="first", at=_AT)
+        try:
+            runtime.market(self._priced(runtime, _AT, ask="101"))
+            runtime.timer(identity="first", at=_AT)
+            runtime.input_delivery(
+                identity="admits", at=_AT + timedelta(milliseconds=600), payload=b"clock"
+            )
+            policy.abstain = True
+            second = runtime.timer(identity="second", at=_AT + timedelta(seconds=1))
+            assert second[1].reason == "replacement_pending"
+        finally:
+            runtime.release()
+        restored_policy = _LifecyclePolicy(output="order")
+        restored_policy.abstain = True
+        restored = self._dedicated(path, restored_policy)
+        restored.open(owner="restarted", at=_AT + timedelta(seconds=1))
+        try:
+            assert restored.timer(identity="second", at=_AT + timedelta(seconds=1)) == second
+            for _ in range(2):
+                restored.input_delivery(
+                    identity="later", at=_AT + timedelta(seconds=2), payload=b"c"
+                )
+            (old,) = restored.journal.orders()
+            assert old.status == "cancelled"
+            assert self._cancelled_at(restored, old.identity) == _AT + timedelta(milliseconds=1_300)
+            arrival = restored.journal.step("arrival:timer:second")
+            assert arrival is not None and arrival.decision is not None
+            assert (arrival.decision.at, arrival.commit.reason) == (
+                _AT + timedelta(milliseconds=1_800),
+                "no_intent",
+            )
+            assert restored.journal.plans() == ()
+        finally:
+            restored.release()
+
+    def test_a_dedicated_decision_is_sized_on_the_book_known_at_its_arrival(
+        self, tmp_path: Path
+    ) -> None:
+        """With nothing outstanding the plan arrives one entry delay later and is priced then.
+
+        Entry takes 0.5 s. The target of one is decided at 12:00:00 on a 99/100 book and
+        waits as ``arrival_pending``, reserving nothing. The +0.2 s book moves the ask to 101.
+        The +0.7 s book's command first admits the target at its +0.5 s arrival, through the
+        101 ask of the +0.2 s book, and that book fills it at 101. Priced at the decision,
+        its 100 limit could not have filled. A retried timer changes nothing.
+        """
+        runtime = self._runtime(tmp_path / "arrival.sqlite3", entry_delay_us=500_000)
+        runtime.open(owner="first", at=_AT)
+        try:
+            runtime.market(self._priced(runtime, _AT))
+            step, admitted = runtime.timer(identity="first", at=_AT)
+            assert (admitted.status, admitted.reason) == ("committed", "arrival_pending")
+            assert runtime.journal.orders() == ()
+            assert runtime.timer(identity="first", at=_AT) == (step, admitted)
+            for after in (200_000, 700_000):
+                runtime.market(
+                    self._priced(runtime, _AT + timedelta(microseconds=after), bid="100", ask="101")
+                )
+            (order,) = runtime.journal.orders()
+            assert (order.decision_at, order.intent.limit.value, order.status) == (
+                _AT + timedelta(milliseconds=500),
+                Decimal("101"),
+                "filled",
+            )
+            arrival = runtime.journal.step("arrival:timer:first")
+            assert arrival is not None and arrival.commit.reason == "reserved"
+            balance = Ledger(runtime.journal.ledger_state()).balance
+            assert (balance.cash.value, balance.holding.value) == (Decimal("899"), Decimal("1"))
+            assert runtime.journal.plans() == ()
+        finally:
+            runtime.release()
+
+    @pytest.mark.parametrize(
+        ("entry_us", "clock_s", "reason"),
+        (
+            (500_000, 0.6, "reserved"),
+            (1_500_000, 2.0, "no_fresh_book_at_arrival"),
+            (0, None, None),
+        ),
+        ids=("quiet-arrival", "stale-at-arrival", "no-entry-delay"),
+    )
+    def test_a_quiet_dedicated_arrival_resolves_on_the_facts_known_then(
+        self, tmp_path: Path, entry_us: int, clock_s: float | None, reason: str | None
+    ) -> None:
+        """A delivered clock alone resolves an arrival, and never fills from a cached quote.
+
+        Markets stay usable for 1 s. With a 0.5 s entry delay a +0.6 s clock delivery admits
+        the target at +0.5 s on the 12:00:00 book, still fresh, and nothing fills it without a
+        later book. With a 1.5 s entry delay that book is stale at the arrival, which records
+        ``no_fresh_book_at_arrival``. With no entry delay the decision is admitted at once.
+        """
+        runtime = self._runtime(tmp_path / f"quiet-{entry_us}.sqlite3", entry_delay_us=entry_us)
+        runtime.open(owner="first", at=_AT)
+        try:
+            runtime.market(self._priced(runtime, _AT))
+            _, admitted = runtime.timer(identity="first", at=_AT)
+            if clock_s is None:
+                assert admitted.reason == "reserved"
+                return
+            assert admitted.reason == "arrival_pending"
+            runtime.input_delivery(
+                identity="clock", at=_AT + timedelta(seconds=clock_s), payload=b"clock"
+            )
+            arrival = runtime.journal.step("arrival:timer:first")
+            assert arrival is not None and arrival.decision is not None
+            assert (arrival.decision.at, arrival.commit.reason) == (
+                _AT + timedelta(microseconds=entry_us),
+                reason,
+            )
+            assert [order.status for order in runtime.journal.orders()] == (
+                ["intent"] if reason == "reserved" else []
+            )
+        finally:
+            runtime.release()
+
+    def test_a_newer_dedicated_decision_withdraws_a_waiting_plan_across_restart(
+        self, tmp_path: Path
+    ) -> None:
+        """A decision before the waiting plan arrives supersedes it at its own cancel deadline.
+
+        Entry takes 1.5 s and cancellation 0.2 s; markets stay usable for 5 s. The first
+        target, decided at 12:00:00, would arrive at +1.5 s. The second, decided at +1 s,
+        requests cancellation from +1.2 s, before that arrival, so the first is withdrawn as
+        ``replaced_before_arrival`` and the second, released at +1.2 s, arrives at +2.7 s.
+        The runtime restarts while both wait; a +3 s clock delivery then resolves both, and
+        retrying that delivery and the second timer changes nothing.
+        """
+        path = tmp_path / "superseded.sqlite3"
+        runtime = self._runtime(
+            path, entry_delay_us=1_500_000, cancel_delay_us=200_000, market_max_age_us=5_000_000
+        )
+        runtime.open(owner="first", at=_AT)
+        try:
+            runtime.market(self._priced(runtime, _AT))
+            assert runtime.timer(identity="first", at=_AT)[1].reason == "arrival_pending"
+            runtime.market(self._priced(runtime, _AT + timedelta(milliseconds=900)))
+            second = runtime.timer(identity="second", at=_AT + timedelta(seconds=1))
+            assert second[1].reason == "replacement_pending"
+            assert [plan.superseded_at for plan in runtime.journal.plans()] == [
+                _AT + timedelta(milliseconds=1200),
+                None,
+            ]
+        finally:
+            runtime.release()
+        restored = self._runtime(
+            path, entry_delay_us=1_500_000, cancel_delay_us=200_000, market_max_age_us=5_000_000
+        )
+        restored.open(owner="restarted", at=_AT + timedelta(seconds=1))
+        try:
+            assert restored.timer(identity="second", at=_AT + timedelta(seconds=1)) == second
+            for _ in range(2):
+                restored.input_delivery(
+                    identity="clock", at=_AT + timedelta(seconds=3), payload=b"clock"
+                )
+            first = restored.journal.step("arrival:timer:first")
+            later = restored.journal.step("arrival:timer:second")
+            assert first is not None and first.decision is not None
+            assert later is not None and later.decision is not None
+            assert (first.decision.at, first.commit.reason) == (
+                _AT + timedelta(milliseconds=1500),
+                "replaced_before_arrival",
+            )
+            assert (later.decision.at, later.commit.reason) == (
+                _AT + timedelta(milliseconds=2700),
+                "reserved",
+            )
+            assert [order.decision_at for order in restored.journal.orders()] == [
+                _AT + timedelta(milliseconds=2700)
+            ]
+            assert restored.journal.plans() == ()
+        finally:
+            restored.release()
+
+    @pytest.mark.parametrize(
+        ("crossing_ms", "status"),
+        ((1_900, "filled"), (2_100, "cancelled")),
+        ids=("before", "after"),
+    )
+    def test_a_superseded_dedicated_plan_arriving_first_ends_at_the_deadline(
+        self, tmp_path: Path, crossing_ms: int, status: str
+    ) -> None:
+        """A waiting plan that arrives before the newer decision's deadline rests until it.
+
+        Entry takes 1.5 s and cancellation 1 s; the policy rests a ``gtc`` bid at 100. The
+        first bid would arrive at +1.5 s; the +1 s decision requests cancellation from +2 s,
+        so the first bid arrives, is admitted on the +0.9 s book and has its cancellation
+        requested at once, effective at +2 s rather than a cancel delay after +1.5 s. A
+        book at 100 at +1.9 s fills it; one at +2.1 s ends it before it can fill.
+        """
+        runtime = self._runtime(
+            tmp_path / f"arrives-first-{crossing_ms}.sqlite3",
+            policy=_LifecyclePolicy(output="order"),
+            entry_delay_us=1_500_000,
+            cancel_delay_us=1_000_000,
+            market_max_age_us=5_000_000,
+        )
+        runtime.open(owner="first", at=_AT)
+        try:
+            runtime.market(self._priced(runtime, _AT, ask="101"))
+            runtime.timer(identity="first", at=_AT)
+            runtime.market(self._priced(runtime, _AT + timedelta(milliseconds=900), ask="101"))
+            runtime.timer(identity="second", at=_AT + timedelta(seconds=1))
+            runtime.market(self._priced(runtime, _AT + timedelta(milliseconds=1_600), ask="101"))
+            (first,) = runtime.journal.orders()
+            assert (first.decision_at, first.cancel_requested) == (
+                _AT + timedelta(milliseconds=1_500),
+                True,
+            )
+            runtime.market(self._priced(runtime, _AT + timedelta(milliseconds=crossing_ms)))
+            ended = runtime.journal.order(first.identity)
+            assert ended is not None and ended.status == status
+        finally:
+            runtime.release()
 
     def _live_fixture(
         self, tmp_path: Path

@@ -8,7 +8,7 @@ import hashlib
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
@@ -26,6 +26,8 @@ from execution.records import (
     OrderDecision,
     OrderEvent,
     OrderState,
+    PaperArrivalPolicy,
+    PaperPlan,
     StepCommit,
     StepRecord,
 )
@@ -65,6 +67,10 @@ _LAYOUT: tuple[str, ...] = (
     "CREATE TABLE paper_scenario (id INTEGER PRIMARY KEY CHECK (id = 1), payload BLOB NOT NULL)",
     "CREATE TABLE paper_liquidity (id INTEGER PRIMARY KEY CHECK (id = 1), payload BLOB NOT NULL)",
     "CREATE TABLE paper_market_results (market_id TEXT PRIMARY KEY, payload BLOB NOT NULL)",
+    "CREATE TABLE plans (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
+    "step_id TEXT NOT NULL UNIQUE, payload BLOB NOT NULL)",
+    "CREATE TABLE arrivals (order_id TEXT PRIMARY KEY, payload BLOB NOT NULL)",
+    "CREATE TABLE deadlines (order_id TEXT PRIMARY KEY, payload BLOB NOT NULL)",
 )
 
 
@@ -366,12 +372,19 @@ class PaperOrderJournal:
         return tuple(unfinished)
 
     def match_scenario_market(
-        self, *, epoch: int, market: PaperMarket, scenario: PaperExecutionScenario
+        self,
+        *,
+        epoch: int,
+        market: PaperMarket,
+        scenario: PaperExecutionScenario,
+        known_at: datetime | None = None,
     ) -> tuple[OrderEvent, ...]:
         """Claim and apply a modeled quote, all fills and liquidity debt atomically.
 
         One complete transaction means a crash cannot publish a fill while losing
-        the capacity consumed at that touch.
+        the capacity consumed at that touch. With ``known_at``, waiting plans due
+        strictly before the quote arrive first, so the quote can fill them and never
+        prices them.
         """
         # project library imports
         from execution.paper import PaperLiquidityState, PaperMatchEvaluator, PaperMatchProjection
@@ -423,6 +436,8 @@ class PaperOrderJournal:
                 ):
                     raise ValueError("paper market result differs from retained scenario")
                 return original.events
+            if known_at is not None:
+                self._settle(connection, market.at, known_at, deciding=False)
             saved_liquidity = self._query_one(
                 connection, "SELECT payload FROM paper_liquidity WHERE id = 1"
             )
@@ -454,6 +469,8 @@ class PaperOrderJournal:
                 orders=orders,
                 prior_events=prior,
                 liquidity=liquidity,
+                cancel_deadlines=self._clocks(connection, "deadlines", orders),
+                entry_times=self._clocks(connection, "arrivals", orders),
             )
             for event in projection.events:
                 _, is_terminal_break = self._apply_event_fact(connection, event)
@@ -508,8 +525,17 @@ class PaperOrderJournal:
         maximum_fee: Money,
         input_bytes: bytes = b"",
         result_bytes: bytes = b"",
+        settle_at: datetime | None = None,
+        known_at: datetime | None = None,
+        arrival: PaperArrivalPolicy | None = None,
     ) -> StepCommit:
-        """Atomically retain a candidate checkpoint, risk result and child orders."""
+        """Atomically retain a candidate checkpoint, risk result and child orders.
+
+        ``settle_at`` first resolves waiting plans due strictly before it (and, for a
+        decision, at it), never dated before ``known_at``. With ``arrival``, a paper
+        decision that replaces no live order waits for its modelled arrival instead of
+        being admitted now; see ``PaperPlan``.
+        """
         with self._write(epoch) as connection:
             return self._commit_step(
                 connection,
@@ -521,6 +547,9 @@ class PaperOrderJournal:
                 input_bytes=input_bytes,
                 result_bytes=result_bytes,
                 replace_of=None,
+                settle_at=settle_at,
+                known_at=known_at,
+                arrival=arrival,
             )
 
     def replace(
@@ -642,6 +671,376 @@ class PaperOrderJournal:
         )
         return current, False
 
+    def plans(self) -> tuple[PaperPlan, ...]:
+        """Read the waiting plans in decision order."""
+        with closing(self._connect()) as connection:
+            return self._plans(connection)
+
+    def _plans(self, connection: sqlite3.Connection) -> tuple[PaperPlan, ...]:
+        """Decode the waiting plans in decision order."""
+        return tuple(
+            self._codec.decode_json(self._blob(row[0]), PaperPlan)
+            for row in self._query_all(connection, "SELECT payload FROM plans ORDER BY sequence")
+        )
+
+    def _deferred(
+        self,
+        connection: sqlite3.Connection,
+        step_id: str,
+        decision: OrderDecision,
+        maximum_fee: Money,
+        arrival: PaperArrivalPolicy,
+    ) -> StepCommit | None:
+        """Replace the instance's work and hold the decision for its modelled arrival.
+
+        Every paper decision, an abstention included, requests cancellation of the live
+        orders at its date; they keep their reservations until they end. With work
+        outstanding (a live order or a waiting plan) the new plan is ready at the
+        decision plus the cancel delay and a waiting plan's deadline becomes that
+        cancellation; with none it is released at once. Returns None to admit the
+        decision now: when it would arrive at the decision itself with nothing
+        outstanding, or when the account break or an unknown outcome refuses it, in
+        which case nothing is cancelled.
+        """
+        if self.mode != "paper":
+            return None
+        row = self._query_one(connection, "SELECT blocked_reason FROM state WHERE id = 1")
+        if row is None or row[0] is not None:
+            return None
+        live = self._orders(connection, open_only=True)
+        if any(order.status == "unknown" for order in live):
+            return None
+        waiting = self._plans(connection)
+        outstanding = bool(live) or bool(waiting)
+        if not outstanding and arrival.entry_delay_us <= 0:
+            return None
+        for order in live:
+            if not order.cancel_requested:
+                self._apply_event_fact(
+                    connection,
+                    OrderEvent(
+                        identity=f"replace:{decision.identity}:{order.identity}",
+                        order_id=order.identity,
+                        at=decision.at,
+                        kind="cancel_requested",
+                    ),
+                )
+        deadline = decision.at + timedelta(microseconds=arrival.cancel_delay_us)
+        for plan in waiting:
+            if plan.superseded_at is None:
+                self._save_plan(
+                    connection,
+                    PaperPlan(
+                        step_id=plan.step_id,
+                        decision=plan.decision,
+                        maximum_fee=plan.maximum_fee,
+                        ready_at=plan.ready_at,
+                        entry_delay_us=plan.entry_delay_us,
+                        max_market_age_us=plan.max_market_age_us,
+                        released_at=plan.released_at,
+                        superseded_at=deadline,
+                        superseded_by=decision.identity,
+                    ),
+                )
+        plan = PaperPlan(
+            step_id=step_id,
+            decision=decision,
+            maximum_fee=maximum_fee,
+            ready_at=deadline if outstanding else decision.at,
+            entry_delay_us=arrival.entry_delay_us,
+            max_market_age_us=arrival.max_market_age_us,
+            released_at=None if outstanding else decision.at,
+        )
+        connection.execute(
+            "INSERT INTO plans(step_id, payload) VALUES (?, ?)",
+            (step_id, self._codec.encode_json(plan)),
+        )
+        return StepCommit(
+            status="committed",
+            reason="replacement_pending" if outstanding else "arrival_pending",
+            orders=(),
+        )
+
+    def _save_plan(self, connection: sqlite3.Connection, plan: PaperPlan) -> None:
+        """Replace one waiting plan's durable state."""
+        connection.execute(
+            "UPDATE plans SET payload = ? WHERE step_id = ?",
+            (self._codec.encode_json(plan), plan.step_id),
+        )
+
+    def _settle(
+        self,
+        connection: sqlite3.Connection,
+        before: datetime,
+        known_at: datetime,
+        *,
+        deciding: bool,
+    ) -> None:
+        """Resolve cancellations, releases and arrivals due before ``before``, oldest first.
+
+        ``deciding`` also resolves those due at ``before``. A requested cancellation ends
+        at its deadline without a book; a plan is released once no order is live and its
+        readiness has passed, and arrives one entry delay later. At equal times a
+        cancellation precedes a release, which precedes an arrival. Nothing is dated
+        before ``known_at``, the clock of facts already processed.
+        """
+        while True:
+            cancellation = self._due_cancellation(connection, before, known_at, deciding)
+            step = self._due_plan(connection, before, known_at, deciding)
+            if cancellation is not None and (step is None or cancellation[0] <= step[2]):
+                at, order_id, deadline = cancellation
+                self._apply_event_fact(
+                    connection,
+                    OrderEvent(
+                        identity=hashlib.sha256(
+                            self._codec.encode_json(
+                                (
+                                    "paper-cancellation-deadline",
+                                    self.account,
+                                    self.instance,
+                                    order_id,
+                                    deadline,
+                                )
+                            )
+                        ).hexdigest(),
+                        order_id=order_id,
+                        at=at,
+                        kind="cancelled_on_request",
+                    ),
+                )
+                continue
+            if step is None:
+                return
+            kind, plan, at = step
+            if kind == "release":
+                self._save_plan(
+                    connection,
+                    PaperPlan(
+                        step_id=plan.step_id,
+                        decision=plan.decision,
+                        maximum_fee=plan.maximum_fee,
+                        ready_at=plan.ready_at,
+                        entry_delay_us=plan.entry_delay_us,
+                        max_market_age_us=plan.max_market_age_us,
+                        released_at=at,
+                        superseded_at=plan.superseded_at,
+                        superseded_by=plan.superseded_by,
+                    ),
+                )
+                continue
+            self._arrive(connection, plan, at, withdrawn=self._withdrawn(plan))
+            connection.execute("DELETE FROM plans WHERE step_id = ?", (plan.step_id,))
+
+    def _due_cancellation(
+        self, connection: sqlite3.Connection, before: datetime, known_at: datetime, deciding: bool
+    ) -> tuple[datetime, str, datetime] | None:
+        """Return the earliest requested cancellation whose deadline has passed.
+
+        Its deadline is its latest request plus the bound scenario's cancel delay, or an
+        earlier inherited deadline, never before the request. An unknown outcome is
+        never ended by elapsed time. Returns its effective clock, order and deadline.
+        """
+        # project library imports
+        from configuration import PaperExecutionScenario
+
+        saved = self._query_one(connection, "SELECT payload FROM paper_scenario WHERE id = 1")
+        if saved is None:
+            return None
+        delay = timedelta(
+            microseconds=self._codec.decode_json(
+                self._blob(saved[0]), PaperExecutionScenario
+            ).cancel_delay_us
+        )
+        pending = tuple(
+            order
+            for order in self._orders(connection, open_only=True)
+            if order.cancel_requested and order.status != "unknown"
+        )
+        inherited = self._clocks(connection, "deadlines", pending)
+        best: tuple[datetime, str, datetime] | None = None
+        for order in pending:
+            requests = [
+                self._codec.decode_json(self._blob(row[0]), OrderEvent).at
+                for row in self._query_all(
+                    connection,
+                    "SELECT payload FROM events WHERE order_id = ? AND kind = 'cancel_requested'",
+                    (order.identity,),
+                )
+            ]
+            if not requests:
+                continue
+            request = max(requests)
+            deadline = request + delay
+            floor = inherited.get(order.identity)
+            if floor is not None:
+                deadline = min(deadline, max(floor, request))
+            at = max(deadline, known_at)
+            if self._due(at, before, deciding=deciding) and (
+                best is None or (at, order.identity) < (best[0], best[1])
+            ):
+                best = (at, order.identity, deadline)
+        return best
+
+    def _due_plan(
+        self, connection: sqlite3.Connection, before: datetime, known_at: datetime, deciding: bool
+    ) -> tuple[Literal["release", "arrive"], PaperPlan, datetime] | None:
+        """Return the oldest waiting plan's next due release or arrival, if any."""
+        waiting = self._plans(connection)
+        if not waiting:
+            return None
+        plan = waiting[0]
+        if plan.released_at is None:
+            if self._orders(connection, open_only=True):
+                return None
+            released = max(plan.ready_at, known_at, self._last_event_at(connection, known_at))
+            return (
+                ("release", plan, released)
+                if self._due(released, before, deciding=deciding)
+                else None
+            )
+        arrival = plan.released_at + timedelta(microseconds=plan.entry_delay_us)
+        at = arrival if self._withdrawn(plan) else max(arrival, known_at)
+        return ("arrive", plan, at) if self._due(at, before, deciding=deciding) else None
+
+    @staticmethod
+    def _withdrawn(plan: PaperPlan) -> bool:
+        """Report whether a later decision's cancellation takes effect before arrival."""
+        return (
+            plan.released_at is not None
+            and plan.superseded_at is not None
+            and plan.released_at + timedelta(microseconds=plan.entry_delay_us) >= plan.superseded_at
+        )
+
+    def _last_event_at(self, connection: sqlite3.Connection, default: datetime) -> datetime:
+        """Return the clock of the latest order fact, or ``default`` with none."""
+        row = self._query_one(
+            connection, "SELECT payload FROM events ORDER BY sequence DESC LIMIT 1"
+        )
+        if row is None:
+            return default
+        return self._codec.decode_json(self._blob(row[0]), OrderEvent).at
+
+    @staticmethod
+    def _due(at: datetime, before: datetime, *, deciding: bool) -> bool:
+        """Report whether an event at ``at`` precedes ``before``, or meets a decision there."""
+        return at < before or (deciding and at == before)
+
+    def _arrive(
+        self, connection: sqlite3.Connection, plan: PaperPlan, at: datetime, *, withdrawn: bool
+    ) -> None:
+        """Resolve one plan at its arrival and retain the outcome as its own step.
+
+        The plan is withdrawn, ends without an intent or a fresh book, or is lowered and
+        admitted against the account and the latest claimed book at or before ``at``.
+        Its orders may fill from ``at``. A superseded plan arriving before its deadline
+        has its orders' cancellation requested at once, effective at that deadline.
+        """
+        decision = OrderDecision(
+            identity=hashlib.sha256(
+                self._codec.encode_json(
+                    (
+                        "paper-arrival",
+                        self.account,
+                        self.instance,
+                        self.binding_identity,
+                        plan.decision.identity,
+                    )
+                )
+            ).hexdigest(),
+            at=at,
+            intent=plan.decision.intent,
+        )
+        touch = self._known_touch(connection, at, plan.max_market_age_us)
+        step_id = f"arrival:{plan.step_id}"
+        if withdrawn:
+            result = StepCommit(status="committed", reason="replaced_before_arrival", orders=())
+        elif decision.intent is None:
+            result = StepCommit(status="committed", reason="no_intent", orders=())
+        elif touch is None:
+            result = StepCommit(status="committed", reason="no_fresh_book_at_arrival", orders=())
+        else:
+            result = self._admit(
+                connection,
+                step_id=step_id,
+                decision=decision,
+                touch=touch,
+                maximum_fee=plan.maximum_fee,
+                replace_of=None,
+            )
+        state = self._query_one(connection, "SELECT checkpoint FROM state WHERE id = 1")
+        checkpoint = b"" if state is None or state[0] is None else self._blob(state[0])
+        record = StepRecord(
+            step_id=step_id,
+            checkpoint=checkpoint,
+            input_bytes=b"",
+            result_bytes=b"",
+            decision=decision,
+            touch=touch,
+            maximum_fee=plan.maximum_fee,
+            commit=result,
+        )
+        connection.execute(
+            "INSERT INTO steps(step_id, decision_id, payload) VALUES (?, ?, ?)",
+            (step_id, decision.identity, self._codec.encode_json(record)),
+        )
+        for order in result.orders:
+            connection.execute(
+                "INSERT INTO orders(order_id, terminal, payload) VALUES (?, ?, ?)",
+                (order.identity, int(order.is_terminal), self._codec.encode_json(order)),
+            )
+            connection.execute(
+                "INSERT INTO arrivals(order_id, payload) VALUES (?, ?)",
+                (order.identity, self._codec.encode_json(at)),
+            )
+            if plan.superseded_at is not None:
+                connection.execute(
+                    "INSERT INTO deadlines(order_id, payload) VALUES (?, ?)",
+                    (order.identity, self._codec.encode_json(plan.superseded_at)),
+                )
+                self._apply_event_fact(
+                    connection,
+                    OrderEvent(
+                        identity=f"replace:{decision.identity}:{order.identity}",
+                        order_id=order.identity,
+                        at=at,
+                        kind="cancel_requested",
+                    ),
+                )
+
+    def _known_touch(
+        self, connection: sqlite3.Connection, at: datetime, max_age_us: int
+    ) -> MarketTouch | None:
+        """Return the touch of the latest claimed book at or before ``at``, if still fresh."""
+        # project library imports
+        from execution.paper import PaperMarket
+
+        for row in self._query_all(
+            connection, "SELECT payload FROM markets ORDER BY sequence DESC LIMIT 16"
+        ):
+            market = self._codec.decode_json(self._blob(row[0]), PaperMarket)
+            if market.at <= at:
+                if at - market.at > timedelta(microseconds=max_age_us):
+                    return None
+                return MarketTouch(bid=market.bid, ask=market.ask)
+        return None
+
+    def _clocks(
+        self, connection: sqlite3.Connection, table: str, orders: tuple[OrderState, ...]
+    ) -> dict[str, datetime]:
+        """Read the retained arrival or deadline clock of each open order that has one."""
+        query = {
+            "arrivals": "SELECT payload FROM arrivals WHERE order_id = ?",
+            "deadlines": "SELECT payload FROM deadlines WHERE order_id = ?",
+        }.get(table)
+        if query is None:
+            raise ValueError("unknown paper clock table")
+        clocks: dict[str, datetime] = {}
+        for order in orders:
+            row = self._query_one(connection, query, (order.identity,))
+            if row is not None:
+                clocks[order.identity] = self._codec.decode_json(self._blob(row[0]), datetime)
+        return clocks
+
     def _initialize(self) -> None:
         """Create the journal, or require its exact layout and immutable account inputs."""
         with closing(self._connect()) as connection:
@@ -714,6 +1113,9 @@ class PaperOrderJournal:
         input_bytes: bytes,
         result_bytes: bytes,
         replace_of: str | None,
+        settle_at: datetime | None = None,
+        known_at: datetime | None = None,
+        arrival: PaperArrivalPolicy | None = None,
     ) -> StepCommit:
         """Admit all child legs or none under one account-reservation transaction."""
         if (
@@ -749,13 +1151,24 @@ class PaperOrderJournal:
             )
             if duplicate is not None:
                 raise ValueError("decision identity was committed under another step")
-        result = self._admit(
-            connection,
-            step_id=step_id,
-            decision=decision,
-            touch=touch,
-            maximum_fee=maximum_fee,
-            replace_of=replace_of,
+        if settle_at is not None and known_at is not None:
+            self._settle(connection, settle_at, known_at, deciding=decision is not None)
+        deferred = (
+            None
+            if decision is None or arrival is None
+            else self._deferred(connection, step_id, decision, maximum_fee, arrival)
+        )
+        result = (
+            deferred
+            if deferred is not None
+            else self._admit(
+                connection,
+                step_id=step_id,
+                decision=decision,
+                touch=touch,
+                maximum_fee=maximum_fee,
+                replace_of=replace_of,
+            )
         )
         record = StepRecord(
             step_id=step_id,

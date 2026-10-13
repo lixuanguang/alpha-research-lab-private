@@ -40,6 +40,9 @@ from execution.account_records import (
     PortfolioBatch,
     PortfolioCommit,
     PortfolioResidual,
+    ReplacementDeadline,
+    ReplacementEntry,
+    ReplacementPlan,
     TaggedOrder,
 )
 from execution.account_reduction import PaperReductionResult
@@ -149,6 +152,9 @@ class FirmState(WireRecord, frozen=True):
     paper_activations: tuple[PaperActivation, ...] = ()
     paper_reductions: tuple[PaperReductionResult, ...] = ()
     paper_restore_quarantine: bool = False
+    replacement_plans: tuple[ReplacementPlan, ...] = ()
+    replacement_deadlines: tuple[ReplacementDeadline, ...] = ()
+    replacement_entries: tuple[ReplacementEntry, ...] = ()
 
 
 class _InstanceCheckpoint(WireRecord, frozen=True):
@@ -204,7 +210,10 @@ class FirmHead(WireRecord, frozen=True):
     Paper activation is recorded only by the presence of ``paper_activations``.
     ``event_kinds`` names the order-event vocabulary the journal's facts are
     written in. A head without it, or with another vocabulary, belongs to another
-    journal format: the facts' meaning differs, so it is refused, not reread.
+    journal format: the facts' meaning differs, so it is refused, not reread. So
+    does a head missing a field the current records require, such as a cancel
+    receipt saved before account cancels withdrew intent; ``decode`` refuses it
+    without filling the field in.
     """
 
     history: HistorySummary
@@ -226,6 +235,23 @@ class FirmHead(WireRecord, frozen=True):
             or any(account.ledger.postings for account in self.state.accounts)
         ):
             raise ValueError("unsupported account journal state schema")
+
+    @staticmethod
+    def decode(codec: DomainCodec, payload: bytes) -> FirmHead:
+        """Decode a stored head, refusing one written in an earlier record format.
+
+        Raises:
+            ValueError: The head is malformed, or lacks a field the current format
+                requires (``unsupported account journal state schema``).
+        """
+        try:
+            return codec.decode_json(payload, FirmHead)
+        except msgspec.ValidationError as error:
+            # Every current record is written with all of its fields, so a missing
+            # required one can only come from an earlier format.
+            if str(error).startswith("Object missing required field"):
+                raise ValueError(f"unsupported account journal state schema: {error}") from error
+            raise
 
 
 # State fields that grow with history. Each is kept as rows keyed by tuple
@@ -823,8 +849,8 @@ class _HistoryTables:
         """Return committed traces after a position, with positions, and whether more may follow.
 
         The page holds at most ``limit`` traces and, beyond the first, at most
-        ``limit_bytes`` of their encoded bytes; it may continue when it stopped at
-        either bound.
+        ``limit_bytes`` of their encoded (uncompressed) bytes, the size a response
+        carries; it may continue when it stopped at either bound.
         """
         parameters = (after, limit) if account_id is None else (account_id, after, limit)
         cursor = self.connection.execute(_TRACE_PAGE[account_id is not None], parameters)
@@ -841,10 +867,11 @@ class _HistoryTables:
     def export_traces(self, account_id: str | None, stream: BinaryIO) -> int:
         """Write committed trace bytes as one JSON array, checking the whole chain.
 
-        Every row's exact encoded bytes extend the chain, every account's included, and
-        the chain must end at the head's count and digest. The selected rows are
-        written unchanged between ``[``, ``,`` and ``]``, which is exactly the codec's
-        encoding of the tuple of those traces. Memory stays bounded by one row.
+        Every row's exact encoded bytes, decoded from its stored frame, extend the
+        chain, every account's included, and the chain must end at the head's count and
+        digest. The selected traces' encoded bytes are written unchanged between ``[``,
+        ``,`` and ``]``, which is exactly the codec's encoding of the tuple of those
+        traces. Memory stays bounded by one row.
 
         Returns:
             The number of traces written.
@@ -1160,6 +1187,16 @@ class _AccountSnapshot:
     def trace_history(self) -> HistoryDigest:
         """Return the committed trace history's count and hash chain at this snapshot."""
         return self.tables.summary.paper_traces
+
+    @property
+    def decision_history(self) -> HistoryDigest:
+        """Return the committed decision history's count and hash chain at this snapshot."""
+        return self.tables.summary.decisions
+
+    @property
+    def batch_history(self) -> HistoryDigest:
+        """Return the committed portfolio-batch history's count and hash chain at this snapshot."""
+        return self.tables.summary.portfolio_batches
 
     def trace_page(
         self, account_id: str | None, after: int, limit: int, limit_bytes: int
@@ -1477,7 +1514,7 @@ class AccountStateStore:
                 connection.execute("BEGIN")
                 AccountStateStore._require_layout(connection)
                 payload = _FirmRow.payload(connection, codec.encode_json(config))
-                head = codec.decode_json(payload, FirmHead)
+                head = FirmHead.decode(codec, payload)
                 _HistoryTables(connection, codec, head.history, _TraceReferences()).verify()
                 rows = StateRows(codec)
                 rows.verify(connection, head.history)
@@ -1488,6 +1525,37 @@ class AccountStateStore:
                 if storage == "snapshot":
                     AccountStateStore._require_standalone_snapshot(path)
                 return state.accounts
+        except sqlite3.DatabaseError as error:
+            raise ValueError("account journal is not a valid SQLite database") from error
+
+    @staticmethod
+    @contextmanager
+    def read_history(
+        path: Path, config: AccountConfiguration, codec: DomainCodec
+    ) -> Iterator[_AccountSnapshot]:
+        """Hold one read-only snapshot of a journal's committed history for lookups.
+
+        The journal is opened read-only, pinned to exact configuration bytes and the
+        current layout and head format, as ``verify`` opens it; nothing is written.
+        Unlike ``verify`` it checks no chain: it answers lookups by identity.
+        """
+        config.__post_init__()
+        if not path.is_file():
+            raise ValueError("account journal is missing")
+        try:
+            uri = f"{path.resolve().as_uri()}?mode=ro"
+            with closing(sqlite3.connect(uri, uri=True, timeout=5)) as connection:
+                connection.execute("BEGIN")
+                try:
+                    AccountStateStore._require_layout(connection)
+                    payload = _FirmRow.payload(connection, codec.encode_json(config))
+                    head = FirmHead.decode(codec, payload)
+                    yield _AccountSnapshot(
+                        head.state,
+                        _HistoryTables(connection, codec, head.history, _TraceReferences()),
+                    )
+                finally:
+                    connection.rollback()
         except sqlite3.DatabaseError as error:
             raise ValueError("account journal is not a valid SQLite database") from error
 
@@ -1636,7 +1704,7 @@ class AccountStateStore:
         cached = self._cached_snapshot
         if cached is not None and payload == cached[0]:
             return cached[1]
-        head = self.codec.decode_json(payload, FirmHead)
+        head = FirmHead.decode(self.codec, payload)
         loaded = _LoadedHead(
             head.history, StateRows.assemble(head.state, self._rows.load(connection, head.history))
         )

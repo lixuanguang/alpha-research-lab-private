@@ -195,9 +195,10 @@ and fitted state stay in the attempt store; `research.studies.StudyResult` and
 search (`compare_studies`) and every configuration rule.
 
 **Every decision replaces the instance's working orders,** in research and in paper.
-A policy that cannot price returns `DecisionTransition(intent=None, state=...)`: it
-abstains, its resting orders are cancelled after the cancel delay, and its state
-still advances. A target policy can also go flat, which is an intent. Give a quote
+A new order waits for that cancellation and is sized afterwards, so a resting order
+that fills meanwhile counts toward a target. A policy that cannot price returns
+`DecisionTransition(intent=None, state=...)`: it abstains, its resting orders are
+cancelled after the cancel delay, and its state still advances. A target policy can also go flat, which is an intent. Give a quote
 policy a book requirement fresh enough for your cadence.
 
 ## 5. Package a candidate

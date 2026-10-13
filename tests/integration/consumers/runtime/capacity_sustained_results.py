@@ -3,6 +3,8 @@
 The baseline collector keeps its 60-second gates. This collector reads the same retained
 probes, read samples, feature samples, capture chains and driver observations, and
 reports every latency class over fixed windows so a late tail cannot be averaged away.
+Each selected checkpoint's strategy decisions are resolved from the stopped account
+journal, so a decision admitted or refused at its later arrival is graded as such.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import math
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 # third party library imports
 import msgspec
@@ -22,7 +25,16 @@ from capacity_sustained import SustainedNativeFixture
 
 # project library imports
 from applications.execute import SourceVerification
+from configuration import AccountConfiguration, PaperServiceConfiguration
+from execution import (
+    AccountDecision,
+    AccountExecutionResult,
+    AccountHistory,
+    AccountJournal,
+    HistoryDigest,
+)
 from market_data.storage import CaptureRecording
+from serialization import DomainCodec
 
 
 class SustainedValues:
@@ -152,6 +164,7 @@ class _Paper(msgspec.Struct, frozen=True, kw_only=True):
     checkpoint_status: str | None
     book_started_ns: int
     checkpoint_reason: str | None = None
+    checkpoint_batches: tuple[str, ...] | None = None
     bbo_observed_ns: int
     book_to_checkpoint_ns: int | None
 
@@ -192,6 +205,170 @@ class _Interval(msgspec.Struct, frozen=True):
 
     started_monotonic_ns: int | None
     scheduled_stop_monotonic_ns: int | None
+
+
+class _RetainedHistory(msgspec.Struct, frozen=True):
+    """Decode a stopped journal's committed history digests retained at the cutoff."""
+
+    journal_path: str
+    decisions: HistoryDigest
+    portfolio_batches: HistoryDigest
+    paper_traces: HistoryDigest
+
+
+class StoppedJournal:
+    """Bind a phase's grading to the stopped journal its final state captured.
+
+    The trial retains each account's final state and, read-only beside it, the stopped
+    journal's committed history digests. The next phase reuses the same journal, so it
+    is graded only while it still holds exactly that history and the trace history the
+    final state names; any later commit fails closed.
+    """
+
+    @staticmethod
+    def path(trial: Path, account_id: str) -> Path:
+        """Name the retained digests beside ``final-<account>.json``."""
+        return trial / f"final-{account_id}.history.json"
+
+    @classmethod
+    def retain(
+        cls,
+        trial: Path,
+        account_id: str,
+        journal_path: Path,
+        configuration: AccountConfiguration,
+    ) -> None:
+        """Retain the stopped journal's committed history digests at the cutoff."""
+        with AccountJournal.read_history(journal_path, configuration) as history:
+            decisions, batches, traces = history.digests()
+        retained = _RetainedHistory(
+            journal_path=str(journal_path),
+            decisions=decisions,
+            portfolio_batches=batches,
+            paper_traces=traces,
+        )
+        cls.path(trial, account_id).write_bytes(DomainCodec().encode_json(retained))
+
+    @classmethod
+    def require(
+        cls,
+        trial: Path,
+        account_id: str,
+        final: AccountExecutionResult,
+        history: AccountHistory,
+    ) -> dict[str, int]:
+        """Return the graded history's row counts, or raise if it is not the cutoff's.
+
+        Raises:
+            OSError: No digests were retained.
+            ValueError: The journal or its history differs from the retained cutoff.
+        """
+        retained = DomainCodec().decode_json(
+            cls.path(trial, account_id).read_bytes(), _RetainedHistory
+        )
+        decisions, batches, traces = history.digests()
+        if (
+            retained.journal_path != final.journal_path
+            or (retained.decisions, retained.portfolio_batches, retained.paper_traces)
+            != (decisions, batches, traces)
+            or final.paper_trace_history != traces
+        ):
+            raise ValueError("journal advanced past its retained final state")
+        return {
+            "decisions": decisions.count,
+            "portfolio_batches": batches.count,
+            "paper_traces": traces.count,
+        }
+
+
+class DecisionAdmissions:
+    """Resolve each committed strategy decision to its own admission in the account journal.
+
+    A paper decision with an entry delay commits as ``arrival_pending`` or
+    ``replacement_pending`` and is admitted, or refused, at its arrival in a separate row
+    saved under the identity the journal derives from the decision's own. Only that row
+    resolves it: a pending commit never counts as an admission, and another decision's
+    row never resolves it. Outcome keys are the decision-time ``status:reason``, followed
+    for a pending decision by ``->status:reason`` of its arrival, or ``->unresolved``
+    when the journal holds none.
+    """
+
+    PENDING: ClassVar[frozenset[str]] = frozenset(("arrival_pending", "replacement_pending"))
+    ADMITTED: ClassVar[frozenset[str]] = frozenset(("reserved", "target_matched"))
+
+    @classmethod
+    def admitted(cls) -> frozenset[str]:
+        """Return every outcome key that is a successful admission, immediate or at arrival."""
+        decided = tuple(f"committed:{reason}" for reason in sorted(cls.ADMITTED))
+        return frozenset(
+            (
+                *decided,
+                *(f"committed:{pending}->{item}" for pending in cls.PENDING for item in decided),
+            )
+        )
+
+    @classmethod
+    def reserved(cls, outcomes: dict[str, int]) -> int:
+        """Count decisions whose admission reserved orders, at decision time or arrival."""
+        return sum(
+            count
+            for key, count in outcomes.items()
+            if key == "committed:reserved" or key.endswith("->committed:reserved")
+        )
+
+    @classmethod
+    def resolve(
+        cls, history: AccountHistory, account_id: str, batches: Iterable[str]
+    ) -> dict[str, int]:
+        """Count the outcome of every decision in ``batches``, each decision once.
+
+        A batch the journal lacks counts once as ``missing_batch``. An exact batch retry
+        names the same decisions, which are not counted again.
+        """
+        counts: dict[str, int] = {}
+        seen: set[tuple[str, str]] = set()
+        for identity in batches:
+            batch = history.batch(identity)
+            if batch is None:
+                counts["missing_batch"] = counts.get("missing_batch", 0) + 1
+                continue
+            for item in batch.decisions:
+                request = item.request
+                key = (request.instance_id, request.decision.identity)
+                if key in seen:
+                    continue
+                seen.add(key)
+                outcome = cls._outcome(history, account_id, request)
+                counts[outcome] = counts.get(outcome, 0) + 1
+        return counts
+
+    @classmethod
+    def _outcome(cls, history: AccountHistory, account_id: str, request: AccountDecision) -> str:
+        """Return one decision's outcome key from its own saved rows."""
+        if request.account_id != account_id:
+            return "other_account"
+        saved = history.decision(request.instance_id, request.decision.identity)
+        if saved is None:
+            return "missing"
+        if saved.request != request:
+            return "conflicting"
+        decided = f"{saved.result.status}:{saved.result.reason}"
+        if saved.result.status != "committed" or saved.result.reason not in cls.PENDING:
+            return decided
+        arrival = history.decision(
+            request.instance_id,
+            AccountJournal.arrival_identity(
+                account_id, request.instance_id, request.decision.identity
+            ),
+        )
+        if arrival is None:
+            return f"{decided}->unresolved"
+        if (
+            arrival.request.account_id != account_id
+            or arrival.request.decision.at < request.decision.at
+        ):
+            return f"{decided}->conflicting"
+        return f"{decided}->{arrival.result.status}:{arrival.result.reason}"
 
 
 class SustainedResults:
@@ -325,26 +502,96 @@ class SustainedResults:
             ),
         }
 
-    def commits(self) -> dict[str, dict[str, int]]:
-        """Count each account's selected checkpoints by status and reason inside the interval."""
+    def _selected(self) -> Iterator[tuple[str, _Paper]]:
+        """Yield each account's policy-selected books that started inside the interval."""
         start, end = self.interval()
-        accounts: dict[str, dict[str, int]] = {}
         for path in sorted((self.trial / "measurements").glob("*/*/*.paper.jsonl")):
             account = path.name.split(".")[1]
-            counts = accounts.setdefault(account, {})
             for line in self._lines(path):
                 if msgspec.json.decode(line, type=_Row).kind != "paper_book":
                     continue
                 book = msgspec.json.decode(line, type=_Paper)
-                if not book.policy_selected or not start <= book.book_started_ns < end:
-                    continue
-                outcome = (
-                    f"{book.checkpoint_status}:{book.checkpoint_reason}"
-                    if book.checkpoint_acknowledged
-                    else "unacknowledged"
-                )
-                counts[outcome] = counts.get(outcome, 0) + 1
+                if book.policy_selected and start <= book.book_started_ns < end:
+                    yield account, book
+
+    def commits(self) -> dict[str, dict[str, int]]:
+        """Count each account's selected checkpoints by status and reason inside the interval.
+
+        These are decision-time batch commits; a pending one is resolved per decision
+        by ``decisions``.
+        """
+        accounts: dict[str, dict[str, int]] = {}
+        for account, book in self._selected():
+            counts = accounts.setdefault(account, {})
+            outcome = (
+                f"{book.checkpoint_status}:{book.checkpoint_reason}"
+                if book.checkpoint_acknowledged
+                else "unacknowledged"
+            )
+            counts[outcome] = counts.get(outcome, 0) + 1
         return accounts
+
+    def decisions(self) -> dict[str, dict[str, object]]:
+        """Resolve every decision of each account's selected checkpoints in its stopped journal.
+
+        Decisions belong to the checkpoint that committed them inside the interval; their
+        outcome is read from the journal the trial stopped and retained in
+        ``final-<account>.json``, so an arrival after the interval, or after a later
+        checkpoint, still resolves its own decision, and one never resolved by then is
+        unresolved. The journal is read only while it holds exactly the history retained
+        at that cutoff (``StoppedJournal``): a later phase reusing it fails closed. An
+        acknowledged checkpoint naming no batch counts as ``unnamed_batch``. Unreadable
+        evidence is reported, never raised.
+        """
+        batches: dict[str, list[str]] = {}
+        unnamed: dict[str, int] = {}
+        for account, book in self._selected():
+            named = batches.setdefault(account, [])
+            if not book.checkpoint_acknowledged:
+                continue
+            if book.checkpoint_batches:
+                named.extend(book.checkpoint_batches)
+            else:
+                unnamed[account] = unnamed.get(account, 0) + 1
+        codec = DomainCodec()
+        result: dict[str, dict[str, object]] = {}
+        try:
+            service = codec.decode_json(
+                (self.trial / "configuration.json").read_bytes(), PaperServiceConfiguration
+            )
+        except (OSError, ValueError, msgspec.DecodeError) as error:
+            reason = f"configuration: {type(error).__name__}"
+            return {account: {"readable": False, "reason": reason} for account in batches}
+        for account, named in sorted(batches.items()):
+            try:
+                configuration = next(
+                    (item.configuration for item in service.accounts if item.account_id == account),
+                    None,
+                )
+                if configuration is None:
+                    raise ValueError("account is not configured")
+                final = codec.decode_json(
+                    (self.trial / f"final-{account}.json").read_bytes(), AccountExecutionResult
+                )
+                if final.journal_path is None:
+                    raise ValueError("final account state names no journal")
+                with AccountJournal.read_history(
+                    Path(final.journal_path), configuration
+                ) as history:
+                    journal = StoppedJournal.require(self.trial, account, final, history)
+                    outcomes = DecisionAdmissions.resolve(history, account, named)
+            except (OSError, ValueError, msgspec.DecodeError) as error:
+                result[account] = {"readable": False, "reason": f"{type(error).__name__}: {error}"}
+                continue
+            if account in unnamed:
+                outcomes["unnamed_batch"] = unnamed[account]
+            result[account] = {
+                "readable": True,
+                "batches": len(named),
+                "outcomes": outcomes,
+                "journal": journal,
+            }
+        return result
 
     def reconciliations(self) -> dict[str, object]:
         """Count each account's retained reconciliations and every mismatch."""
@@ -484,6 +731,7 @@ class SustainedResults:
             "interval_monotonic_ns": self.interval(),
             "latencies": self.latencies(),
             "commits": self.commits(),
+            "decisions": self.decisions(),
             "reconciliations": self.reconciliations(),
             "recordings": recordings,
             "fixture_proofs": {source: self.fixture_proof(source) for source in sorted(recordings)},

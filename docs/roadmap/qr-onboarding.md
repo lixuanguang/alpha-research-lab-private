@@ -1,8 +1,9 @@
 # QR onboarding acceptance
 
 Owner: quant development. Status: **open.** The journey passes in fault-injection
-development runs on the current code. The counted attempt waits for the
-[day run](runtime-capacity.md#day-run), and J8 for its retention
+development runs up to rehearsal-135 (`c4a5f78`); later changes need one more
+fault-injection preflight. The counted attempt waits for the frozen candidate and its
+day rehearsal, and J8 for the day run's retention
 ([remaining work](overview.md#remaining-work-before-qr-onboarding)).
 
 The [roadmap](overview.md#qr-onboarding-acceptance) owns the six acceptance items and
@@ -306,13 +307,21 @@ Builder keys are created per attempt under `$T/keys` (mode 0700). Sockets live u
 
 ## Counted attempt
 
-- It runs the declared six-hour J2 window and full phases, on the code frozen at the
-  counted day-run pass, through J8. Only guide and record changes are allowed after the
-  freeze; a code fix needs an impact analysis and an owner decision on whether the day
-  run must be repeated.
-- It needs separate owner approval, and the owner chooses its host.
-- It may run while the day run's 72-hour retention elapses. J8 is evaluated after
-  retention passes.
+- It runs the declared six-hour J2 window and full phases through J7 on the frozen
+  candidate, the one the counted day run also qualifies. The freeze comes before both
+  counted runs ([acceptance policy](overview.md#remaining-work-before-qr-onboarding)).
+- No full uncounted journey on the frozen candidate is required. One fault-injection
+  development preflight after the last code change, before the freeze, covers the code.
+- It needs separate owner approval, and the owner chooses its host. It runs before the
+  counted day run, and no fault injection overlaps the measured day.
+- Changes after the freeze follow the roadmap's
+  [candidate changes and reruns](overview.md#remaining-work-before-qr-onboarding). A
+  guide- or record-only change does not by itself require a rerun. A code fix makes a
+  new candidate, which needs a renewed counted journey and its own day evidence.
+  Workload, configuration or grading changes repeat the runs whose evidence they affect.
+- A failed attempt keeps its original outcome; diagnostics never regrade it, and a rerun
+  replaces no earlier attempt.
+- J8 is evaluated after the day run's retention passes.
 
 ## Development runs
 
@@ -326,3 +335,4 @@ can reuse earlier J2 or J3–J5 outputs. Its fault-injection mode runs a 30-minu
 | rehearsal-126 (2026-10-07) | `c998a28`, QR `7a7f28e` | J1–J7: 292 of 293. OKX dropped the frozen collector's connection; the collector recorded the gap and exited 2, which failed the old exit-zero criterion. J2 now grades each capture's printed result; all eight captures pass that criterion |
 | rehearsal-127 (2026-10-07) | `8c25636`, QR `7a7f28e` | J1–J5 passed every criterion; all eight captures completed with no gap. At 07:44 UTC, during J6, the source checkout was switched to `main` outside the run, so the J6 shadow and J7 upgrade builds used different code from the packaged candidates and were refused (`installed environment differs`). Not a code defect: the development harness now snapshots the working tree instead of linking it |
 | rehearsal-128 (2026-10-07) | `2ec69a1`, QR `7a7f28e` | J1–J7: all 293 criteria passed, on the renamed driver with the working tree snapshotted; the frozen collector completed with no gap |
+| rehearsal-135 (2026-10-10) | `c4a5f78` | J1–J7: every criterion passed, including the six `candidate_metric_on_dashboards` checks. It predates the later telemetry, source shutdown, supervisor delivery and paper decision-lifecycle changes, so one more preflight is required after the remaining work lands |

@@ -454,6 +454,107 @@ class PortfolioBatch(WireRecord, frozen=True):
             instances.add(request.instance_id)
 
 
+class ReplacementPlan(WireRecord, frozen=True):
+    """Hold one paper decision until the instance work it replaces has ended.
+
+    Research cancels outstanding work at the decision plus the cancel delay and
+    enters the new plan an entry delay later, resolving it then. Paper completes the
+    cancellation at ``ready_at`` (the decision plus the bound cancel delay) or, if a
+    replaced order is still live then, once the last one has ended; ``released_at``
+    keeps that clock, and the plan arrives ``entry_delay_us`` later. A later decision
+    before the arrival sets ``superseded_at`` to its own cancellation deadline: the
+    plan is then withdrawn unless it arrives before that deadline, and
+    ``superseded_by`` names that decision. ``request`` keeps no
+    checkpoint; the candidate continuation was saved with the original decision.
+    """
+
+    request: AccountDecision
+    context: PortfolioContext | None
+    ready_at: datetime
+    entry_delay_us: int
+    superseded_at: datetime | None = None
+    superseded_by: str | None = None
+    released_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        """Require a decided request, nonnegative delay and causal clocks."""
+        if type(self.request) is not AccountDecision:
+            raise TypeError("replacement plan requires AccountDecision")
+        self.request.__post_init__()
+        if self.context is not None:
+            if type(self.context) is not PortfolioContext:
+                raise TypeError("replacement plan context must be PortfolioContext")
+            self.context.__post_init__()
+        self._require_utc(self.ready_at, field_name="replacement readiness")
+        if (
+            self.request.checkpoint
+            or type(self.entry_delay_us) is not int
+            or self.entry_delay_us < 0
+            or self.ready_at < self.request.decision.at
+        ):
+            raise ValueError("invalid replacement plan")
+        if (self.superseded_at is None) != (self.superseded_by is None):
+            raise ValueError("replacement supersession needs its deadline and decision")
+        if self.superseded_at is not None:
+            self._require_utc(self.superseded_at, field_name="replacement supersession")
+            if self.superseded_at <= self.request.decision.at or not self.superseded_by:
+                raise ValueError("replacement superseded before its decision")
+        if self.released_at is not None:
+            self._require_utc(self.released_at, field_name="replacement release")
+            if self.released_at < self.ready_at:
+                raise ValueError("replacement released before it was ready")
+
+
+class ReplacementDeadline(WireRecord, frozen=True):
+    """Bind a sent order's cancellation to the deadline of the decision that replaced it.
+
+    A plan sent after a later decision already replaced it has its orders'
+    cancellation requested at the send, its true clock. That cancellation still takes
+    effect at the later decision's original deadline, ``effective_at``, as research's
+    does, not a full cancel delay after the send. ``decision_identity`` names that
+    later decision.
+    """
+
+    order_id: str
+    effective_at: datetime
+    decision_identity: str
+
+    def __post_init__(self) -> None:
+        """Require an identified order, UTC deadline and superseding decision."""
+        self._require_utc(self.effective_at, field_name="replacement cancellation deadline")
+        if (
+            type(self.order_id) is not str
+            or not self.order_id
+            or type(self.decision_identity) is not str
+            or not self.decision_identity
+        ):
+            raise ValueError("invalid replacement cancellation deadline")
+
+
+class ReplacementEntry(WireRecord, frozen=True):
+    """Let an order admitted at its modeled arrival fill from then, not after another delay.
+
+    A replacement arrives one entry delay after its cancellation completes and is
+    admitted then, at ``entered_at``; its orders already spent that delay.
+    ``decision_identity`` names the arrival decision.
+    """
+
+    order_id: str
+    entered_at: datetime
+    decision_identity: str
+
+    def __post_init__(self) -> None:
+        """Require an identified order, UTC arrival and arrival decision."""
+        self._require_utc(self.entered_at, field_name="replacement arrival")
+        if (
+            type(self.order_id) is not str
+            or not self.order_id
+            or type(self.decision_identity) is not str
+            or not self.decision_identity
+        ):
+            raise ValueError("invalid replacement arrival")
+
+
 class NetAllocation(WireRecord, frozen=True):
     """Retain a child order's fixed parent share and cumulative physical fills."""
 
@@ -816,12 +917,22 @@ class AccountControl(WireRecord, frozen=True):
 
 
 class AccountControlResult(WireRecord, frozen=True):
-    """Retain the exact operation request and its durable local outcome."""
+    """Retain the exact operation request and its durable local outcome.
+
+    An applied cancel names the physical orders it asked to cancel, the original
+    decisions of the waiting plans it withdrew, and the unsent strategy orders it
+    ended. Strategy orders still attached to a live physical order are not listed:
+    they end with that order's own outcome. Both withdrawal lists are required, empty
+    for every other control: a receipt saved before cancels withdrew intent has
+    neither, so it is refused rather than read as a withdrawal of nothing.
+    """
 
     request: AccountControl
     status: Literal["applied", "rejected"]
     phase: AccountPhase
     recovery_generation: int
+    withdrawn_decision_ids: tuple[str, ...]
+    withdrawn_order_ids: tuple[str, ...]
     reason: str | None = None
     cancel_order_ids: tuple[str, ...] = ()
 
@@ -830,17 +941,21 @@ class AccountControlResult(WireRecord, frozen=True):
         if type(self.request) is not AccountControl:
             raise TypeError("control result requires AccountControl")
         self.request.__post_init__()
+        listed = (self.cancel_order_ids, self.withdrawn_decision_ids, self.withdrawn_order_ids)
         if (
             self.status not in ("applied", "rejected")
             or self.phase not in ("running", "stopped", "faulted")
             or type(self.recovery_generation) is not int
             or self.recovery_generation < 0
             or (self.status == "rejected") != (type(self.reason) is str and bool(self.reason))
-            or type(self.cancel_order_ids) is not tuple
-            or (self.request.kind != "cancel" and self.cancel_order_ids)
-            or (self.status == "rejected" and self.cancel_order_ids)
-            or any(type(order_id) is not str or not order_id for order_id in self.cancel_order_ids)
-            or len(set(self.cancel_order_ids)) != len(self.cancel_order_ids)
+            or any(type(identities) is not tuple for identities in listed)
+            or ((self.request.kind != "cancel" or self.status == "rejected") and any(listed))
+            or any(
+                type(identity) is not str or not identity
+                for identities in listed
+                for identity in identities
+            )
+            or any(len(set(identities)) != len(identities) for identities in listed)
         ):
             raise ValueError("invalid account control result")
 

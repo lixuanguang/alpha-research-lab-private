@@ -41,6 +41,7 @@ from execution import (
     AccountControl,
     AccountControlResult,
     AccountDecision,
+    AccountExecutionRequest,
     AccountJournal,
     AccountObservation,
     AccountPaperTrace,
@@ -52,6 +53,7 @@ from execution import (
     PaperReductionRequest,
     PortfolioContext,
 )
+from execution.account_state import AccountStateStore
 from financial_units import (
     Currency,
     Dimension,
@@ -135,6 +137,19 @@ class _UnknownOutcome:
         raise TimeoutError("unknown account outcome")
 
 
+class _AdvanceRecorder:
+    """Record each paper clock advance with the control requests already made."""
+
+    def __init__(self, control: _RejectedControl) -> None:
+        """Watch one rejected-control counter."""
+        self.control = control
+        self.calls: list[tuple[datetime, int]] = []
+
+    def __call__(self, at: datetime) -> None:
+        """Record the advance and how many controls preceded it."""
+        self.calls.append((at, self.control.calls))
+
+
 class _RejectedControl:
     """Return typed refusals without changing account state, counting each request."""
 
@@ -151,6 +166,8 @@ class _RejectedControl:
             phase="running",
             recovery_generation=0,
             reason="test refusal",
+            withdrawn_decision_ids=(),
+            withdrawn_order_ids=(),
         )
 
 
@@ -792,6 +809,12 @@ class TestSharedPublicPaper:
         selected_rows = tuple(item for item in measured if item["policy_selected"] is True)
         assert tuple(item["position"] for item in selected_rows) == (3,)
         assert all(item["checkpoint_acknowledged"] is True for item in selected_rows)
+        # Each row names the batches its delivery committed, exactly as the journal keeps
+        # them, so each decision's own outcome can be read back; other rows name none.
+        for item in measured:
+            batches = cast(list[str], item["checkpoint_batches"])
+            assert len(batches) == (1 if item["policy_selected"] else 0)
+            assert all(journal.portfolio_batch(identity) is not None for identity in batches)
         assert all(
             isinstance(item["book_to_checkpoint_ns"], int) and item["book_to_checkpoint_ns"] >= 0
             for item in selected_rows
@@ -1083,18 +1106,17 @@ class TestSharedPublicPaper:
 
     @staticmethod
     def _require_causal(journal: AccountJournal, scenario: PaperExecutionScenario) -> None:
-        """Require every fill to be on its trace's book, after its order's entry delay.
+        """Require every fill to be on its trace's book, strictly after its order's date.
 
-        A coordinated physical order is dated at its batch's coordination, so a fill
-        after its decision date is also after the coordination.
+        A strategy order is admitted at its modelled arrival, which already includes
+        the scenario's entry delay, and is dated there (its physical parent one
+        microsecond later); each test states its expected fill times.
         """
-        entry = timedelta(microseconds=scenario.entry_delay_us)
         for trace in tuple(journal.iter_paper_traces("paper")):
             for event in (*trace.physical_events, *trace.child_fill_events):
                 if event.fill is None:
                     continue
                 assert event.fill.filled_at == event.at == trace.market.at
-                assert event.fill.filled_at >= event.fill.decision_at + entry
                 assert event.fill.filled_at > event.fill.decision_at
 
     def _direct(
@@ -1138,22 +1160,23 @@ class TestSharedPublicPaper:
         ("books_us", "filled_us"),
         (
             ((2_501_000, 3_000_000, 4_000_000), 3_000_000),
-            ((2_501_000, 2_501_001, 3_000_000), 2_501_001),
-            ((2_501_001, 3_000_000), 2_501_001),
+            ((2_501_000, 2_501_001, 3_000_000), 3_000_000),
+            ((2_501_001, 2_501_002, 3_000_000), 2_501_002),
         ),
     )
     def test_a_decision_fills_on_the_first_book_after_its_entry_delay(
         self, tmp_path: Path, books_us: tuple[int, ...], filled_us: int
     ) -> None:
-        """The journey's delays (entry 1 ms, cancel 0): the first eligible book fills.
+        """The journey's delays (entry 1 ms, cancel 0): the first book after arrival fills.
 
-        The book after 2.5 s decides the instant from the 2 s market. The batch
-        coordinates at 2.500001 s and dates the physical IOC buy then, so the order
-        becomes eligible at 2.500001 + 0.001 = 2.501001 s. A deciding book at
-        2.501000 s offers it nothing; the next book, the 3 s book or a book at exactly
-        2.501001 s, fills one unit at the 100 ask. A deciding book already at
-        2.501001 s fills it itself. Grid-selected matching skipped every book between
-        the deciding book and the next crossing, so the 3 s fill never happened.
+        The book after 2.5 s decides the instant from the 2 s market. The decision is
+        dated 2.5 s and arrives one entry delay later, at 2.501 s, where the next command
+        sizes it and coordinates its IOC buy at 2.501001 s. Only a book strictly after
+        that can fill it. A deciding book at 2.501 s or a book at exactly 2.501001 s
+        offers it nothing, so the 3 s book fills one unit at the 100 ask; after a
+        deciding book at 2.501001 s, a 2.501002 s book fills it. Grid-selected matching
+        skipped every book between the deciding book and the next crossing, so the 3 s
+        fill never happened.
         """
         scenario = replace(self._scenario(), cancel_delay_us=0)
         deliveries: tuple[SharedBookDelivery, ...] = (
@@ -1172,7 +1195,7 @@ class TestSharedPublicPaper:
         (group,) = retained[3].decisions
         assert group.coordinated_at == self.at + timedelta(milliseconds=2500, microseconds=1)
         (parent,) = journal.net_orders()
-        assert parent.order.decision_at == group.coordinated_at
+        assert parent.order.decision_at == group.coordinated_at + timedelta(milliseconds=1)
         assert parent.order.status == "filled"
         filled_at = self.at + timedelta(microseconds=filled_us)
         assert self._fills(journal) == ((filled_at, Decimal(1)),)
@@ -1298,21 +1321,28 @@ class TestSharedPublicPaper:
         self._require_causal(journal, scenario)
 
     @classmethod
-    def _reference(cls) -> SharedStrategyBinding:
-        """Bind alpha to the installed fixed-clip reference formula on the 3 s grid.
+    def _reference(
+        cls,
+        formula: Literal["fixed_clip", "target_clip"] = "fixed_clip",
+        *,
+        quantity: str = "1",
+    ) -> SharedStrategyBinding:
+        """Bind alpha to an installed reference formula on the 3 s grid.
 
-        Its first decision bids 200 bps through the ask; each later one rests a ``gtc``
-        buy one tick below the bid.
+        The fixed clip's first decision bids 200 bps through the ask; each later one
+        rests a ``gtc`` buy one tick below the bid. The target clip asks for a constant
+        long ``quantity`` at every decision, which the account lowers to an
+        immediate-or-cancel buy at the ask for any shortfall.
         """
         candidate = ReferenceCandidates(venue="okx", freshness_us=5_000_000, clock="receipt").load(
             ReferenceCandidate(
-                formula="fixed_clip",
+                formula=formula,
                 cadence_us=3_000_000,
                 starts_at=cls.at - timedelta(milliseconds=500),
             ),
             instance="alpha",
             entity=str(cls.dimension.instrument_id),
-            quantity=cls._quantity("1"),
+            quantity=cls._quantity(quantity),
             lot=cls._quantity("1"),
             currency=cls.currency,
             tick=cls._price("0.01"),
@@ -1329,16 +1359,16 @@ class TestSharedPublicPaper:
     ) -> None:
         """The 8.5 s decision replaces the 5.5 s resting bid; the replacement then fills.
 
-        The fixed clip's 2.5 s decision buys through the 100 ask and fills at the 3 s
-        book. Its 5.5 s decision rests a ``gtc`` buy at 98.99, one tick below the 99
-        bid, which a 100 ask never fills. The 8.5 s decision requests cancellation of
-        that order at its date, 8.500000 s, effective at the first book at or after
-        8.500000 s plus the cancel delay. It rests the replacement at 98.99, dated
-        8.500001 s and so eligible from 8.501001 s. With cancel 0 the deciding
-        8.501000 s book ends the old order and is too early for the replacement, which
-        the 9 s book accepts. With cancel 2 ms the old order survives the deciding book
-        and ends at the 8.502000 s book, which accepts the replacement. The ask falls to
-        98.99 at 9 s, a book that crosses no instant, and fills the replacement there.
+        The fixed clip's 2.5 s decision buys through the 100 ask and fills at the 3 s book. Its 5.5
+        s decision rests a ``gtc`` buy at 98.99, one tick below the 99 bid, from its 5.501 s
+        arrival; a 100 ask never fills it. The 8.5 s decision requests cancellation of that order at
+        its date, 8.500000 s, effective at that date plus the cancel delay, and its replacement
+        waits for that. With cancel 0 the old order ends at 8.500000 s itself, recorded before the
+        deciding 8.501000 s book although no book arrives then; with cancel 2 ms it survives that
+        book and the 8.502000 s book ends it. The replacement arrives one entry delay after that
+        cancellation, and the next book's command admits it at that arrival, coordinated one
+        microsecond later, so no book before its arrival can reach it. The ask falls to 98.99 at 9
+        s, a book that crosses no instant, which accepts and fills the replacement.
         """
         scenario = replace(self._scenario(), cancel_delay_us=cancel_delay_us)
         times = (*(second * 1_000_000 for second in range(1, 9)), *books_us[:-1])
@@ -1355,20 +1385,31 @@ class TestSharedPublicPaper:
         opening, resting, replacement = (item.order for item in journal.net_orders())
         assert opening.intent.limit == self._price("102")
         assert resting.intent.limit == replacement.intent.limit == self._price("98.99")
-        assert resting.decision_at == self.at + timedelta(milliseconds=5500, microseconds=1)
-        assert replacement.decision_at == self.at + timedelta(milliseconds=8500, microseconds=1)
+        assert resting.decision_at == self.at + timedelta(milliseconds=5501, microseconds=1)
+        ended = 8_500_000 if cancel_delay_us == 0 else books_us[1]
+        arrival = ended + scenario.entry_delay_us
+        assert replacement.decision_at == self.at + timedelta(microseconds=arrival + 1)
         events = {
             (event.order_id, event.kind): event.at
             for trace in tuple(journal.iter_paper_traces("paper"))
             for event in trace.physical_events
         }
         assert (resting.status, resting.filled.value) == ("cancelled", Decimal(0))
-        ended = books_us[0] if cancel_delay_us == 0 else books_us[1]
-        assert events[resting.identity, "cancelled_on_request"] == self.at + timedelta(
-            microseconds=ended
+        (cancelled,) = (
+            saved.event
+            for saved in AccountStateStore(
+                tmp_path / "replace.sqlite3", self._config(), DomainCodec()
+            )
+            .read()
+            .net_events
+            if saved.event.order_id == resting.identity
+            and saved.event.kind == "cancelled_on_request"
         )
+        assert cancelled.at == self.at + timedelta(microseconds=ended)
+        # Only a cancellation a book reached appears in that book's trace.
+        assert ((resting.identity, "cancelled_on_request") in events) == bool(cancel_delay_us)
         assert events[replacement.identity, "accepted"] == self.at + timedelta(
-            microseconds=books_us[1]
+            microseconds=books_us[-1]
         )
         assert replacement.status == "filled"
         assert self._fills(journal) == (
@@ -1381,6 +1422,176 @@ class TestSharedPublicPaper:
             (self._money("801.01"),),
         )
         self._require_causal(journal, scenario)
+
+    def test_a_replaced_order_filling_in_its_cancel_window_is_not_bought_again(
+        self, tmp_path: Path
+    ) -> None:
+        """A target sized after the replaced order's fill buys nothing more.
+
+        The target clip asks for one unit at 2.5 s; it arrives at 2.501 s, where the account lowers
+        it to an immediate-or-cancel buy at the 2.501 s book's 100 ask. No book reaches it before
+        the 5.501 s clock decides 5.5 s on the still fresh 2.501 s book: the same target, still
+        unmet, which requests the open buy's cancellation, effective from 5.503 s under a 3 ms
+        cancel delay. The 5.502 s book, four displayed at 100, fills the old buy inside that window.
+        The replacement arrives at 5.504 s, one entry delay after the cancellation, and the 5.505 s
+        book's command resolves it against the one unit then held, so it buys nothing, as research's
+        arrival does. Admitting the target at its decision bought a second unit on the 5.502 s book
+        too.
+        """
+        scenario = replace(self._scenario(), cancel_delay_us=3000)
+        deliveries: tuple[SharedBookDelivery, ...] = (
+            self._session(),
+            self._priced(1, 1_000_000),
+            self._priced(2, 2_501_000),
+            self._idle("clock", 3, 5.501),
+            self._priced(4, 5_502_000),
+            self._priced(5, 5_504_000),
+            self._priced(6, 5_505_000),
+        )
+        observer, journal = self._matching(
+            tmp_path / "overshoot.sqlite3",
+            deliveries,
+            scenario=scenario,
+            binding=self._reference("target_clip"),
+        )
+        self._observe(observer, *deliveries)
+
+        assert self._fills(journal) == ((self.at + timedelta(microseconds=5_502_000), Decimal(1)),)
+        (opening,) = (item.order for item in journal.orders())
+        assert (opening.status, opening.filled.value) == ("filled", Decimal(1))
+        outcomes = {
+            (outcome.decided_at, outcome.reason)
+            for outcome in journal.result_snapshot(
+                AccountExecutionRequest(action="inspect", projection="decisions")
+            ).decision_outcomes
+        }
+        assert outcomes == {
+            (self.at + timedelta(milliseconds=2500), "arrival_pending"),
+            (self.at + timedelta(milliseconds=2501), "reserved"),
+            (self.at + timedelta(milliseconds=5500), "replacement_pending"),
+            (self.at + timedelta(milliseconds=5504), "target_matched"),
+        }
+        snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
+        assert (snapshot.positions, snapshot.cash) == (
+            (self._quantity("1"),),
+            (self._money("900"),),
+        )
+        self._require_causal(journal, scenario)
+
+    def test_a_quiet_market_does_not_extend_a_cancellation_or_its_replacement(
+        self, tmp_path: Path
+    ) -> None:
+        """Without books the old buy ends at its deadline and the replacement arrives on time.
+
+        As above, the 2.5 s immediate-or-cancel buy is still open when the 5.501 s clock
+        decides the 5.5 s target, whose cancellation of it takes effect at 5.503 s. Only
+        clocks follow until the 7 s book. The 6 s clock advances the account: the old buy
+        ends at 5.503 s, releasing its reservation, and the replacement arrives at 5.504 s,
+        one entry delay later, sized against nothing held and priced on the 2.501 s book,
+        still fresh. The 7 s book cannot fill the cancelled buy and fills the
+        replacement, the first book after its arrival; research would cross the known book
+        at the arrival itself, a fill-model difference kept separate. The old and new buys
+        never both fill.
+        """
+        scenario = replace(self._scenario(), cancel_delay_us=3000)
+        deliveries: tuple[SharedBookDelivery, ...] = (
+            self._session(),
+            self._priced(1, 1_000_000),
+            self._priced(2, 2_501_000),
+            self._idle("clock", 3, 5.501),
+            self._idle("clock", 4, 6.0),
+            self._idle("clock", 5, 6.5),
+            self._priced(6, 7_000_000),
+            self._priced(7, 7_500_000),
+        )
+        observer, journal = self._matching(
+            tmp_path / "sparse.sqlite3",
+            deliveries,
+            scenario=scenario,
+            binding=self._reference("target_clip"),
+        )
+        self._observe(observer, *deliveries[:5])
+        opening, sent = (item.order for item in journal.orders())
+        assert (opening.status, opening.filled.value) == ("cancelled", Decimal(0))
+        assert (sent.decision_at, sent.status) == (
+            self.at + timedelta(microseconds=5_504_000),
+            "intent",
+        )
+        assert [
+            (outcome.decided_at, outcome.reason)
+            for outcome in journal.result_snapshot(
+                AccountExecutionRequest(action="inspect", projection="decisions")
+            ).decision_outcomes
+        ][2:] == [
+            (self.at + timedelta(milliseconds=5500), "replacement_pending"),
+            (self.at + timedelta(microseconds=5_504_000), "reserved"),
+        ]
+        self._observe(observer, *deliveries[5:])
+
+        assert self._fills(journal) == ((self.at + timedelta(seconds=7), Decimal(1)),)
+        opening, sent = (item.order for item in journal.orders())
+        assert (opening.status, sent.status) == ("cancelled", "filled")
+        snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
+        assert snapshot.positions == (self._quantity("1"),)
+        self._require_causal(journal, scenario)
+
+    def test_a_stale_clock_settles_due_lifecycle_events_before_invalidating_input(
+        self, tmp_path: Path
+    ) -> None:
+        """Events due before an invalidating delivery happen before it, on the facts then.
+
+        As in the quiet-market case, the 5.5 s target, decided by the 5.501 s clock,
+        replaces the open 2.5 s buy: its cancellation is due at 5.503 s and the
+        replacement arrives at 5.504 s. The next delivery is a clock at 8 s, when the
+        2.501 s book is too old and public input is invalid. That delivery first ends the
+        old buy at 5.503 s, releasing it, and admits the replacement at 5.504 s, priced
+        on the 2.501 s book, fresh then; only then does it block the account. Retrying
+        the advance or the delivery and reopening the journal change nothing.
+        """
+        scenario = replace(self._scenario(), cancel_delay_us=3000)
+        deliveries: tuple[SharedBookDelivery, ...] = (
+            self._session(),
+            self._priced(1, 1_000_000),
+            self._priced(2, 2_501_000),
+            self._idle("clock", 3, 5.501),
+            self._idle("clock", 4, 8.0),
+        )
+        path = tmp_path / "stale-clock.sqlite3"
+        observer, journal = self._matching(
+            path, deliveries, scenario=scenario, binding=self._reference("target_clip")
+        )
+        self._observe(observer, *deliveries)
+
+        opening, sent = (item.order for item in journal.orders())
+        assert (opening.status, opening.filled.value) == ("cancelled", Decimal(0))
+        (cancelled,) = (
+            saved.event
+            for saved in AccountStateStore(path, self._config(), DomainCodec()).read().net_events
+            if saved.event.kind == "cancelled_on_request"
+        )
+        assert cancelled.at == self.at + timedelta(microseconds=5_503_000)
+        assert (sent.decision_at, sent.is_terminal) == (
+            self.at + timedelta(microseconds=5_504_000),
+            False,
+        )
+        outcomes = [
+            (outcome.decided_at, outcome.reason)
+            for outcome in journal.result_snapshot(
+                AccountExecutionRequest(action="inspect", projection="decisions")
+            ).decision_outcomes
+        ]
+        assert outcomes[2:] == [
+            (self.at + timedelta(milliseconds=5500), "replacement_pending"),
+            (self.at + timedelta(microseconds=5_504_000), "reserved"),
+        ]
+        assert journal.accounts()[0].operator_block == "public_input_invalid"
+        head = AccountStateStore(path, self._config(), DomainCodec()).read()
+        journal.advance_paper(self.at + timedelta(seconds=8))
+        observer._apply(deliveries[-1], None, timed=False, replayed=True)
+        reopened = AccountJournal(path, self._config())
+        assert AccountStateStore(path, self._config(), DomainCodec()).read() == head
+        assert reopened.orders() == journal.orders()
+        assert self._fills(reopened) == ()
 
     def test_direct_orders_and_protective_reductions_match_at_the_next_book(
         self, tmp_path: Path
@@ -2279,6 +2490,9 @@ class TestSharedPublicPaper:
         monkeypatch.setattr(journal, "paper_owner", object())
         reject = _RejectedControl()
         monkeypatch.setattr(journal, "control", reject)
+        # Lifecycle events due before the invalid delivery are settled before the fault.
+        advanced = _AdvanceRecorder(reject)
+        monkeypatch.setattr(journal, "advance_paper", advanced)
         with pytest.raises(ValueError, match="fault was not applied"):
             observer.deliver(
                 self._delivery(
@@ -2291,6 +2505,7 @@ class TestSharedPublicPaper:
                 )
             )
         assert reject.calls == 1
+        assert advanced.calls == [(self.at + timedelta(seconds=2), 0)]
         assert observer._public_faulted is False
 
     @pytest.mark.parametrize("is_private_wire", (False, True))
@@ -2336,7 +2551,12 @@ class TestSharedPublicPaper:
     def test_invalid_after_market_blocks_admission_and_preserves_order(
         self, tmp_path: Path
     ) -> None:
-        """A gap revokes a known eligible source without releasing outstanding exposure."""
+        """A gap revokes a known eligible source without releasing outstanding exposure.
+
+        The 1 s order arrives at 1.001001 s. The 2 s gap first admits it at that
+        arrival, on the 1 s book, and only then blocks the account, leaving the order
+        open; a later decision is refused.
+        """
         observer, journal = self._observer(tmp_path / "account.sqlite3")
         assert journal.reconcile(self._opening())
         observer.deliver(
@@ -2374,8 +2594,7 @@ class TestSharedPublicPaper:
             quote=AccountQuote(price=self._price("100"), at=self.at + timedelta(seconds=1)),
             maximum_fee=self._money("1"),
         )
-        assert journal.admit(order).status == "committed"
-        open_order = journal.orders()[0].order
+        assert journal.admit(order).reason == "arrival_pending"
         observer.deliver(
             self._delivery(
                 2,
@@ -2389,7 +2608,9 @@ class TestSharedPublicPaper:
         assert AccountJournal(journal.path, journal.config).accounts()[0].operator_block == (
             "public_input_invalid"
         )
-        assert journal.orders()[0].order == open_order
+        (open_order,) = (item.order for item in journal.orders())
+        assert open_order.decision_at == at + timedelta(milliseconds=1)
+        assert not open_order.is_terminal
         later = AccountDecision(
             account_id="paper",
             instance_id="alpha",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -222,10 +223,17 @@ class PaperMatchEvaluator:
         orders: tuple[OrderState, ...],
         prior_events: tuple[OrderEvent, ...],
         liquidity: PaperLiquidityState | None = None,
+        cancel_deadlines: Mapping[str, datetime] | None = None,
+        entry_times: Mapping[str, datetime] | None = None,
     ) -> PaperMatchProjection:
         """Price each eligible physical order once in stable admission order.
 
-        ``prior_events`` includes an interrupted quote's already posted facts.
+        ``prior_events`` includes an interrupted quote's already posted facts. A
+        requested cancellation takes effect at its request plus the cancel delay, or
+        at an earlier deadline in ``cancel_deadlines`` that the order inherited from
+        a decision that replaced it before it was sent; never before the request. An
+        order in ``entry_times`` was admitted at its modeled arrival, after its entry
+        delay had already elapsed, so it may fill from that time instead.
         The returned successor belongs in the same transaction as its events;
         callers must claim exact quote bytes before publishing either effect.
         """
@@ -308,14 +316,25 @@ class PaperMatchEvaluator:
             if order.is_terminal or order.status == "unknown" or market.at <= order.decision_at:
                 continue
             cancellation = self._cancel_time(order, prior_events)
-            if cancellation is not None and market.at >= cancellation + timedelta(
-                microseconds=self.scenario.cancel_delay_us
-            ):
+            cancels_at = (
+                None
+                if cancellation is None
+                else cancellation + timedelta(microseconds=self.scenario.cancel_delay_us)
+            )
+            deadline = None if cancel_deadlines is None else cancel_deadlines.get(order.identity)
+            if cancels_at is not None and cancellation is not None and deadline is not None:
+                cancels_at = min(cancels_at, max(deadline, cancellation))
+            if cancels_at is not None and market.at >= cancels_at:
                 self._append(
                     projected, existing_ids, account_id, market, order, "cancelled_on_request"
                 )
                 continue
-            if market.at < order.decision_at + timedelta(microseconds=self.scenario.entry_delay_us):
+            entered = None if entry_times is None else entry_times.get(order.identity)
+            if market.at < (
+                order.decision_at + timedelta(microseconds=self.scenario.entry_delay_us)
+                if entered is None
+                else entered
+            ):
                 continue
             touch = market.ask if order.intent.side == "buy" else market.bid
             crosses = (
@@ -520,13 +539,16 @@ class PaperMatcher:
             raise ValueError("paper matcher and authored scenario differ")
         self._journal, self._lot, self._scenario = journal, lot, scenario
 
-    def match(self, market: PaperMarket, *, epoch: int) -> None:
+    def match(self, market: PaperMarket, *, epoch: int, known_at: datetime | None = None) -> None:
         """Claim a quote and apply its modeled effects in one journal transaction.
 
         Unknown outcomes remain reserved and require explicit reconciliation;
         matching cannot turn uncertainty into an automatic resend or an invented fill.
+        With ``known_at``, waiting plans due before the quote arrive first.
         """
         market.__post_init__()
         if market.bid.per != self._lot.dimension:
             raise ValueError("paper market belongs to another instrument")
-        self._journal.match_scenario_market(epoch=epoch, market=market, scenario=self._scenario)
+        self._journal.match_scenario_market(
+            epoch=epoch, market=market, scenario=self._scenario, known_at=known_at
+        )

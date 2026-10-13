@@ -226,7 +226,11 @@ A warming or abstaining step commits its continuation as an `OrderDecision`
 without an intent, which reserves nothing and reports `no_intent`. In a paper
 account every admitted decision, with or without an intent, first requests
 cancellation of its instance's working orders at the decision time, which paper
-matching honours after the scenario's cancel delay, as research replaces its plan.
+matching honours after the scenario's cancel delay. As in research, every decision
+then waits for its arrival: one entry delay after that cancellation has taken effect
+(`replacement_pending`), or after the decision when nothing was outstanding
+(`arrival_pending`), where it is resolved against the account
+([paper decision replacement](execution.md#paper-decision-replacement)).
 A rejected decision is rolled back whole, cancel requests included. A paused step commits nothing,
 and a cohort that only pauses returns no batch. The continuation is the
 `shared-candidate-decision` record: the full `CandidateCheckpoint` (feature
@@ -277,8 +281,12 @@ filled and cancel-requested orders, and orders from decisions, direct admission,
 reissue and protective reductions alike. The paper scenario alone decides what a book
 can do to each order: an order fills only from a book at or after its decision plus
 `entry_delay_us`, and strictly after its decision, and a requested cancellation takes
-effect at the first book at or after the request plus `cancel_delay_us`. A clock,
-heartbeat or control never matches. Which books match depends only on the retained
+effect at the request plus `cancel_delay_us`, so no book at or after that can fill it.
+A clock, heartbeat or control never matches, but it advances the paper account
+(`AccountJournal.advance_paper`): cancellations, and replacement releases and
+arrivals, due before it take effect at their own modelled times without waiting for a
+book. A delivery that invalidates public input does this before it blocks or faults
+the account. Which books match depends only on the retained
 delivery stream, never on the destination journal's open orders. Each matched book
 is one fenced account command, `apply_public_market`, which observes the book's ask
 as valuation and matches it in one transaction. A decision
@@ -412,7 +420,12 @@ UTC cadence; its checkpoint, observed input/result bytes and all resulting child
 orders commit together. An identical timer reopens its saved result. Missing
 input, stale quote, feature expiry/service loss, changed serving version, an
 uncertain order or account break pauses new decisions. A paused cutoff may be
-retried under a fresh timer identity; a successful cutoff cannot run twice.
+retried under a fresh timer identity; a successful cutoff cannot run twice. In paper
+mode each decision requests cancellation of the instance's live orders and commits as
+`replacement_pending` or `arrival_pending`; a later step admits it at its modelled
+arrival. Every step, including each delivered input, first settles the cancellations
+and arrivals due before it, and a blocked runtime holds them
+([dedicated paper order journal](execution.md#dedicated-paper-order-journal)).
 
 `order`, `cancel`, `reconcile`, `block` and `stop` are separate operations.
 Reconciliation compares independently supplied paper cash, position and open
