@@ -228,7 +228,7 @@ class TestAccountStateRows:
             path,
             "PRAGMA wal_checkpoint(TRUNCATE);"
             "CREATE TEMP TABLE kept AS SELECT seq, account_id, venue, instrument_id, "
-            "market_identity, payload FROM paper_traces;"
+            "market_identity, frame FROM paper_traces;"
             "DROP TABLE paper_traces;"
             "CREATE TABLE paper_traces (seq INTEGER PRIMARY KEY, account_id TEXT NOT NULL, "
             "venue TEXT NOT NULL, instrument_id TEXT NOT NULL, market_identity TEXT NOT NULL, "
@@ -239,6 +239,45 @@ class TestAccountStateRows:
             "CREATE INDEX paper_traces_account ON paper_traces(account_id, seq);"
             "CREATE INDEX paper_traces_instrument "
             "ON paper_traces(account_id, instrument_id, seq);"
+            "PRAGMA wal_checkpoint(TRUNCATE);",
+        )
+        before = path.read_bytes()
+        refusals: tuple[Callable[[], object], ...] = (
+            partial(AccountJournal, path, config),
+            partial(AccountJournal.verify, path, config),
+        )
+        for refusal in refusals:
+            with pytest.raises(ValueError, match="unsupported account journal schema"):
+                refusal()
+        assert path.read_bytes() == before
+
+    def test_journal_with_unframed_trace_payloads_is_refused_unchanged(
+        self, tmp_path: Path
+    ) -> None:
+        """The layout that kept whole trace payloads and a market index is refused at open."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        history.round_trip()
+        history.busy_tick()
+        path, config = history.journal.path, history._config()
+        # Rebuild exactly the layout of revision c1d9c0b around the same rows.
+        TestAccountStateRows.execute(
+            path,
+            "PRAGMA wal_checkpoint(TRUNCATE);"
+            "CREATE TEMP TABLE kept AS SELECT seq, account_id, venue, instrument_id, "
+            "market_identity, filled, frame FROM paper_traces;"
+            "DROP TABLE paper_traces;"
+            "DROP TABLE paper_trace_reference;"
+            "CREATE TABLE paper_traces (seq INTEGER PRIMARY KEY, account_id TEXT NOT NULL, "
+            "venue TEXT NOT NULL, instrument_id TEXT NOT NULL, market_identity TEXT NOT NULL, "
+            "filled INTEGER NOT NULL CHECK(filled IN (0, 1)), "
+            "payload BLOB NOT NULL, UNIQUE(account_id, venue, instrument_id, market_identity));"
+            "INSERT INTO paper_traces SELECT * FROM kept;"
+            "DROP TABLE kept;"
+            "CREATE INDEX paper_traces_market ON paper_traces(market_identity, seq);"
+            "CREATE INDEX paper_traces_account ON paper_traces(account_id, seq);"
+            "CREATE INDEX paper_traces_instrument "
+            "ON paper_traces(account_id, instrument_id, seq);"
+            "CREATE INDEX paper_traces_filled ON paper_traces(account_id, seq) WHERE filled=1;"
             "PRAGMA wal_checkpoint(TRUNCATE);",
         )
         before = path.read_bytes()
@@ -272,6 +311,33 @@ class TestAccountStateRows:
         assert [row[3] for row in plan] == [
             "SEARCH paper_traces USING INDEX paper_traces_filled (account_id=? AND seq>?)"
         ]
+
+    def test_the_market_lookup_searches_the_unique_key_without_a_market_index(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The history-wide market read uses the unique key that leads with the market."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        history.round_trip()
+        history.busy_tick()
+        traced = _TracedConnections(AccountStateStore._connect)
+        monkeypatch.setattr(AccountStateStore, "_connect", traced)
+        store = AccountStateStore(history.journal.path, history._config(), DomainCodec())
+        with store.snapshot() as snapshot:
+            assert snapshot.find_trace("absent-market") is None
+        store.close()
+        monkeypatch.undo()
+        reads = [
+            statement for statement in traced.statements if "WHERE market_identity=" in statement
+        ]
+        assert len(reads) == 1
+        with closing(sqlite3.connect(history.journal.path)) as connection:
+            plan = cast(
+                list[tuple[object, ...]],
+                connection.execute(f"EXPLAIN QUERY PLAN {reads[0]}").fetchall(),
+            )
+        assert next(row[3] for row in plan) == (
+            "SEARCH paper_traces USING INDEX sqlite_autoindex_paper_traces_1 (market_identity=?)"
+        )
 
     def test_a_fill_flag_that_differs_from_its_trace_fails_verification(
         self, tmp_path: Path

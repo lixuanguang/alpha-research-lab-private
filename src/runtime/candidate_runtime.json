@@ -274,6 +274,7 @@
   "serialization/durable.py",
   "serialization/frames.py",
   "serialization/records.py",
+  "serialization/references.py",
   "strategies/__init__.py",
   "strategies/books.py",
   "strategies/decisions.py",

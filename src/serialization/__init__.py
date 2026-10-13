@@ -5,6 +5,7 @@ from serialization.codec import DomainCodec
 from serialization.durable import DurableDirectory, DurableLines, SqliteLayout
 from serialization.frames import FrameReader, FrameWriter
 from serialization.records import WireRecord
+from serialization.references import ReferenceFrames
 
 __all__ = [
     "DomainCodec",
@@ -12,6 +13,7 @@ __all__ = [
     "DurableLines",
     "FrameReader",
     "FrameWriter",
+    "ReferenceFrames",
     "SqliteLayout",
     "WireRecord",
 ]

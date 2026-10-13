@@ -85,7 +85,16 @@ snapshot and transaction history lookups by identity (`find_decision`,
 The `firm` row holds the journal head: the current state without the three history
 collections and without the state that grows with history, each collection's row count
 and sha256 hash chain, and every instance's latest checkpoint. The collections live in
-their own tables with each item's exact codec bytes. Orders, net orders, events,
+their own tables. A decision or batch row holds the item's exact codec bytes. A paper
+trace row holds those bytes as a checksummed zstd frame whose dictionary is the
+journal's reference trace (`paper_trace_reference`): the first committed trace's exact
+bytes, written in the same transaction and never changed. Traces of one account repeat
+most of their bytes (scenario, instrument and currency structure), so a frame keeps
+little beyond the market, liquidity and identities that differ: on a retained
+sustained-run journal a trace's 2,549 encoded bytes are kept in about 270 bytes of
+table. Every read, hash chain, key check, page and export uses the decoded bytes,
+which are the exact encoding; a damaged frame, or a reference that does not restore
+those bytes, is refused. Orders, net orders, events,
 net events, reconciliations, native fills, physical reconciliations and each account's
 postings are kept in `state_rows`, one row per tuple position with the item's exact
 codec bytes and sha256; the head keeps each field's row count and a sha256 over its row
@@ -95,10 +104,12 @@ changed. In memory the state still holds the complete tuples, so account behavio
 not depend on this layout. Each paper trace row also records whether the trace posted
 a modeled fill (`filled`), checked against its bytes on verification, and only those
 rows are indexed for fills: report facts decode the fill-bearing traces alone, so a
-cold read does not grow with the number of books matched. Only this `account-journal`
-layout is readable: a journal with other tables, columns or indexes, including one
-without `state_rows`, `dispatch_leases` or the trace fill flag, is refused as an
-unsupported account journal schema and is never migrated. The head also names
+cold read does not grow with the number of books matched. The traces' unique key
+leads with the market identity, so it also serves the history-wide market lookup;
+no separate market index is kept. Only this `account-journal` layout is readable: a
+journal with other tables, columns or indexes, including one without `state_rows`,
+`dispatch_leases`, the trace fill flag or trace frames, is refused as an unsupported
+account journal schema and is never migrated. The head also names
 the order-event vocabulary its facts are written in; a head without one, as written
 before terminal cancellations stated their cause, or with another vocabulary is
 refused as an unsupported account journal state schema. The journal composes admission and reconciliation from
@@ -277,7 +288,7 @@ never whole:
   account applied it;
 - `paper_trace_page(account_id, after=...)` reads the traces after a journal-wide
   position, from -1: at most `PaperTracePage.maximum` (256) and, beyond the first,
-  at most `PaperTracePage.maximum_bytes` (512 KiB) of stored trace bytes, so a page
+  at most `PaperTracePage.maximum_bytes` (512 KiB) of encoded trace bytes, so a page
   stays well inside a 1 MiB socket response. A page that stopped at either bound
   names the position to continue from; one that did not ends the history. Each page
   carries the journal's whole trace history as a `HistoryDigest`, every account's:
@@ -286,7 +297,7 @@ never whole:
 - `latest_paper_traces(account_id)` reads the newest trace of each bound instrument;
 - `paper_trace_history()` reads the history's count and chain;
 - `export_paper_traces(destination, account_id)` publishes the codec's encoding of
-  the account's traces as one JSON array, written from their stored bytes in
+  the account's traces as one JSON array, written from their decoded exact bytes in
   bounded memory while every row of the history extends the chain checked against
   the head; a mismatch leaves no file.
 
@@ -606,7 +617,8 @@ SQLite's `integrity_check`, requires the exact layout and configuration, decodes
 the head, and checks every state row against its digest and the head's row
 summaries, decoding the state, ledger included, in full. It streams every history
 row (decisions, portfolio batches, paper traces) once, in order: each row's exact
-bytes must extend its table's hash chain to the head's count and digest, each
+bytes (a trace's decoded frame) must extend its table's hash chain to the head's
+count and digest, each
 row's key columns must equal the keys its bytes name (a trace's fill flag
 included), and the head's checkpoints must be each instance's latest decision.
 History rows were validated domain records when they were encoded and committed,

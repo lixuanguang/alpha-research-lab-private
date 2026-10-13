@@ -104,7 +104,8 @@ _READERS = (
 # each identity against the whole history.
 _RETRY_SAMPLES = 1000
 _LEVELS = (0, 25, 50, 75, 100)
-# Mean item bytes of the measured single-document OKX shared journal.
+# Mean encoded item bytes of the measured single-document OKX shared journal; a trace
+# is now stored as a frame of its encoding, so its measured mean is the frame's.
 _REFERENCE_BYTES = {"portfolio_batches": 6574, "decisions": 2722, "paper_traces": 2757}
 _TARGETS_NS = {"batch_commit": 5_000_000, "trace_commit": 5_000_000, "cold_open": 100_000_000}
 _MEMORY_GROWTH_BYTES = 16 * 1024 * 1024
@@ -470,13 +471,13 @@ class HistoryMeasurements:
 
     @staticmethod
     def item_bytes(path: Path) -> dict[str, float]:
-        """Return each history table's mean item bytes."""
+        """Return each history table's mean stored item bytes; a trace is its frame."""
         means: dict[str, float] = {}
         with closing(sqlite3.connect(path)) as connection:
             for table, query in (
                 ("portfolio_batches", "SELECT avg(length(payload)) FROM portfolio_batches"),
                 ("decisions", "SELECT avg(length(payload)) FROM decisions"),
-                ("paper_traces", "SELECT avg(length(payload)) FROM paper_traces"),
+                ("paper_traces", "SELECT avg(length(frame)) FROM paper_traces"),
             ):
                 row = cast(tuple[float], connection.execute(query).fetchone())
                 means[table] = row[0]

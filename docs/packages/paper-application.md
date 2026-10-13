@@ -90,7 +90,7 @@ formulas are engineering workloads, not profitability evidence.
 Output retains `manifest.json`, native `capture/`, fsynced `deliveries.jsonl`,
 `paper-result.json`, `execution-traces.json` and `cost-report.json`.
 `execution-traces.json` is the account's export: its traces as one JSON array,
-written from their stored bytes in bounded memory and checked against the trace
+written from their decoded exact bytes in bounded memory and checked against the trace
 history's hash chain. Monitoring projects the traces committed after the history
 position the run started from, in bounded pages. The manifest
 pins configuration, source/implementation, book registry, projected input
