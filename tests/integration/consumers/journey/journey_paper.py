@@ -64,6 +64,7 @@ from execution import (
     AccountPaperFill,
     AccountQuote,
     AccountView,
+    DecisionOutcome,
     InstalledPaperAccount,
     NetOrder,
     PaperMarket,
@@ -897,13 +898,16 @@ class RaceCheck:
         """Pass when one contender met the shared limit because another held, and it held.
 
         Which contender acts first depends on the market, so either ordering is the race.
-        A batch lists each contender its own admission refused at the limit in
-        ``refused``; a batch-wide refusal at the limit counts every contender in it.
-        Another contender holds when it has fills, or when its latest admitted decision
-        reserved a working order: a resting order counts against the shared limit until
-        it fills or its cancel completes. A refusal while every other contender is flat
-        and unreserved is a contender's own limit, not the race. Groups are read in
-        order until the race is seen.
+        A refusal at the limit is read where the journal records it: a batch admitted at
+        once lists each contender its own admission refused in ``refused`` (a batch-wide
+        refusal counts every contender in it); a paper decision deferred to its modelled
+        arrival is refused in its own arrival outcome, dated at the arrival. Another
+        contender holds when it has fills, or when its latest admission reserved a
+        working order: a resting order counts against the shared limit until it fills or
+        its cancel completes. A pending decision (``arrival_pending`` or
+        ``replacement_pending``) is not an admission. A refusal while every other
+        contender is flat and unreserved is a contender's own limit, not the race.
+        Refusals are read in time order until the race is seen.
         """
         fills = self.installed.execute(
             AccountExecutionRequest(action="inspect", account_id=account_id, projection="facts")
@@ -912,11 +916,9 @@ class RaceCheck:
             AccountExecutionRequest(action="inspect", account_id=account_id, projection="decisions")
         ).decision_outcomes
         outcomes: list[dict[str, object]] = []
-        race: dict[str, object] | None = None
+        refusals = self.decided_refusals(decided)
         for delivery in self.logs.books():
             for group in delivery.decisions:
-                if race is not None:
-                    break
                 identity = hashlib.sha256(
                     self.codec.encode_json((delivery.source, group))
                 ).hexdigest()
@@ -931,7 +933,7 @@ class RaceCheck:
                 instances = [item.instance_id for item in group.inputs]
                 status = None if result is None else result.status
                 reason = None if result is None else result.reason
-                refusals = (
+                refused = (
                     []
                     if result is None
                     else [
@@ -948,37 +950,17 @@ class RaceCheck:
                         "instances": instances,
                         "status": status,
                         "reason": reason,
-                        "refused": refusals,
+                        "refused": refused,
                     }
                 )
-                for refused in refusals:
-                    if refused not in contenders:
-                        continue
-                    for other in contenders:
-                        held = sum(
-                            (
-                                item.fill.quantity.value
-                                for item in fills
-                                if item.instance_id == other and item.fill.filled_at < group.at
-                            ),
-                            Decimal(0),
-                        )
-                        admitted = [
-                            item
-                            for item in decided
-                            if item.instance_id == other
-                            and item.status == "committed"
-                            and item.decided_at < group.at
-                        ]
-                        reserved = bool(admitted) and admitted[-1].reason == "reserved"
-                        if other != refused and (held != 0 or reserved) and race is None:
-                            race = {
-                                "at": group.at,
-                                "refused": refused,
-                                "held_by": other,
-                                "held": held,
-                                "reserved": reserved,
-                            }
+                refusals.extend((group.at, instance) for instance in refused)
+        race: dict[str, object] | None = None
+        for at, refused_instance in sorted(refusals):
+            if refused_instance not in contenders:
+                continue
+            race = self.held(refused_instance, at, contenders, fills, decided)
+            if race is not None:
+                break
         ledger = AccountLedger(self.installed.accounts()[0].ledger).snapshot()
         positions = [abs(item.value) for item in ledger.positions]
         within = all(value <= self.limit for value in positions)
@@ -987,10 +969,63 @@ class RaceCheck:
             race is not None and within,
             {
                 "race": race,
+                "limit_refusals": len(refusals),
                 "positions": [str(value) for value in positions],
                 "outcomes": outcomes[-8:],
             },
         )
+
+    @staticmethod
+    def decided_refusals(decided: tuple[DecisionOutcome, ...]) -> list[tuple[datetime, str]]:
+        """Return each saved decision refused at the limit, with its decision clock.
+
+        A deferred paper decision's arrival outcome is saved under its own identity and
+        dated at the arrival, so a refusal at arrival is read here.
+        """
+        return [
+            (item.decided_at, item.instance_id)
+            for item in decided
+            if item.status == "rejected" and item.reason == "holding_limit"
+        ]
+
+    @staticmethod
+    def held(
+        refused: str,
+        at: datetime,
+        contenders: tuple[str, ...],
+        fills: tuple[AccountPaperFill, ...],
+        decided: tuple[DecisionOutcome, ...],
+    ) -> dict[str, object] | None:
+        """Return the race when another contender held exposure or a reservation at ``at``."""
+        for other in contenders:
+            if other == refused:
+                continue
+            held = sum(
+                (
+                    item.fill.quantity.value
+                    for item in fills
+                    if item.instance_id == other and item.fill.filled_at < at
+                ),
+                Decimal(0),
+            )
+            admitted = [
+                item
+                for item in decided
+                if item.instance_id == other
+                and item.status == "committed"
+                and item.reason not in ("arrival_pending", "replacement_pending")
+                and item.decided_at < at
+            ]
+            reserved = bool(admitted) and admitted[-1].reason == "reserved"
+            if held != 0 or reserved:
+                return {
+                    "at": at,
+                    "refused": refused,
+                    "held_by": other,
+                    "held": held,
+                    "reserved": reserved,
+                }
+        return None
 
 
 class PhaseVerification:
