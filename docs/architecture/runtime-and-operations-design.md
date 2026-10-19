@@ -171,7 +171,7 @@ Every deployed strategy needs operational/economic monitoring; learned-model che
 add feature freshness, prediction behavior, inference failures and delayed-label
 evaluation through the same versioned research definitions.
 
-Before QR onboarding, quant development delivers the metric computation and
+Before full QR onboarding (G5), quant development delivers the metric computation and
 query APIs, report/dashboard engine, default operational views, alert routing
 and retention. QR later defines strategy-specific metrics, charts and diagnostic
 thresholds through versioned interfaces. A reference metric and chart must work
@@ -224,21 +224,23 @@ existing source, temporal and numerical contracts through their adapters. Measur
 expanding to distributed execution, large/shared databases, a distributed event bus,
 another build system or HPC scheduling.
 
-Capacity qualification itself is required before QR onboarding. Quant development
+Full capacity qualification is required before G5 onboarding. Earlier
+[bounded offline research](../roadmap/overview.md#bounded-offline-research) uses
+validated data and workflows within its recorded measured limits. Quant development
 authors the launch workload and numeric acceptance budgets, covering more than
 the existing 1,024-row/close demonstrations: multi-day samples, multiple instruments,
 concurrent trials, ingestion, replay, reports and monitoring queries. Resource
 limits and supported workload must be explicit. Implement and measure the needed
-storage/compute path before handing it to QR; only expansion beyond the accepted
-launch envelope waits for a later workload. Architecture measurements determine
+storage/compute path before the full handoff; bounded research does not waive that
+delivery. Expansion beyond a measured envelope needs its own validation. Architecture measurements determine
 the technology, not whether the capability is delivered.
 
 Set research and operating budgets at the start of their delivery paths. Include
 offline retrieval and online feature materialization/serving alongside queries,
 ingestion and execution. Record throughput, p50/p95/p99 latency, memory/disk,
-concurrency, hardware/cache conditions and recovery targets. Research capacity
-can be accepted at G2; final runtime and service capacity is qualified
-separately. Bounded service failure drills do not establish that capacity.
+concurrency, hardware/cache conditions and recovery targets. Bounded research
+capacity can be accepted at G2; the full measured research and runtime profiles
+remain G5 requirements. Bounded service failure drills do not establish that capacity.
 
 The [research capacity profile](../roadmap/research-capacity.md) and the
 [runtime capacity profile](../roadmap/runtime-capacity.md) declare those budgets and

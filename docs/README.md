@@ -5,11 +5,12 @@ capture and publication, research studies and costed backtests, a versioned feat
 store, candidate packaging, and supervised paper and shadow trading with independent
 risk, reconciliation, monitoring and recovery.
 
-Once the infrastructure passes [QR onboarding acceptance](roadmap/qr-onboarding.md),
-quant research starts with an economic question: can an observable market state improve
-a trading decision after costs, delay and risk? The
-[research milestones](research/program.md#post-infrastructure-research-milestones) are
-planned, not started.
+Quant research may start within a [bounded offline scope](roadmap/overview.md#bounded-offline-research)
+once its data and workflow are validated: can an observable market state improve
+a trading decision after costs, delay and risk? Full capacity and paper qualification
+retain the 24/72-hour requirements and [G5 onboarding](roadmap/qr-onboarding.md).
+The [research milestones](research/program.md#research-milestones) remain planned,
+not started; the entry-policy change supplies no research results.
 
 Live trading is out of scope. It is
 [reconsidered](roadmap/overview.md#live-trading-kept-in-view) only after profitable

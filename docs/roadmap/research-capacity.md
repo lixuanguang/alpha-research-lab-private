@@ -6,6 +6,12 @@ and 6-minute runs. The measured 72-hour run is a
 once the counted day run and its replay release the host, and may overlap the rest of
 their retention interval ([remaining work](overview.md#remaining-work-before-qr-onboarding)).
 
+The measured full profile is required before research relies on this scale and
+before G5 full research and paper handoff. Extrapolated acceptance alone does not
+close J8. A smaller [bounded offline scope](overview.md#bounded-offline-research)
+may start once its own data and workflow are validated; its acceptance neither
+waives these targets nor establishes full capacity.
+
 This profile covers multi-day historical data, concurrent studies and offline feature
 capacity. [Runtime capacity](runtime-capacity.md) is separate. The targets are
 engineering targets, not prior achievements. Reference policies qualify infrastructure,

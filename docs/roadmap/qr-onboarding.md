@@ -10,6 +10,12 @@ The [roadmap](overview.md#qr-onboarding-acceptance) owns the six acceptance item
 gate G5. This record declares the integrated fresh-entry journey that proves them. Live
 trading stays out of scope; nothing here grants live authority.
 
+G5 is the full research and paper-platform handoff. It does not block
+[bounded offline research](overview.md#bounded-offline-research) whose selected data
+and workflow have passed G2. QR forward paper/shadow operation still requires G5
+and its separate activation decision. The counted journey and capacity criteria
+remain required in full.
+
 ## Journey
 
 **Principle.** One frozen commit, one set of installed artifacts, the published guides
@@ -50,7 +56,7 @@ never edits the QR workspace. It holds the host awake for the attempt.
 | J5 Candidates | Package rule and learned candidates; replay through the candidate loader | Replay decisions equal the study's at matched inputs |
 | J6 Paper | Signed installation and activation per account; supervised deployment of both candidates on shared and isolated accounts in both venues, paper and shadow; shared-budget race, injected order uncertainty, selective stop and restart, adverse cost | Exact independent reconciliation; cost and P&L with gas inapplicable; no duplicate effect; custom metric on dashboards; alert received; shadow makes zero fills |
 | J7 Operations | Quiesced backup; restore into fresh roots; resume from retained journals; signed upgrade and rollback | Restored identities equal; restored accounts quarantined; resumption without manual repair; rollback keeps current facts; decision delays within the studies' modelled delay; refusals only for paper-only rules |
-| J8 Capacity | No new measurement | Links the accepted [research](research-capacity.md) and [runtime](runtime-capacity.md) capacity records |
+| J8 Capacity | No new measurement in the journey | Links the measured full [research](research-capacity.md) profile and accepted [runtime](runtime-capacity.md) day run, 4× replay and 72-hour retention evidence |
 
 **Pass and fail.** The journey passes only if every step passes in one counted attempt
 on one frozen commit. A failed step is fixed in code or guides, and the journey is rerun
@@ -287,8 +293,13 @@ Pass criteria:
   `holding_limit`, `instance_limit`, `account_limit`, `firm_limit`, `insufficient_cash`,
   `insufficient_owned_inventory`, `order_notional_limit`).
 
-**J8 — Capacity.** No new measurement. It is `pending` until both capacity records are
-accepted, and passes when they are. A retention failure fails J8.
+**J8 — Capacity.** No new measurement in this step. It is `pending` until both full
+capacity records are accepted: the measured 72-hour research corpus and workflow,
+and the counted runtime day, 4× replay and retention check at least 72 hours later.
+Extrapolated research acceptance or a bounded G2 scope cannot satisfy J8. A failure
+in either required profile, including retention, prevents G5 acceptance. The
+record owner verifies these evidence requirements before supplying the two records;
+the journey driver checks the referenced files exist, not their measurement content.
 
 **Evidence layout.**
 
@@ -321,7 +332,7 @@ Builder keys are created per attempt under `$T/keys` (mode 0700). Sockets live u
   Workload, configuration or grading changes repeat the runs whose evidence they affect.
 - A failed attempt keeps its original outcome; diagnostics never regrade it, and a rerun
   replaces no earlier attempt.
-- J8 is evaluated after the day run's retention passes.
+- J8 is evaluated after the day run's retention and measured full research capacity pass.
 
 ## Development runs
 

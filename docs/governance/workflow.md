@@ -4,9 +4,11 @@ This repository is maintained by one founder. The workflow follows the actual
 capability being built; a package catalog, role register, evidence bundle, or
 institutional approval is not a prerequisite for ordinary development.
 
-The [platform roadmap](../roadmap/overview.md#scope)
-requires quant development to complete the initial OKX/Bitfinex spot research and
-paper-trading stack before QR onboarding. Quant development authors reference research/runtime consumers and
+The [platform roadmap](../roadmap/overview.md#bounded-offline-research) permits
+bounded offline QR work after its data and workflow are validated. Quant development
+still completes the initial OKX/Bitfinex spot research and paper-trading stack,
+including both measured capacity profiles, before full QR onboarding (G5).
+Quant development authors reference research/runtime consumers and
 qualifies their public extension points; accepted QR strategies are not delivery
 prerequisites. The final handoff demonstrates new strategy/study/metric/chart
 content without changes to shared infrastructure. This policy changes planned
@@ -100,7 +102,8 @@ and operating thresholds remain unqualified requirements if live work is reopene
 
 Implement and qualify paper deployment, authorization, limits, stop/cancel and
 recovery with reference paper/shadow workloads and live public inputs before
-QR onboarding. Completion of that infrastructure does not require an empirically
+full QR onboarding (G5). Earlier bounded offline acceptance does not activate paper
+services or waive qualification. Completion of that infrastructure does not require an empirically
 selected strategy. Authenticated venue-test qualification is deferred; it does not
 block paper handoff. A real strategy's OOS and forward paper evidence subsequently
 determines whether live work may be reconsidered. Passing that evidence gate does

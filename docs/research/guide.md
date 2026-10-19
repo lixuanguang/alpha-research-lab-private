@@ -10,11 +10,19 @@ are proposed experiments, with no empirical findings yet. A useful outcome can
 be a well-supported rejection. Predictability alone is a signal result; a trading
 result also specifies entry, sizing, exit, execution and inventory.
 
-**This research begins only after the complete infrastructure passes QR onboarding acceptance (G5).**
-All research milestones are planned, not started. The
-[research program](program.md#post-infrastructure-research-milestones)
+**Bounded offline entry.** QR stages A–C may proceed before G4/G5 after the selected
+dataset and end-to-end workflow pass the entry checks in the
+[bounded offline research policy](../roadmap/overview.md#bounded-offline-research).
+Source acquisition, inspection and validation runs may establish that evidence
+before acceptance. G2 interface evidence alone does not accept a selected dataset
+or workflow. Record the accepted measured scope in the
+[study protocol](study-protocol.md#bounded-offline-entry-and-scope) and stay within
+it. The roadmap retains the full capacity and paper qualification requirements.
+All research milestones remain planned, not started; entry validation and the
+worksheets do not by themselves complete any milestone. The
+[research program](program.md#research-milestones)
 owns the three milestones and QR-01–QR-18 deliverables. Earlier engineering
-increments and the current worksheets do not complete any QR milestone.
+increments do not complete any QR milestone.
 
 ## Before every research session
 
@@ -37,8 +45,8 @@ Container startup can precede application readiness. Confirm access to
 [lakeFS](http://127.0.0.1:18000) and [ClearML](http://127.0.0.1:18080) before
 beginning work; resolve startup or access failures before proceeding. This
 prerequisite also applies to researcher-run studies using local or deferred
-publication. Their publication behavior and the onboarding
-gate are unchanged. Services stay running for the research session;
+publication. Starting these local research services does not authorize paper or
+shadow activation. Services stay running for the research session;
 `make local-services-down` stops them afterward while retaining their volumes.
 
 ## Start here
@@ -137,8 +145,9 @@ captures and packages the result. Its components come from the
 has a maintained example of every component role. Quant development's own test
 consumers under `tests/` are engineering acceptance, not templates. Your own
 components belong in your own extension package, not under `tests/`. Their losing/no-trade and queue-sensitivity
-cases are not QR deliverables or empirical strategy evidence. Formal QR research
-still starts only after QR onboarding acceptance (G5).
+cases are not QR deliverables or empirical strategy evidence. Use the bounded
+offline entry policy for stages A–C; full-scale research and forward paper/shadow
+work remain subject to the capacity and G4/G5 requirements above.
 
 The former infrastructure demonstrations have been removed from the active
 examples. Their source remains in Git history; saved data and historical run

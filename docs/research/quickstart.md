@@ -6,8 +6,15 @@ a served feature and a supervised paper run. Each step uses installed commands a
 supported API only: the names each package lists in its `__init__.py` `__all__`. The
 [QR guide](guide.md) explains what to research. This page covers how to run it.
 
-Formal QR research still starts only after QR onboarding acceptance (G5). Until then this path
-is for onboarding and engineering trials.
+Offline QR research in stages A–C may begin before G4/G5 after the selected dataset
+and end-to-end workflow pass the entry checks in the
+[bounded offline research policy](../roadmap/overview.md#bounded-offline-research).
+G2 interface evidence alone does not accept a dataset or workflow. Record and
+respect the measured scope in the [study protocol](study-protocol.md#bounded-offline-entry-and-scope).
+Steps 1–4 cover offline research; step 5 is optional offline candidate preparation.
+Steps 6–7 connect a candidate to paper operation and require G5 plus separate
+activation for QR forward validation. QD may use them in authorized qualification
+workloads while G5 remains open.
 
 ## 1. Provision the environments
 
@@ -19,6 +26,9 @@ uv sync --frozen --no-editable
 make local-services-up
 make local-services-status
 ```
+
+These are local research services. Starting them does not authorize paper or shadow
+activation.
 
 `--no-editable` installs the platform the way a release does. Plain `uv sync`
 leaves an editable install, so a run could read source files that no release
@@ -203,6 +213,10 @@ policy a book requirement fresh enough for your cadence.
 
 ## 5. Package a candidate
 
+Candidate packaging records offline study artifacts and is preparation only. It
+does not activate an online service or paper deployment. Record and respect the
+[bounded entry scope](study-protocol.md#bounded-offline-entry-and-scope).
+
 ```python
 from runtime import CandidatePackager, ComponentSelection
 
@@ -238,10 +252,12 @@ Every metric and chart the study used needs a selection and a matching
 `CandidateMetricContract`. The [example's test](../../tests/integration/test_qr_study_example.py)
 packages the learned example study this way.
 
-## 6. Serve a stored feature (optional)
+## 6. Online feature serving (optional; beyond the offline boundary)
 
 To have paper read your feature from the feature store instead of computing it in
-the candidate, serve it:
+the candidate, serve it. Historical materialization may be prepared within the
+bounded offline scope; publishing features to a live paper process requires full
+qualification and separate activation:
 1. **Build the definition.** `CandidatePackager().feature_store(store, attempt_id,
    name=...)` builds the `FeatureStoreDefinition` from your study: its schema and,
    for a fitted study, the last fold's transform identity and output fields.
@@ -262,9 +278,12 @@ The
 [feature store guide](../packages/research-features.md#versioned-feature-store-and-local-feast-serving)
 covers point-in-time rules, faults and rollback.
 
-## 7. Take the candidate to paper
+## 7. Take the candidate to paper (requires full qualification and activation)
 
-An operator builds a signed paper-services release that contains your candidate
+For QR forward paper/shadow operation, complete G5, including both
+[capacity profiles](../roadmap/overview.md#acceptance-gates), and obtain the
+separate activation decision. QD qualification workloads retain their existing
+authority. An operator builds a signed paper-services release that contains your candidate
 bundles (`--candidates`) and your extension project (`--extensions`). The release
 records your extension's source, wheel and admitted dependencies. The operator then
 checks every configured candidate with `deployment-check`, signs each account's

@@ -11,8 +11,10 @@ runbook before operation. The repository does not claim live readiness.
 
 The operating destination includes multiple strategy instances, accounts, venues
 and asset classes. Quant development must deliver the initial OKX/Bitfinex spot
-paper operating infrastructure before QR onboarding, using reference instances
+paper operating infrastructure before full QR onboarding (G5), using reference instances
 and public-input paper environments under the [platform roadmap](../roadmap/overview.md).
+Earlier [bounded offline research](../roadmap/overview.md#bounded-offline-research)
+does not qualify paper operation or grant service activation.
 Private authenticated venue qualification is out of scope. Live procedures below are retained requirements for
 reconsideration, not current delivery scope.
 Its commands, dashboards, default operational metrics and recovery procedures
@@ -487,7 +489,7 @@ operators and staffing-dependent approval/review programs follow actual
 organizational need and remain separate from technical completion.
 
 The dashboard/metric/query/alert infrastructure and default health, execution,
-risk and account views are required before QR onboarding. Quant development tests
+risk and account views are required before full QR onboarding (G5). Quant development tests
 custom metric/chart registration and alert delivery with reference workloads;
 telemetry topology follows the launch capacity budget. Minimum monitoring and
 tested recovery accompany each capability as it is built. The local paper

@@ -9,7 +9,14 @@ existing simulation command.
 Before any research notebook session, run `make local-services-up` from the
 repository root and complete the [research-session prerequisites](guide.md#before-every-research-session).
 Confirm lakeFS and ClearML are accessible before executing the worksheet or
-starting or resuming a study.
+starting or resuming a study. This remains required for bounded offline work;
+starting these local research services does not authorize paper or shadow activation.
+
+Notebook analysis may support a study within the accepted measured scope in the
+[bounded offline research policy](../roadmap/overview.md#bounded-offline-research).
+Executing an empty worksheet supplies no dataset/workflow acceptance or QR
+milestone evidence. Retain actual validation and research results through the
+study protocol; full capacity and paper qualification remain separate.
 
 ## Research workbooks
 

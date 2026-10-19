@@ -1,10 +1,10 @@
 # Research program
 
-Owner: quant research after infrastructure handoff; repository founder maintains
-this plan until then.
-**Status: planned, not started. All QR milestones and deliverables below wait for
-full infrastructure acceptance.** Existing bounded simulation evidence and empty
-study worksheets complete none of them.
+Owner: quant research; the repository founder owns the initial bounded studies.
+**Status: planned, not started.** Offline stages may begin after their selected data
+and workflow pass the [bounded research gate](../roadmap/overview.md#bounded-offline-research).
+Existing bounded simulation evidence, empty study worksheets and the policy change
+complete none of the milestones below.
 
 QR turns available data into reproducible, executable strategy experiments and
 decides whether to reject, develop or propose a candidate for forward validation.
@@ -14,17 +14,18 @@ decisions. This page owns those deliverables and methodology. The
 candidate priority; the [research guide](guide.md) owns workbook
 usage. The [platform roadmap](../roadmap/overview.md) owns infrastructure scope and status.
 
-The [infrastructure completion policy](../roadmap/overview.md#scope)
-requires quant development to build the complete initial OKX/Bitfinex spot research/paper stack
-before any stage of this QR program starts, including research readiness.
-**Infrastructure capabilities accepted → QR onboarding acceptance (G5) → QR research milestones.**
-G1–G4 are engineering increments, not permission to begin QR early. Quant
+The [entry policy](../roadmap/overview.md#bounded-offline-research) separates bounded
+offline research from full research and paper-platform qualification:
+**Selected data/workflow validation (G2) → bounded offline stages A–C;
+full measured capacity and QR onboarding acceptance (G5) → forward paper/shadow validation.**
+The 24-hour runtime run, 4× replay, 72-hour retention check and measured 72-hour
+research-capacity workflow remain required for full qualification. Quant
 development owns reference studies, strategies and metric/chart examples that
 qualify its interfaces; empirical strategy success is never a prerequisite for
 that delivery. A technically correct losing reference workload can qualify
 infrastructure without qualifying an alpha.
 
-After handoff, QR owns question-specific data suitability, causal feature/label
+Within an accepted offline scope, QR owns question-specific data suitability, causal feature/label
 implementations and tests, models/rules, complete trading policies, execution
 assumptions, metrics/charts and interpretation. Quant development retains shared
 data, simulator, runtime, accounting, OMS, hard-risk and operational ownership as
@@ -45,12 +46,12 @@ nor guarantees profitable live results. The long-term model can add asset classe
 and strategy families beyond the initial spot infrastructure.
 Independent research, model-risk, risk, release and activation controls become
 formal organizational controls when people are hired. Staffing does not block
-the founder's infrastructure implementation or reproducible research after handoff.
+the founder's infrastructure implementation or reproducible research within an accepted scope.
 
-## Post-infrastructure research milestones
+## Research milestones
 
 Use three acceptance milestones for the core research MVP. These are empirical
-outcomes after QR onboarding acceptance, separate from the infrastructure roadmap.
+outcomes within a validated offline scope, separate from full platform qualification.
 Record completion with retained artifact references and a decision; this plan
 supplies no results or completion credit.
 
@@ -93,7 +94,7 @@ owners. Keep large datasets, models and traces outside Git with durable referenc
 | QR-05 | Executable evaluation/selection protocol | Chronological development/validation/final periods, actual information-interval purging, train-only transforms, common baselines, uncertainty, bounded variants and stopping rules. Reserve the final sample before selection and retain access history. |
 
 Exit at QR-M1: state what can be tested credibly and what would falsify it.
-Candidate-specific sample acceptance is QR work after handoff; it does not replace
+Candidate-specific sample acceptance is QR work under the bounded entry policy; it does not replace
 quant development's source, reconstruction or recovery acceptance.
 
 ### Stage B — Repeatable signal experiments
@@ -128,6 +129,11 @@ passive calibration, never implicit additions to an L2-only experiment.
 
 ### Stage D — Surviving candidate validation and handoff
 
+Offline candidate packaging, reproduction and forward-validation planning may begin
+within the accepted G2 scope. Forward paper/shadow operation and runtime parity
+qualification require G5 and the applicable activation decision. A prepared plan
+or offline bundle does not complete QR-16–QR-18's outstanding operating evidence.
+
 | ID | Deliverable | Acceptance evidence |
 | --- | --- | --- |
 | QR-16 | Frozen candidate and reproduction/parity | Package the selected code, data/model/features, policy, costs and evaluation identity already frozen before final testing. Clean rerun and same-input replay/intended-runtime feature and decision parity; second-person reproduction when staffed. Any changed candidate requires new validation. |
@@ -144,12 +150,13 @@ remain separate decisions under the
 
 ### Coverage by the accepted infrastructure
 
-These are the interfaces each stage consumes **after QR onboarding acceptance**,
-not alternative early-start gates or new infrastructure work packages.
+Stages A–C consume the validated interfaces and measured scope admitted by G2.
+The complete paper capabilities and both measured capacity profiles remain G5
+requirements; this mapping adds no infrastructure work packages.
 
 | Research outputs | Accepted platform capabilities | Methodology reference |
 | --- | --- | --- |
-| QR-01–QR-05 | Data, reference and quality; study evaluation; the research capacity profile | R01/R02/R13/R15 |
+| QR-01–QR-05 | Data, reference and quality; study evaluation within the accepted offline scope; full research capacity only after its measured qualification | R01/R02/R13/R15 |
 | QR-06–QR-10 | Data, features, models, studies and retained experiment artifacts | R02/R05–R09/R15 |
 | QR-11–QR-15 | Strategy and replay; candidate packaging; shared capital, risk and accounting | R01/R10–R15 |
 | QR-16–QR-18 | The accepted paper scope for candidate serving, runtime, OMS, monitoring, cost reports and recovery; the capacity profiles; packaged candidates from QR extension packages, live trade inputs and served feature streams in supervised paper. Authenticated venue execution and live activation are outside this handoff. | R15/R16 |
@@ -166,8 +173,9 @@ Before starting or resuming any research or study, run `make local-services-up`
 from the repository root and complete the
 [research-session prerequisites](guide.md#before-every-research-session).
 Confirm access to lakeFS and ClearML and keep them running for the session.
-The infrastructure and QR onboarding acceptance (G5) requirement still governs when formal
-QR research may begin.
+The [bounded entry gate](../roadmap/overview.md#bounded-offline-research) governs
+formal offline research. Data/workflow validation may run to establish that gate;
+paper operation and full capacity keep their separate qualification requirements.
 
 Before formal comparison, record the economic hypothesis, target or decision variable, decision and fill
 timing, universe, horizon, rebalance rule, constraints, cost and financing conventions, primary selection
@@ -227,7 +235,7 @@ broader methodology catalog, not a competing sequence of required projects.
 Maintain working examples by research purpose, version sources, and retain
 attempts separately. Source acquisition uses the existing commands.
 
-After infrastructure handoff, exploratory source calls, transformations, signals,
+Under the bounded entry policy, exploratory source calls, transformations, signals,
 models and visualizations may be developed locally without first turning every
 experiment into a package API. A feature diagnostic or deterministic signal is a concrete research consumer;
 choosing a model is not a prerequisite. Use existing instrument, calendar,
@@ -517,12 +525,14 @@ tests and artifacts the founder produces now.
 
 ## Computing scale and implementation status
 
-Quant development must qualify the launch data, working-set, elapsed-time,
-concurrency and recovery budgets before QR onboarding, using the
+Quant development must qualify the full launch data, working-set, elapsed-time,
+concurrency and recovery budgets before G5 onboarding, using the
 [capacity profiles](../roadmap/overview.md#capabilities). This removes
 demonstration-size limits where they prevent the declared workload without
 requiring a QR to encounter them first. The guidance below governs technology
-choice and later growth beyond that accepted envelope.
+choice and later growth beyond that accepted envelope. Earlier bounded offline
+research uses its own recorded measurements and limits under G2; extrapolation
+does not authorize reliance on the full profile.
 
 Run locally while data volume, working set, elapsed time, and trial count fit the existing environment.
 Consider a larger or parallel path only after measuring a reproducible bottleneck: local memory no longer
@@ -547,7 +557,9 @@ stale inputs, and make data, code, configuration, seed, and resource identity vi
 
 The research capacity profile is accepted by extrapolation from measured 2-hour and
 6-minute runs ([research capacity](../roadmap/research-capacity.md)). A measured run
-of the full profile remains a requirement:
+of the full profile remains a requirement before relying on that scale and before
+G5 full research and paper handoff. It does not block an independently validated
+smaller offline scope:
 - **Inputs.** 72 consecutive UTC hours of OKX BTC-USDT and ETH-USDT, books at depth 400
   and trades, captured at full rate with original clocks, covering all six
   instrument-days. No time stretching or replicated records.
@@ -562,7 +574,10 @@ of the full profile remains a requirement:
   retention interval. The day run's iCloud waiver does not extend to this run.
 
 A measured failure replaces the extrapolated acceptance, and the bottleneck is fixed
-before research relies on that scale.
+before research relies on that scale. Assess whether the failure also invalidates
+an existing bounded scope; unrelated accepted work may continue. Acquisition spans
+72 real hours; the subsequent workflow is measured against its own elapsed-time
+limits. This is separate from the runtime day run and its later retention check.
 
 ## Research-source policy
 

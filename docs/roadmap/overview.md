@@ -3,7 +3,9 @@
 Owner: repository founder; quant development (QD) owns infrastructure delivery.
 
 The platform delivers research and paper-trading infrastructure for OKX and Bitfinex
-spot before a quant researcher (QR) is onboarded. Live trading is
+spot. A quant researcher (QR) may start bounded offline work after its data and
+workflow pass the [bounded research gate](#bounded-offline-research). Full research
+and paper-platform onboarding remains G5. Live trading is
 [kept in view](#live-trading-kept-in-view): it is outside the current scope and reopens
 only through its evidence gate.
 
@@ -11,8 +13,9 @@ only through its evidence gate.
 - [runtime capacity](runtime-capacity.md), which waits for the counted day run;
 - [QR onboarding acceptance](qr-onboarding.md), the final gate (G5).
 
-The [remaining work](#remaining-work-before-qr-onboarding) lists what is left. Once G5 is
-accepted, QR work follows the [research program](../research/program.md).
+The [remaining work](#remaining-work-before-qr-onboarding) lists what is left for full
+qualification, including measured research capacity. Bounded offline work follows
+the [research program](../research/program.md) while that work continues.
 
 ## Scope
 
@@ -58,7 +61,7 @@ unsupported behaviour. An extension point does not claim that those products wor
 trading activation are separate:
 - QD qualifies the machinery with engineering workloads, including losing and no-trade
   cases.
-- The QR later supplies and evaluates research content.
+- The QR supplies and evaluates research content within its validated scope.
 - Credentials, purchases, deployment and live capital keep their own authority. This
   roadmap grants none of them.
 
@@ -68,7 +71,7 @@ not block paper delivery or QR onboarding.
 
 ## Responsibilities
 
-| Boundary | QD delivers before onboarding | QR supplies through the delivered interfaces |
+| Boundary | QD delivers before full onboarding (G5) | QR supplies through the delivered interfaces |
 | --- | --- | --- |
 | Data | Source adapters, reference and universe contracts, collection and backfill, quality, revisions, discovery, point-in-time assembly, storage and replay | Research universe, datasets and fields, sample, horizon and stricter question-specific quality requirements |
 | Features and labels | Typed extensible definitions, execution and alignment, lineage, fitted-transform lifecycle, batch and incremental state, versioned offline/online feature-store access and recovery | Formulas, targets, windows, transformations and missingness choices |
@@ -121,10 +124,53 @@ New work avoids Binance and Tardis data because of availability constraints:
 | Gate | Observable acceptance | Status |
 | --- | --- | --- |
 | G1 — Foundation and contracts | Clean installed build; typed configuration; four distinct universes; versioned reference data and adapter capability admission; incompatible inputs refused before work | Accepted |
-| G2 — Research-ready | From a clean workspace: capture inputs, publish pinned datasets, retrieve versioned offline features, add a fresh strategy, feature and model, run temporal studies and costed backtests, reopen results; meet the research capacity profile; restore data and artifacts | Accepted; [research capacity](research-capacity.md) by extrapolation, with the measured run still required |
+| G2 — Bounded offline research | Use the accepted research interfaces from a clean workspace; validate the selected data, causal workflow, costed replay, reopen and recovery within the [declared measured scope](#bounded-offline-research) | Interface evidence accepted for its tested scope; each research scope needs recorded acceptance. Full [research capacity](research-capacity.md) remains accepted by extrapolation only |
 | G3 — Paper and shadow | Decision components on live inputs with submission suppressed: online features, durable order state, independent risk, reconciliation, alerts and restart | Accepted |
-| G4 — Integrated paper operations | Shared-account controls and netting, both venues' paper execution, cost attribution, monitoring, paper activation and failure drills, within the runtime capacity profile | Open until the [day run](runtime-capacity.md#day-run) passes |
-| G5 — QR handoff | Fresh extensions through the installed integrated stack, every research and paper launch workload, data and service evidence, and the operator and researcher guides | Open: [QR onboarding acceptance](qr-onboarding.md) |
+| G4 — Integrated paper operations | Shared-account controls and netting, both venues' paper execution, cost attribution, monitoring, paper activation and failure drills, within the runtime capacity profile | Open until the [day run, 4× replay and retention](runtime-capacity.md#day-run) pass |
+| G5 — Full research and paper handoff | Fresh extensions through the installed integrated stack, every research and paper launch workload, measured full research capacity, data and service evidence, and the operator and researcher guides | Open: [QR onboarding acceptance](qr-onboarding.md) |
+
+## Bounded offline research
+
+**Policy revised 2026-10-19 by the repository founder.** G2 permits offline QR work
+before G4/G5 once the selected data and workflow are validated. This replaces the
+blanket requirement to finish the paper platform before starting any QR research.
+Existing interface evidence keeps its original scope and revision; this policy
+change accepts no new dataset, experiment or QR milestone.
+
+Use the existing [study protocol and decision record](../research/study-protocol.md)
+to record the following acceptance evidence. Source acquisition, data inspection
+and bounded validation runs may precede acceptance to establish it. A small reference
+workflow through the chosen interfaces can establish entry; validate new research
+components as they are introduced. Entry does not require a selected or profitable
+strategy, or a model when the study uses a rule.
+
+| Boundary | Evidence needed for the selected research scope |
+| --- | --- |
+| Declared scope | Identify venues, instruments/currencies, channels/depth, dates, decision cadence and horizons, source volume, feature/decision rows, trial count and concurrency. Record code, installed environment, configuration and input identities, with measured elapsed time, memory and disk use and explicit operating bounds |
+| Data | Pin retrievable raw bytes and dataset manifests; verify reconstruction/replay, clocks, units and reference metadata. Make gaps, duplicates, staleness and recovery explicit; declare eligible windows and question-specific exclusions. Unknown availability stays unknown, and later quality discoveries cannot inform earlier decisions |
+| Workflow | Exercise the actual path from the pinned data through applicable features, labels, transforms, rule/model and costed simulation to retained results. Verify causal cutoffs, train-only fitting where used, deterministic rerun, and independent fee/cash/position/P&L reconciliation, including a no-trade control. Reuse relevant existing proof rather than repeating unrelated checks |
+| Reopen and recovery | Reopen inputs and results in a fresh process; demonstrate retry/recovery and backup/restore for the persisted data and artifacts this workflow uses, preserving identities and results. Full paper-account recovery is qualified separately |
+| Research claim | Record acceptance, evidence references, unsupported assumptions and scope limits before formal comparison. Preserve chronological splits, final-holdout reservation/access history and all trials under the research protocol. Sample sufficiency limits empirical claims even when the software passes |
+
+Once these checks pass, stages A–C and QR-M1–QR-M3 may proceed within that scope.
+Offline candidate preparation and a forward-validation proposal do not activate a
+service. The founder can record acceptance directly; no additional reviewer,
+registry or separate infrastructure project is required.
+
+Expand the scope only after validating affected data, workflow and resource bounds.
+Extrapolated timings do not qualify a larger workload. Renew affected proof when
+code, dependencies, configuration, inputs or environment change; reuse unaffected
+evidence with a short rationale. A failure blocks the affected scope or claim;
+independent accepted work continues unless the failure undermines shared correctness.
+
+**Full qualification remains required.** The measured 72-hour research corpus and
+its complete workflow must pass before research relies on the full capacity profile
+and before G5. Integrated paper qualification retains the counted 24-hour run, its
+4× economic replay and the retention check at least 72 hours after the day ends,
+with unchanged workloads, budgets, quiet-host rules and evidence requirements.
+The retention interval is elapsed time, not an additional continuously running
+paper service. QR forward paper/shadow operation requires G5 and separate activation;
+QD's authorized qualification workloads can continue while those gates are open.
 
 ## Capabilities
 
@@ -153,6 +199,9 @@ profitability.
 | Runtime capacity | Baseline and sustained runs qualified ([runtime capacity](runtime-capacity.md)) | The counted day run, its replay and retention |
 
 ## Remaining work before QR onboarding
+
+These steps qualify the full platform. They do not block a separately accepted
+[bounded offline scope](#bounded-offline-research).
 
 The consolidated sequence (owner, 2026-10-12). On 2026-10-12 the owner moved the
 counted day run and its retention to the end of the work. `day-counted-2` failed and
@@ -186,10 +235,11 @@ final candidate will very likely supersede.
 7. **Measured research capacity.** The
    [72-hour run](../research/program.md#measured-research-capacity) may start once the
    day and its replay release the host, and may overlap the rest of the retention
-   interval. Its acquisition and processing requirements are unchanged, and so is its
-   relationship to J8 and G5.
-8. **Retention verification** when eligible, then J8 and G5 once their required
-   evidence passes.
+   interval. Its acquisition and processing requirements are unchanged. The measured
+   full profile is required before relying on that scale and before G5.
+8. **Retention verification** when eligible, then J8 and G5 once runtime replay/retention
+   and measured research capacity pass. Extrapolated research-capacity acceptance
+   or a bounded G2 scope alone cannot close J8.
 
 **Acceptance policy (owner, 2026-10-12).** This replaces the earlier order, which froze
 code only after the counted day run passed and added a full uncounted journey on the
@@ -272,10 +322,10 @@ The [onboarding record](qr-onboarding.md) declares the integrated journey that p
 these. An API skeleton, mocked service or small fixture never substitutes for a
 boundary it cannot prove. An unverified boundary keeps acceptance open.
 
-## Research after the handoff
+## Research milestones
 
-The QR begins the [research milestones](../research/program.md#post-infrastructure-research-milestones)
-only after G5:
+The QR begins the [research milestones](../research/program.md#research-milestones)
+after the [bounded offline gate](#bounded-offline-research) for the selected scope:
 1. **Research-ready:** question-specific data acceptance, ranked hypotheses,
    preliminary economics and an executable evaluation protocol.
 2. **End-to-end prototype:** reproducible feature, label, rule and model code, a
@@ -284,7 +334,14 @@ only after G5:
    evidence supporting a forward paper-validation proposal or a rejection.
 
 A losing or rejected study is a completed research outcome. These deliverables consume
-the platform and add no infrastructure milestones.
+the platform and add no infrastructure milestones. Forward paper/shadow validation
+still waits for G5 and the applicable activation decision.
+
+### Research after the handoff
+
+G5 extends the handoff to the fully qualified research and paper workloads. Earlier
+bounded research keeps its evidence and limits; G5 does not establish profitability
+or automatically qualify an enlarged empirical sample.
 
 ## Live trading kept in view
 

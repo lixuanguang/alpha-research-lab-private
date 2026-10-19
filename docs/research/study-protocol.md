@@ -6,13 +6,46 @@ Fill it before formal comparison; retain changes and the trials that prompted
 them. The [research program](program.md#rules-for-every-workstream)
 owns formal methodology.
 
-Use this template only after QR onboarding acceptance (G5). Link the
-study to the [QR milestones and deliverables](program.md#post-infrastructure-research-milestones);
-an empty record or successfully executed worksheet completes none of them.
+Use this record to establish bounded offline entry for QR stages A–C, or to
+document a study after full QR onboarding. Follow the
+[bounded offline research policy](../roadmap/overview.md#bounded-offline-research).
+G2 interface evidence alone does not accept a selected dataset or workflow.
+Source inspection and bounded validation runs may establish the entry evidence
+below; record it before formal comparisons and keep the study within its measured
+scope. Offline admission does not qualify full-scale capacity or forward
+paper/shadow operation. Link the study to the
+[QR milestones and deliverables](program.md#research-milestones); an empty record,
+entry validation or successfully executed worksheet completes none of them.
 
 Before starting or resuming any study, run `make local-services-up` from the
 repository root and complete the [research-session prerequisites](guide.md#before-every-research-session),
 including access to lakeFS and ClearML. Keep both services running during the study.
+Starting these local research services does not authorize paper or shadow activation.
+
+## Bounded offline entry and scope
+
+Record the actual validation evidence before formal study comparisons. The declared
+scope must stay within what the evidence measured; do not use extrapolation as
+acceptance. Record concrete observed limits rather than relying on universal
+thresholds.
+
+| Entry evidence | Declared scope or limit | Observed value and retained evidence reference |
+| --- | --- | --- |
+| Venue, product, instruments, channels/depth and UTC date windows |  |  |
+| Dataset version, retrievable raw bytes/manifests, provenance, record count, coverage, quality/gaps and eligible windows |  |  |
+| Replay/retrieval identity and outcome |  |  |
+| Feature and label definitions/counts, cutoffs, causal/availability checks and train-only fitting where used |  |  |
+| Code, environment and configuration identities; end-to-end costed workflow and execution assumptions; decisions and trial count |  |  |
+| Deterministic rerun, independent cost/ledger reconciliation and no-trade control |  |  |
+| Fresh-process reopen, retry/recovery and backup/restore evidence, preserving identities and results |  |  |
+| Concurrent studies, peak RAM, peak disk and measured end-to-end runtime |  |  |
+| Admission decision, owner/date and maximum accepted scope |  |  |
+
+The accepted scope includes its actual instruments, dates, records, features,
+decisions, trials, concurrency, RAM, disk and runtime. Keep all work within those
+limits. Reuse relevant existing evidence and validate affected boundaries when
+the scope changes, following the roadmap. Full capacity and forward paper/shadow
+operation retain their separate qualification requirements.
 
 ## Research ticket
 

@@ -44,7 +44,7 @@ and its `qualify-features` subcommand retain exact replay/batch/restart traces.
 This qualifies saved-input software only; live source/cadence qualification
 remains open. Online retrieval and local candidate binding implement
 their declared boundaries. Their in-scope
-lifecycle and serving interfaces are now required before QR onboarding, exercised
+lifecycle and serving interfaces are required before full QR onboarding (G5), exercised
 by reference consumers owned by quant development. The feature store must provide
 the offline and online behavior below; its service topology follows the workload.
 
@@ -153,9 +153,10 @@ paper/shadow integration. Offline study fills do not
 qualify venue execution.
 
 
-QR owns new formulas and research choices after onboarding; quant development
-first supplies the execution, alignment, lineage and state machinery plus concrete
-reference consumers. Pre-onboarding completion includes named trade/book/non-book features,
+QR owns new formulas and research choices within an
+[accepted bounded offline scope](../roadmap/overview.md#bounded-offline-research);
+quant development supplies the execution, alignment, lineage and state machinery
+plus concrete reference consumers. Full G5 completion includes named trade/book/non-book features,
 separate labels, multiple model inputs, fitted preprocessing, train/inference
 adapters and stateful batch/incremental execution. Demonstrate these through the
 roadmap's rule-only, learned and stateful examples. Support compatible definitions

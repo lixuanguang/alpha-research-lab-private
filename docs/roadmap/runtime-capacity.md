@@ -12,6 +12,13 @@ and the declaration of the day run. The
 [runtime design](../architecture/runtime-and-operations-design.md#scaling-triggers-and-technology-choices)
 owns the scaling decision; [research capacity](research-capacity.md) is separate.
 
+This profile remains required for full integrated paper qualification and G5.
+[Bounded offline research](overview.md#bounded-offline-research) may proceed on
+validated data and workflows while it is open. The counted 24-hour run, 4× replay,
+72-hour retention check, budgets and quiet-host rules remain unchanged. The
+retention interval requires preserving the artifacts and checking them later;
+it does not require running the paper services for another 72 hours.
+
 The targets are engineering capacity targets for public-input paper operation. They are
 not trading limits, exchange fill claims or live-capital authority. A revised target
 needs a dated rationale before the affected run, and the earlier target and its failure

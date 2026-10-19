@@ -3,8 +3,11 @@
 Owner: repository founder. Status: planned, not started; none carries a profitability claim.
 [Start with the workbooks](guide.md).
 
-All studies start after the complete infrastructure passes QR onboarding acceptance (G5).
-The [research delivery milestones](program.md#post-infrastructure-research-milestones)
+The questions in this agenda may be studied offline in stages A–C before G4/G5
+once their data and workflow pass the [bounded entry gate](../roadmap/overview.md#bounded-offline-research).
+Each study stays within its accepted measured scope. Full capacity and forward
+paper/shadow qualification remain separate requirements. The
+[research delivery milestones](program.md#research-milestones)
 own readiness, reproducible strategy delivery and decisions. This agenda owns
 the questions to select, not a parallel infrastructure backlog.
 
