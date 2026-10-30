@@ -293,8 +293,14 @@ Projected to the declared day (2,376,000 books an account; not observations):
 | Trace table and indexes | 513 | 1.14 | measured on the reconciled tree |
 | D2 decision and batch rows | 535 | 1.18 | measured (anchor) |
 | Complete account journal | 1,058 | 2.34 | measured (anchor, checkpointed) |
-| Owner-service request logs | about 1,730 | about 3.85 | measured before D2 on signed services; D2's quiet advances add about 19 MB a day; not remeasured on the reconciled tree |
-| Account state | about 2,790 | about 6.2 | sum; compare with the 14.2 GiB observed in `day-counted-2` |
+| Owner-service request logs | 1,651–1,780 (1,673 overall) | 3.7 (3.6–3.9) | measured on the combined signed-owner path (`storage-efficiency-3`: rehearsal-136 J7, 59,826 live books, signed owners and socket clients); the book-request line alone is 1,598–1,629 bytes |
+| Account state | about 2,730 | about 6.0 | sum; compare with the 14.2 GiB observed in `day-counted-2` |
+
+The supervisor's socket-client logs are scratch, not account state: 515–720 bytes a book
+as written and 143–174 once archived by the shipped seal-verified `ClientLogArchive`
+(about 0.32–0.38 GiB an account-day archived; a projection). The journey's request mix
+(inspections and decisions per book) is not the day's, so the owner-log figure includes
+its other requests; the book line itself does not depend on the workload.
 
 The next candidate contains these changes, so its 2-hour day rehearsal is required
 before a counted run.
